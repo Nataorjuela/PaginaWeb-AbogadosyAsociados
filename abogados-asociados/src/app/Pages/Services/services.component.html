@@ -1,0 +1,17 @@
+<section id="services" class="servicios py-5 bg-white">
+  <div class="container">
+    <h2 class="text-center titulo-servicios fw-bold mb-5 text-dark">
+      Nuestros Servicios
+    </h2>
+    <div class="row g-4 justify-content-center">
+      <div class="col-md-6 col-lg-4" *ngFor="let servicio of servicios">
+        <div class="card h-100 text-center servicio-card shadow-sm">
+          <div class="card-body d-flex flex-column justify-content-center align-items-center">
+            <i class="bi {{ servicio.icono }} fs-1 mb-3 icono-servicio"></i>
+            <h5 class="card-title fw-semibold">{{ servicio.nombre }}</h5>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

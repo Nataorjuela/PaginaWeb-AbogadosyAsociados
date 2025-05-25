@@ -1,0 +1,26 @@
+.hero {
+  height: 100vh;
+  background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.6)),
+              url('../../../assets/fondo.png') center center / cover no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.hero .container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%; /* Esto centra el contenido dentro del container */
+}
+
+.title-banner {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.subtitle-banner {
+  font-size: 2rem;
+  font-weight: 300;
+}

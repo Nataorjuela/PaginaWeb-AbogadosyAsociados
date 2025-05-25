@@ -1,0 +1,44 @@
+.servicios {
+  font-family: 'Merriweather', serif;
+
+ .titulo-servicios {
+  font-size: 2rem;
+  font-weight: 700;
+  font-family: 'Merriweather', serif;
+  border-bottom: 2px solid #1e3650;
+  display: inline-block;
+  padding-bottom: 0.2rem;
+  scroll-margin-top: 80px; // ajusta según el alto del navbar
+}
+
+  .servicio-card {
+    background: linear-gradient(145deg, #2c3e50, #34495e);
+    color: white;
+    border-radius: 16px;
+    border: none;
+    padding: 1.5rem 1rem;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, background 0.4s;
+
+    &:hover {
+      transform: translateY(-10px);
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.25);
+      background: linear-gradient(145deg, #1abc9c, #224da8);
+    }
+
+    .icono-servicio {
+      color: #ffffff;
+      font-size: 2.5rem;
+      transition: transform 0.3s ease;
+
+      .servicio-card:hover & {
+        transform: scale(1.1);
+      }
+    }
+
+    .card-title {
+      color: #ffffff;
+      font-size: 1.25rem;
+      margin-top: 0.5rem;
+    }
+  }
+}

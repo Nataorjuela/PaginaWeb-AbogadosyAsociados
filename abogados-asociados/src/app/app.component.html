@@ -1,0 +1,18 @@
+<app-navbar 
+  (contactClick)="scrollToContact()"
+  (aboutUsClick)="scrollAboutUS()"
+  (servicesClick)="scrollServices()"
+></app-navbar>
+<div #contactForm>
+    <app-home (contactClick)=" scrollToContact()"></app-home>
+</div>
+<div #contactRef>
+  <app-contactUs></app-contactUs>
+</div>
+<div #aboutUsRef>
+  <app-aboutUs></app-aboutUs>
+</div>
+<div #servicesRef>
+  <app-services></app-services>
+</div>
+<app-footer></app-footer>

@@ -1,0 +1,27 @@
+.hero {
+    
+    background-size: cover;
+    padding: 160px 20px 100px;
+    min-height: 150vh;
+    .title-banner{
+        color:#c4c4ca;
+        font-size: 45px;
+    }
+    .subtitle-banner{
+        color:#c4c4ca;
+        font-family: 'Playfair Display';
+        font-style: italic;
+        font-size: 22px;
+    }
+    
+  }
+  
+  .btn-whatsapp, .btn-contact {
+    font-weight: 500;
+  }
+  
+  .list-group-item {
+    font-size: 1.1rem;
+    border: none;
+    background-color: transparent;
+  }
