@@ -8,7 +8,7 @@ import { FooterComponent } from './Footer/footer.component';
 import { RouterModule } from '@angular/router';
 import { ServicesComponent } from './Pages/Services/services.component';
 import { ContactUsComponent } from './Pages/Contactanos/contact-us.component';
-import { AboutUsComponent } from './Pages/Sobre-nosotros/about-us.component';
+import { AboutUsComponent } from './Pages/About us/about-us.component';
 import { HomeComponent } from './Pages/Home/home.component';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
