@@ -3,14 +3,32 @@
     <h2 class="text-center titulo-servicios fw-bold mb-5 text-dark">
       Nuestros Servicios
     </h2>
+
     <div class="row g-4 justify-content-center">
-      <div class="col-md-6 col-lg-4" *ngFor="let servicio of servicios">
-        <div class="card h-100 text-center servicio-card shadow-sm">
-          <div class="card-body d-flex flex-column justify-content-center align-items-center">
-            <i class="bi {{ servicio.icono }} fs-1 mb-3 icono-servicio"></i>
-            <h5 class="card-title fw-semibold">{{ servicio.nombre }}</h5>
+      <div class="col-md-6 col-lg-4" *ngFor="let servicio of servicios; let i = index">
+       <article class="card h-100 text-center servicio-card shadow-sm" tabindex="0" [attr.aria-labelledby]="'srv-' + i + '-title'">
+          <div class="card-body d-flex flex-column justify-content-start align-items-center">
+            <i class="bi {{ servicio.icono }} fs-1 mb-3 icono-servicio" aria-hidden="true"></i>
+            <h5 class="card-title fw-semibold" id="srv-{{ i }}-title">{{ servicio.nombre }}</h5>
+            <p class="mb-2 small text-light-50">{{ servicio.resumen }}</p>
+
+            <button
+              type="button"
+              class="btn btn-sm btn-light mt-2"
+              (click)="toggle(i)"
+              [attr.aria-expanded]="servicio.expandido ? 'true' : 'false'"
+              [attr.aria-controls]="'srv-'+i+'-detalle'">
+              {{ servicio.expandido ? 'Ver menos' : 'Ver más' }}
+            </button>
+
+            <div
+              [id]="'srv-'+i+'-detalle'"
+              class="detalle mt-3 text-start"
+              *ngIf="servicio.expandido">
+              <p class="mb-0">{{ servicio.detalle }}</p>
+            </div>
           </div>
-        </div>
+        </article>
       </div>
     </div>
   </div>
