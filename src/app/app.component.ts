@@ -14,6 +14,7 @@ import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { WeeklyArticleComponent } from './Pages/weekly-article/weekly-article.component';
 
 @Component({
   selector: 'app-root',
@@ -29,6 +30,7 @@ import { MatInputModule } from '@angular/material/input';
     ContactUsComponent,
     AboutUsComponent,
     HomeComponent,
+    WeeklyArticleComponent,
     MatSlideToggleModule,
     MatFormFieldModule,
     MatIconModule,
@@ -42,6 +44,7 @@ export class AppComponent {
     @ViewChild('contactRef') contactRef!: ElementRef;
     @ViewChild('aboutUsRef') aboutUsRef!: ElementRef;
     @ViewChild('servicesRef') servicesRef!: ElementRef;
+    @ViewChild('weeklyArt') weeklyArt!:ElementRef;
 
  
 

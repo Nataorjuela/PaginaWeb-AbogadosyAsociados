@@ -1,0 +1,32 @@
+<section id="weekly-article" class="weekly-article py-5 bg-light">
+  <div class="container">
+    <h2 class="text-center titulo-seccion fw-bold mb-4 text-dark">Artículo de la semana</h2>
+
+    <div *ngIf="loading" class="placeholder">
+      <div class="skeleton-title"></div>
+      <div class="skeleton-line"></div>
+      <div class="skeleton-line short"></div>
+    </div>
+
+    <div *ngIf="!loading && !article" class="alert alert-warning text-center">
+      No se pudo cargar el artículo esta semana. Intenta más tarde.
+    </div>
+
+    <article *ngIf="!loading && article" class="card article-card shadow-sm mx-auto">
+      <div class="card-body">
+        <h3 class="h5 card-title">
+          <a [href]="article!.url" target="_blank" rel="noopener noreferrer">{{ article!.title }}</a>
+        </h3>
+        <p class="text-muted mb-2">
+          {{ article!.source }}
+          <span *ngIf="article!.date"> • {{ article!.date | date:'longDate' }}</span>
+        </p>
+        <p class="card-text">{{ article!.excerpt }}</p>
+
+        <a class="btn btn-primary btn-sm mt-1" [href]="article!.url" target="_blank" rel="noopener">
+          Leer artículo
+        </a>
+      </div>
+    </article>
+  </div>
+</section>
