@@ -15,6 +15,30 @@ Once the server is running, open your browser and navigate to `http://localhost:
 
 The allies/referrals API runs on `http://localhost:3000` by default and the Angular dev server proxies `/api` to it.
 
+## QA / preproduction with demo data
+
+Use this mode when you want to review the platform with seeded mock data without touching the production/local database:
+
+```bash
+npm run start:api:qa
+npm run start:qa
+```
+
+Open `http://localhost:4200/ingresar`. The QA API uses `./data/orjuela-qa.db` and seeds these demo users automatically:
+
+- Aliado: `aliado@orjuela.demo` / `Aliado123!`
+- Cliente: `cliente@orjuela.demo` / `Cliente123!`
+- Admin: `admin@orjuela.demo` / `Admin123!`
+
+To generate a QA build that can be served by the Express server:
+
+```bash
+npm run build:qa
+npm run start:api:qa
+```
+
+Then open `http://localhost:3000/ingresar`. QA settings are documented in `.env.qa.example`.
+
 ## Allies and referrals module
 
 Environment variables are configured from `.env` using the keys shown in `.env.example`:

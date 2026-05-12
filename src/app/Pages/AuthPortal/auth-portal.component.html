@@ -1,4 +1,7 @@
 <main class="auth-platform" [class.admin-mode]="mode === 'admin-login' || mode === 'admin-dashboard'">
+  <div class="environment-badge" *ngIf="environment.showEnvironmentBadge">
+    Ambiente {{ environment.name | uppercase }}
+  </div>
   <section class="access-select" *ngIf="mode === 'access'">
     <div class="container">
       <div class="access-heading">
@@ -14,6 +17,20 @@
           <a class="btn btn-primary" [href]="card.href">{{ card.button }}</a>
         </article>
       </div>
+      <section class="demo-access-card" *ngIf="environment.enableDemoData">
+        <div>
+          <span class="secure-pill"><i class="bi bi-database-check"></i> Datos demo activos</span>
+          <h2>Credenciales para QA</h2>
+          <p>Estas cuentas existen solo en el ambiente de QA/preproducción para visualizar los portales.</p>
+        </div>
+        <div class="demo-credential-grid">
+          <article *ngFor="let credential of demoCredentials">
+            <strong>{{ credential.portal }}</strong>
+            <span>{{ credential.email }}</span>
+            <code>{{ credential.password }}</code>
+          </article>
+        </div>
+      </section>
     </div>
   </section>
 

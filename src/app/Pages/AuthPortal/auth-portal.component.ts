@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule } from '@angular/common/http';
+import { environment } from '../../../environments/environment';
 
 type AccessCard = { icon: string; title: string; text: string; button: string; href: string };
 type PortalMetric = { label: string; value: string };
@@ -39,6 +40,12 @@ export class AuthPortalComponent implements OnInit {
   error = '';
   currentUser: any = null;
   adminSection = 'dashboard';
+  readonly environment = this.resolveEnvironment();
+  readonly demoCredentials = [
+    { portal: 'Aliado', email: 'aliado@orjuela.demo', password: 'Aliado123!' },
+    { portal: 'Cliente', email: 'cliente@orjuela.demo', password: 'Cliente123!' },
+    { portal: 'Admin', email: 'admin@orjuela.demo', password: 'Admin123!' }
+  ];
 
   accessCards: AccessCard[] = [
     { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Gestiona tus referidos y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
@@ -258,5 +265,20 @@ export class AuthPortalComponent implements OnInit {
   private restoreSession(): void {
     const raw = localStorage.getItem('orjuelaUser');
     this.currentUser = raw ? JSON.parse(raw) : null;
+  }
+
+  private resolveEnvironment() {
+    const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+    const isPreviewHost = ['localhost', '127.0.0.1'].includes(host)
+      || host.includes('qa')
+      || host.includes('staging')
+      || host.includes('preprod');
+
+    return {
+      ...environment,
+      name: isPreviewHost ? 'qa' : environment.name,
+      enableDemoData: environment.enableDemoData || isPreviewHost,
+      showEnvironmentBadge: environment.showEnvironmentBadge || isPreviewHost
+    };
   }
 }

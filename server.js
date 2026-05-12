@@ -14,6 +14,8 @@ const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, 'data', 'orjuela.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
+const APP_ENV = process.env.APP_ENV || 'development';
+const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
 
 const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
@@ -294,6 +296,81 @@ function publicUser(row) {
   };
 }
 
+function seedQaData() {
+  const now = getTimestamp();
+  const demoUsers = [
+    { fullName: 'Aliado Demo Orjuela', email: 'aliado@orjuela.demo', password: 'Aliado123!', role: 'ally' },
+    { fullName: 'Cliente Demo Orjuela', email: 'cliente@orjuela.demo', password: 'Cliente123!', role: 'client' },
+    { fullName: 'Admin Demo Orjuela', email: 'admin@orjuela.demo', password: 'Admin123!', role: 'admin' }
+  ];
+
+  db.serialize(() => {
+    const userStmt = db.prepare(`INSERT OR IGNORE INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'active', ?, ?)`);
+    demoUsers.forEach((user) => {
+      userStmt.run(user.fullName, user.email, hashPassword(user.password), user.role, now, now);
+    });
+    userStmt.finalize();
+
+    db.get(`SELECT id FROM users WHERE email = ?`, ['aliado@orjuela.demo'], (err, partnerUser) => {
+      if (!err && partnerUser) {
+        db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, commission_balance)
+          VALUES (?, '900111222', '300 111 2233', 'Bogota', 'Independiente', 'Orjuela QA', 'Ambiente QA', 320000)`, [partnerUser.id]);
+      }
+    });
+
+    db.get(`SELECT id FROM users WHERE email = ?`, ['cliente@orjuela.demo'], (err, clientUser) => {
+      if (!err && clientUser) {
+        db.run(`INSERT OR IGNORE INTO auth_clients (user_id, document_id, assigned_lawyer)
+          VALUES (?, '1020304050', 'Equipo inmobiliario')`, [clientUser.id]);
+      }
+    });
+
+    db.run(`INSERT OR IGNORE INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, status, created_at, updated_at)
+      VALUES ('Aliado Demo Orjuela', '900111222', '300 111 2233', 'aliado@orjuela.demo', 'Bogota', 'independiente', 'Ambiente QA', 'active', ?, ?)`, [now, now]);
+
+    db.run(`INSERT OR IGNORE INTO clients (id, name, document_id, phone, email, created_at)
+      VALUES (1, 'Cliente Demo Orjuela', '1020304050', '310 222 3344', 'cliente@orjuela.demo', ?)`, [now]);
+
+    const leadStmt = db.prepare(`INSERT OR IGNORE INTO leads (id, name, phone, email, case_type, source, status, assigned_to, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    [
+      [1, 'Laura Mendez', '300 456 7890', 'laura@example.com', 'Derecho civil', 'Web', 'Nuevo', 'Comercial', 'Llamar hoy antes de las 5:00 p. m.'],
+      [2, 'Inmobiliaria Norte', '311 222 3344', 'contacto@inmobiliaria.test', 'Contratos', 'Aliado', 'Contactado', 'Asistente', 'Enviar propuesta de revision contractual'],
+      [3, 'Jorge Salinas', '315 987 1122', 'jorge@example.com', 'Cobro de cartera', 'WhatsApp', 'Agendado', 'Abogado civil', 'Preparar cita y documentos requeridos'],
+      [4, 'Maria Fernanda Ruiz', '302 555 8844', 'maria@example.com', 'Derecho inmobiliario', 'Organico', 'Propuesta enviada', 'Equipo inmobiliario', 'Hacer seguimiento a aceptacion de propuesta']
+    ].forEach((lead) => leadStmt.run(...lead, now, now));
+    leadStmt.finalize();
+
+    const caseStmt = db.prepare(`INSERT OR IGNORE INTO cases (id, client_id, case_type, description, status, assigned_lawyer, next_action, created_at)
+      VALUES (?, 1, ?, ?, ?, ?, ?, ?)`);
+    [
+      [1, 'Contrato de compraventa', 'Revision de documentos para compra de inmueble.', 'En revision', 'Equipo inmobiliario', 'Enviar certificado actualizado'],
+      [2, 'Sucesion', 'Organizacion documental de sucesion familiar.', 'Documentos solicitados', 'Area civil y familia', 'Cargar registros civiles']
+    ].forEach((caseItem) => caseStmt.run(...caseItem, now));
+    caseStmt.finalize();
+
+    db.get(`SELECT id FROM allies WHERE document_number = '900111222'`, (err, ally) => {
+      if (!err && ally) {
+        const referralStmt = db.prepare(`INSERT OR IGNORE INTO referrals (id, ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        [
+          [1, ally.id, 'Maria Rodriguez', '301 444 7788', 'maria.rodriguez@example.com', 'Bogota', 'derecho_inmobiliario', 'Revision de promesa de compraventa.', 'Media', 'in_progress'],
+          [2, ally.id, 'Carlos Perez', '312 456 8899', 'carlos.perez@example.com', 'Medellin', 'cobranza', 'Cobro de cartera comercial.', 'Alta', 'contacted'],
+          [3, ally.id, 'Empresa Andina', '310 987 6543', 'legal@andina.test', 'Cali', 'contratos', 'Revision de contrato de suministro.', 'Baja', 'commission_approved']
+        ].forEach((referral) => referralStmt.run(...referral, now, now));
+        referralStmt.finalize();
+      }
+    });
+
+    console.log('[qa] Demo data enabled. Users: aliado@orjuela.demo, cliente@orjuela.demo, admin@orjuela.demo');
+  });
+}
+
+if (QA_DEMO_DATA) {
+  seedQaData();
+}
+
 function authorizeAdmin(req, res, next) {
   const password = (req.headers['x-admin-password'] || '').toString();
   if (!password || password !== ADMIN_PASSWORD) {
@@ -303,7 +380,7 @@ function authorizeAdmin(req, res, next) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
+  res.json({ status: 'ok', environment: APP_ENV, demoData: QA_DEMO_DATA });
 });
 
 app.post('/api/auth/register-partner', (req, res) => {

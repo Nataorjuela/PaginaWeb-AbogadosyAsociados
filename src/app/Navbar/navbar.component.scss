@@ -3,6 +3,29 @@
     backdrop-filter: blur(18px);
     background: rgba(16, 24, 40, 0.92) !important;
   }
+
+  .brand-lockup {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.65rem;
+    letter-spacing: 0;
+    max-width: min(58vw, 360px);
+    white-space: normal;
+  }
+
+  .brand-lockup img {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    flex: 0 0 auto;
+    height: 42px;
+    object-fit: cover;
+    width: 42px;
+  }
+
+  .brand-lockup span {
+    line-height: 1.1;
+  }
+
   .navbar-nav .nav-link {
     cursor: pointer;
     position: relative;
@@ -31,4 +54,18 @@
     color: #092034;
     font-weight: 800;
     padding: 0.6rem 1rem;
+  }
+
+  @media (max-width: 576px) {
+    .brand-lockup {
+      font-size: 0.86rem;
+      gap: 0.5rem;
+      max-width: 72vw;
+    }
+
+    .brand-lockup img {
+      border-radius: 8px;
+      height: 36px;
+      width: 36px;
+    }
   }
