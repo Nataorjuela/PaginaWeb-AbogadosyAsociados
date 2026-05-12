@@ -61,7 +61,12 @@
       </div>
     </div>
     <div class="login-panel dark-panel">
-      <a class="back-link" href="/ingresar">Volver</a>
+      <div class="panel-topbar">
+        <a class="back-link back-pill" href="/ingresar">
+          <i class="bi bi-arrow-left"></i>
+          Volver a accesos
+        </a>
+      </div>
       <span class="secure-pill"><i class="bi bi-shield-check"></i> Acceso seguro</span>
       <h1>Ingresar al panel</h1>
       <p>CRM jurídico, leads, clientes, casos, aliados y reportes.</p>
@@ -181,7 +186,9 @@
         <a>Inicio</a><a>Mis casos</a><a>Documentos</a><a>Pagos</a><a>Citas</a><a>Mensajes</a><a>Perfil</a><button (click)="logout()">Cerrar sesión</button>
       </nav>
       <nav *ngIf="kind === 'admin'">
-        <a>Dashboard</a><a>Leads</a><a>Clientes</a><a>Casos</a><a>Aliados</a><a>Referidos</a><a>Pagos</a><a>Agenda</a><a>Documentos</a><a>Reportes</a><a>Configuración</a><button (click)="logout()">Cerrar sesión</button>
+        <button [class.active]="adminSection === 'dashboard'" (click)="setAdminSection('dashboard')">Dashboard</button>
+        <button [class.active]="adminSection === 'leads'" (click)="setAdminSection('leads')">Leads</button>
+        <a>Clientes</a><a>Casos</a><a>Aliados</a><a>Referidos</a><a>Pagos</a><a>Agenda</a><a>Documentos</a><a>Reportes</a><a>Configuración</a><button (click)="logout()">Cerrar sesión</button>
       </nav>
     </aside>
     <div class="dashboard-main">
@@ -216,14 +223,112 @@
         <section class="data-card"><h2>Mensajes</h2><textarea class="form-control" rows="4" placeholder="Escribe una solicitud"></textarea><button class="btn btn-primary mt-2">Enviar mensaje</button></section>
       </div>
 
-      <div class="content-grid" *ngIf="kind === 'admin'">
+      <div class="content-grid" *ngIf="kind === 'admin' && adminSection === 'dashboard'">
         <section class="data-card wide">
-          <h2>Leads recientes</h2>
+          <h2>Casos recientes</h2>
           <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ lead.date }}</td></tr></tbody></table></div>
         </section>
-        <section class="data-card chart-card"><h2>Leads por fuente</h2><div class="chart-bars"><b style="height:70%"></b><b style="height:45%"></b><b style="height:62%"></b><b style="height:38%"></b></div></section>
-        <section class="data-card chart-card"><h2>Casos por estado</h2><div class="chart-bars gold"><b style="height:40%"></b><b style="height:76%"></b><b style="height:58%"></b><b style="height:30%"></b></div></section>
+        <section class="data-card">
+          <h2>Casos próximos a vencerse</h2>
+          <div class="deadline-list">
+            <article>
+              <strong>Contestación demanda civil</strong>
+              <span>Vence en 2 días</span>
+            </article>
+            <article>
+              <strong>Subsanación proceso inmobiliario</strong>
+              <span>Vence en 4 días</span>
+            </article>
+            <article>
+              <strong>Radicación recurso</strong>
+              <span>Vence en 6 días</span>
+            </article>
+          </div>
+        </section>
+        <section class="data-card">
+          <h2>Próximas citas</h2>
+          <div class="appointment-list">
+            <article>
+              <span>Hoy · 3:00 p. m.</span>
+              <strong>Asesoría contrato comercial</strong>
+            </article>
+            <article>
+              <span>Mañana · 9:30 a. m.</span>
+              <strong>Revisión compraventa inmueble</strong>
+            </article>
+            <article>
+              <span>Viernes · 11:00 a. m.</span>
+              <strong>Seguimiento cobro de cartera</strong>
+            </article>
+          </div>
+        </section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'leads'">
+        <section class="lead-hero-card">
+          <div>
+            <span class="secure-pill">CRM comercial</span>
+            <h2>Gestión de leads</h2>
+            <p>Centraliza nuevos contactos, asigna responsables y convierte solicitudes legales en casos activos.</p>
+          </div>
+          <button class="btn btn-primary">Crear lead</button>
+        </section>
+
+        <div class="metric-grid compact">
+          <article class="metric-card" *ngFor="let metric of leadMetrics">
+            <span>{{ metric.label }}</span><strong>{{ metric.value }}</strong>
+          </article>
+        </div>
+
+        <section class="lead-workspace">
+          <div class="data-card leads-table-card">
+            <div class="data-toolbar lead-toolbar">
+              <h2>Leads registrados</h2>
+              <input class="form-control" placeholder="Buscar por nombre, teléfono o correo">
+              <select class="form-select"><option>Todos los estados</option><option>Nuevo</option><option>Contactado</option><option>Agendado</option><option>Propuesta enviada</option></select>
+              <select class="form-select"><option>Todas las fuentes</option><option>Web</option><option>WhatsApp</option><option>Aliado</option><option>Orgánico</option></select>
+            </div>
+            <div class="table-responsive">
+              <table class="table align-middle">
+                <thead><tr><th>Lead</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Prioridad</th><th>Fecha</th></tr></thead>
+                <tbody>
+                  <tr *ngFor="let lead of adminLeads" (click)="selectLead(lead)" class="clickable-row">
+                    <td><strong>{{ lead.name }}</strong><span>{{ lead.phone }}</span></td>
+                    <td>{{ lead.caseType }}</td>
+                    <td>{{ lead.source }}</td>
+                    <td><span class="status-badge">{{ lead.status }}</span></td>
+                    <td>{{ lead.owner }}</td>
+                    <td><span class="priority-pill">{{ lead.priority }}</span></td>
+                    <td>{{ lead.date }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <aside class="lead-detail-card">
+            <span class="secure-pill">Detalle del lead</span>
+            <h3>{{ selectedLead.name }}</h3>
+            <div class="lead-detail-list">
+              <p><strong>Teléfono:</strong> {{ selectedLead.phone }}</p>
+              <p><strong>Correo:</strong> {{ selectedLead.email }}</p>
+              <p><strong>Tipo de caso:</strong> {{ selectedLead.caseType }}</p>
+              <p><strong>Fuente:</strong> {{ selectedLead.source }}</p>
+              <p><strong>Estado:</strong> {{ selectedLead.status }}</p>
+              <p><strong>Responsable:</strong> {{ selectedLead.owner }}</p>
+            </div>
+            <div class="next-action-box">
+              <span>Próxima acción</span>
+              <strong>{{ selectedLead.nextAction }}</strong>
+            </div>
+            <div class="lead-actions">
+              <button class="btn btn-primary w-100">Marcar contactado</button>
+              <button class="btn btn-outline-dark w-100">Agendar cita</button>
+              <button class="btn btn-outline-dark w-100">Convertir en caso</button>
+            </div>
+          </aside>
+        </section>
       </div>
     </div>
   </section>
 </ng-template>
+

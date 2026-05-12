@@ -121,13 +121,12 @@ h2 {
 }
 
 .mock-card span {
-  color: #f5d77b;
+  color: #1abc9c;
   font-weight: 800;
   text-transform: uppercase;
 }
 
-.mini-chart,
-.chart-bars {
+.mini-chart {
   align-items: end;
   display: flex;
   gap: 0.8rem;
@@ -135,9 +134,8 @@ h2 {
   margin-top: 1.5rem;
 }
 
-.mini-chart b,
-.chart-bars b {
-  background: linear-gradient(180deg, #f5d77b, #1abc9c);
+.mini-chart b {
+  background: linear-gradient(180deg, #1abc9c, #1abc9c);
   border-radius: 999px 999px 0 0;
   flex: 1;
 }
@@ -163,6 +161,30 @@ h2 {
   color: #1abc9c;
   font-weight: 800;
   text-decoration: none;
+}
+
+.panel-topbar {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 1.25rem;
+}
+
+.back-pill {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #1abc9c;
+  display: inline-flex;
+  gap: 0.45rem;
+  padding: 0.55rem 0.85rem;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.back-pill:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  transform: translateX(-2px);
 }
 
 .auth-form {
@@ -293,20 +315,20 @@ h2 {
 
 .dashboard-shell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 220px 1fr;
   min-height: 100vh;
 }
 
 .sidebar {
   background: #0b1624;
   color: #ffffff;
-  padding: 1.2rem;
+  padding: 0.9rem;
 }
 
 .sidebar strong {
   display: block;
-  font-size: 1.35rem;
-  margin-bottom: 1.5rem;
+  font-size: 1.05rem;
+  margin-bottom: 1rem;
 }
 
 .sidebar nav {
@@ -318,9 +340,10 @@ h2 {
 .sidebar button {
   background: transparent;
   border: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   color: #d7dee7;
-  padding: 0.75rem;
+  font-size: 0.92rem;
+  padding: 0.56rem 0.65rem;
   text-align: left;
 }
 
@@ -421,12 +444,168 @@ h2 {
   color: #667085;
 }
 
-.chart-card {
-  min-height: 260px;
+.deadline-list,
+.appointment-list {
+  display: grid;
+  gap: 0.75rem;
 }
 
-.chart-bars.gold b {
-  background: linear-gradient(180deg, #1e3650, #1abc9c);
+.deadline-list article,
+.appointment-list article {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.9rem;
+}
+
+.deadline-list strong,
+.appointment-list strong {
+  color: #1e3650;
+}
+
+.deadline-list span {
+  color: #b42318;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.appointment-list span {
+  color: #7a5c12;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.sidebar button.active {
+  background: rgba(26, 188, 156, 0.18);
+  color: #ffffff;
+}
+
+.admin-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.lead-hero-card {
+  align-items: center;
+  background: linear-gradient(135deg, #0b1624, #1e3650);
+  border-radius: 24px;
+  color: #ffffff;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.4rem;
+}
+
+.lead-hero-card h2 {
+  margin: 0.75rem 0 0.35rem;
+}
+
+.lead-hero-card p {
+  color: #d7dee7;
+  margin: 0;
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.lead-workspace {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+
+.leads-table-card {
+  min-width: 0;
+}
+
+.lead-toolbar {
+  grid-template-columns: minmax(160px, 1fr) minmax(180px, 240px) minmax(140px, 170px) minmax(130px, 160px);
+}
+
+.lead-toolbar .form-control,
+.lead-toolbar .form-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.clickable-row {
+  cursor: pointer;
+}
+
+.clickable-row:hover {
+  background: #f7fbfa;
+}
+
+.clickable-row td:first-child span {
+  color: #667085;
+  display: block;
+  font-size: 0.86rem;
+}
+
+.priority-pill {
+  background: #eefcf8;
+  border-radius: 999px;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.35rem 0.65rem;
+}
+
+.lead-detail-card {
+  background: #ffffff;
+  border: 1px solid #e6eaf0;
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+}
+
+.lead-detail-card h3 {
+  color: #1e3650;
+  margin: 0;
+}
+
+.lead-detail-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.lead-detail-list p {
+  color: #667085;
+  margin: 0;
+}
+
+.lead-detail-list strong {
+  color: #344054;
+}
+
+.next-action-box {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem;
+}
+
+.next-action-box span {
+  color: #0f766e;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.next-action-box strong {
+  color: #1e3650;
+}
+
+.lead-actions {
+  display: grid;
+  gap: 0.65rem;
 }
 
 .recovery-page {
@@ -477,6 +656,11 @@ h2 {
   .metric-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+
+  .lead-workspace,
+  .lead-toolbar {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -503,3 +687,4 @@ h2 {
     flex-direction: column;
   }
 }
+

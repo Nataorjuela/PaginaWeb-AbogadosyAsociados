@@ -3,34 +3,21 @@ import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule } from '@angular/common/http';
 
-type AccessCard = {
-  icon: string;
-  title: string;
-  text: string;
-  button: string;
-  href: string;
-};
-
-type PortalMetric = {
-  label: string;
-  value: string;
-};
-
-type ReferralRow = {
-  client: string;
+type AccessCard = { icon: string; title: string; text: string; button: string; href: string };
+type PortalMetric = { label: string; value: string };
+type ReferralRow = { client: string; caseType: string; date: string; status: string; commission: string; action: string };
+type CaseRow = { caseType: string; status: string; updatedAt: string; lawyer: string; nextAction: string };
+type AdminLead = {
+  name: string;
+  phone: string;
+  email: string;
   caseType: string;
+  source: string;
+  status: string;
+  owner: string;
   date: string;
-  status: string;
-  commission: string;
-  action: string;
-};
-
-type CaseRow = {
-  caseType: string;
-  status: string;
-  updatedAt: string;
-  lawyer: string;
   nextAction: string;
+  priority: string;
 };
 
 @Component({
@@ -51,36 +38,19 @@ export class AuthPortalComponent implements OnInit {
   message = '';
   error = '';
   currentUser: any = null;
+  adminSection = 'dashboard';
 
   accessCards: AccessCard[] = [
-    {
-      icon: 'bi-diagram-3',
-      title: 'Soy aliado',
-      text: 'Gestiona tus referidos y consulta tus comisiones.',
-      button: 'Ingresar como aliado',
-      href: '/aliados/login'
-    },
-    {
-      icon: 'bi-folder-check',
-      title: 'Soy cliente',
-      text: 'Consulta el estado de tu caso y tus documentos.',
-      button: 'Ingresar como cliente',
-      href: '/clientes/login'
-    },
-    {
-      icon: 'bi-shield-lock',
-      title: 'Administración',
-      text: 'Acceso interno para el equipo jurídico y administrativo.',
-      button: 'Ingresar al panel',
-      href: '/admin/login'
-    }
+    { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Gestiona tus referidos y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
+    { icon: 'bi-folder-check', title: 'Soy cliente', text: 'Consulta el estado de tu caso y tus documentos.', button: 'Ingresar como cliente', href: '/clientes/login' },
+    { icon: 'bi-shield-lock', title: 'Administración', text: 'Acceso interno para el equipo jurídico y administrativo.', button: 'Ingresar al panel', href: '/admin/login' }
   ];
 
   partnerMetrics: PortalMetric[] = [
     { label: 'Referidos enviados', value: '12' },
     { label: 'Casos activos', value: '4' },
-    { label: 'Comisión estimada', value: '$2.400.000' },
-    { label: 'Comisión pagada', value: '$1.100.000' }
+    { label: 'Comisión estimada', value: '$480.000' },
+    { label: 'Comisión pagada', value: '$320.000' }
   ];
 
   clientMetrics: PortalMetric[] = [
@@ -95,14 +65,21 @@ export class AuthPortalComponent implements OnInit {
     { label: 'Casos activos', value: '42' },
     { label: 'Referidos del mes', value: '16' },
     { label: 'Clientes activos', value: '31' },
-    { label: 'Comisiones pendientes', value: '$4.800.000' },
+    { label: 'Comisiones pendientes', value: '$450.000' },
     { label: 'Ingresos estimados', value: '$38.5M' }
   ];
 
+  leadMetrics: PortalMetric[] = [
+    { label: 'Leads nuevos', value: '18' },
+    { label: 'Contactados', value: '11' },
+    { label: 'Agendados', value: '6' },
+    { label: 'Propuestas enviadas', value: '4' }
+  ];
+
   referrals: ReferralRow[] = [
-    { client: 'María Rodríguez', caseType: 'Derecho inmobiliario', date: '2026-05-08', status: 'En evaluación', commission: '$800.000', action: 'Revisión de documentos' },
-    { client: 'Carlos Pérez', caseType: 'Cobro de cartera', date: '2026-05-04', status: 'Contactado', commission: '$350.000', action: 'Agendar asesoría' },
-    { client: 'Empresa Andina', caseType: 'Contratos', date: '2026-04-29', status: 'Comisión aprobada', commission: '$1.250.000', action: 'Pago programado' }
+    { client: 'María Rodríguez', caseType: 'Derecho inmobiliario', date: '2026-05-08', status: 'En evaluación', commission: '$180.000', action: 'Revisión de documentos' },
+    { client: 'Carlos Pérez', caseType: 'Cobro de cartera', date: '2026-05-04', status: 'Contactado', commission: '$120.000', action: 'Agendar asesoría' },
+    { client: 'Empresa Andina', caseType: 'Contratos', date: '2026-04-29', status: 'Comisión aprobada', commission: '$450.000', action: 'Pago programado' }
   ];
 
   clientCases: CaseRow[] = [
@@ -110,12 +87,14 @@ export class AuthPortalComponent implements OnInit {
     { caseType: 'Sucesión', status: 'Documentos solicitados', updatedAt: '2026-05-09', lawyer: 'Área civil y familia', nextAction: 'Cargar registros civiles' }
   ];
 
-  adminLeads = [
-    { name: 'Laura Méndez', caseType: 'Derecho civil', source: 'Web', status: 'Nuevo', owner: 'Comercial', date: '2026-05-12' },
-    { name: 'Inmobiliaria Norte', caseType: 'Contratos', source: 'Aliado', status: 'Contactado', owner: 'Asistente', date: '2026-05-11' },
-    { name: 'Jorge Salinas', caseType: 'Cobro de cartera', source: 'WhatsApp', status: 'Agendado', owner: 'Abogado civil', date: '2026-05-10' }
+  adminLeads: AdminLead[] = [
+    { name: 'Laura Méndez', phone: '300 456 7890', email: 'laura@example.com', caseType: 'Derecho civil', source: 'Web', status: 'Nuevo', owner: 'Comercial', date: '2026-05-12', nextAction: 'Llamar hoy antes de las 5:00 p. m.', priority: 'Alta' },
+    { name: 'Inmobiliaria Norte', phone: '311 222 3344', email: 'contacto@inmobiliaria.test', caseType: 'Contratos', source: 'Aliado', status: 'Contactado', owner: 'Asistente', date: '2026-05-11', nextAction: 'Enviar propuesta de revisión contractual', priority: 'Media' },
+    { name: 'Jorge Salinas', phone: '315 987 1122', email: 'jorge@example.com', caseType: 'Cobro de cartera', source: 'WhatsApp', status: 'Agendado', owner: 'Abogado civil', date: '2026-05-10', nextAction: 'Preparar cita y documentos requeridos', priority: 'Alta' },
+    { name: 'María Fernanda Ruiz', phone: '302 555 8844', email: 'maria@example.com', caseType: 'Derecho inmobiliario', source: 'Orgánico', status: 'Propuesta enviada', owner: 'Equipo inmobiliario', date: '2026-05-09', nextAction: 'Hacer seguimiento a aceptación de propuesta', priority: 'Media' }
   ];
 
+  selectedLead: AdminLead = this.adminLeads[0];
   partnerTypes = ['Inmobiliaria', 'Asesor comercial', 'Cliente', 'Empresa', 'Independiente', 'Otro'];
 
   constructor(private fb: FormBuilder, private http: HttpClient) {}
@@ -253,6 +232,14 @@ export class AuthPortalComponent implements OnInit {
 
   previousRegisterStep(): void {
     this.registerStep = Math.max(1, this.registerStep - 1);
+  }
+
+  setAdminSection(section: string): void {
+    this.adminSection = section;
+  }
+
+  selectLead(lead: AdminLead): void {
+    this.selectedLead = lead;
   }
 
   logout(): void {
