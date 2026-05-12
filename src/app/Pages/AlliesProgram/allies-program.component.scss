@@ -1,105 +1,240 @@
-.allies-program {
-  background: #f7f8fa;
-  color: #1f2933;
-  scroll-margin-top: 88px;
+.partners-landing {
+  background: linear-gradient(180deg, #f6f8fb 0%, #ffffff 42%, #f6f8fb 100%);
+  padding: 88px 0;
+  scroll-margin-top: 90px;
 }
 
-.section-kicker {
-  color: #1e3650;
+.partners-hero {
+  align-items: center;
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  margin-bottom: 2rem;
+}
+
+.eyebrow {
+  color: #1abc9c;
   display: inline-block;
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  margin-bottom: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.75rem;
   text-transform: uppercase;
 }
 
-.section-title {
-  color: #111827;
+.partners-hero h2,
+.block-heading h3 {
+  color: #101828;
   font-family: 'Merriweather', serif;
-  font-size: 2.35rem;
-  font-weight: 700;
-  margin-bottom: 1rem;
+  font-weight: 800;
 }
 
-.section-description {
-  color: #59636f;
-  font-size: 1.05rem;
+.partners-hero h2 {
+  font-size: clamp(2rem, 4vw, 3.6rem);
+  line-height: 1.08;
+}
+
+.partners-hero p,
+.block-heading p,
+.benefit-card p,
+.helper-copy {
+  color: #667085;
   line-height: 1.7;
-  margin: 0;
-  max-width: 760px;
 }
 
-.cta-strip {
+.hero-actions,
+.step-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  justify-content: flex-lg-end;
+  margin-top: 1.25rem;
+}
+
+.partner-preview,
+.form-shell,
+.benefit-card {
+  background: #ffffff;
+  border: 1px solid #e5e9ef;
+  border-radius: 20px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+}
+
+.partner-preview {
+  padding: 1.4rem;
+}
+
+.pipeline-row {
+  align-items: center;
+  background: #f6f8fb;
+  border-radius: 14px;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+}
+
+.benefit-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 2rem 0;
+}
+
+.benefit-card {
+  padding: 1.2rem;
+}
+
+.benefit-card i {
+  color: #1abc9c;
+  font-size: 1.5rem;
+}
+
+.benefit-card h3 {
+  color: #1e3650;
+  font-size: 1.05rem;
+  font-weight: 800;
+  margin-top: 0.7rem;
+}
+
+.flow-line {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 3rem;
+}
+
+.flow-line article {
+  align-items: center;
+  background: #102033;
+  border-radius: 16px;
+  color: #ffffff;
+  display: flex;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.flow-line strong {
+  align-items: center;
+  background: #1abc9c;
+  border-radius: 50%;
+  color: #102033;
+  display: inline-flex;
+  font-weight: 900;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
 }
 
 .program-block {
-  scroll-margin-top: 96px;
+  scroll-margin-top: 100px;
 }
 
 .program-block + .program-block {
-  border-top: 1px solid #d8dde4;
   margin-top: 3rem;
-  padding-top: 3rem;
 }
 
-.referral-block {
-  background: #ffffff;
-  border-radius: 8px;
-  margin-left: -0.75rem;
-  margin-right: -0.75rem;
-  padding: 2rem 0.75rem;
+.block-heading {
+  margin-bottom: 1rem;
+  max-width: 760px;
 }
 
-.card {
-  border-radius: 8px;
+.form-shell {
+  padding: 1.4rem;
 }
 
-.card-body {
-  padding: 1.5rem;
+.progress {
+  background: #e8edf3;
+  border-radius: 999px;
+  height: 10px;
+  margin-bottom: 1.25rem;
 }
 
-.card-title {
+.progress-bar {
+  background: linear-gradient(90deg, #1e3650, #1abc9c);
+}
+
+.step-pane h4 {
   color: #1e3650;
-  font-family: 'Merriweather', serif;
-  font-size: 1.35rem;
+  font-weight: 900;
+  margin-bottom: 1rem;
+}
+
+.form-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.form-grid label,
+.legal-checks label {
+  color: #344054;
+  display: grid;
   font-weight: 700;
-  margin-bottom: 0.75rem;
+  gap: 0.35rem;
 }
 
-.btn-primary,
-.btn-success {
-  background-color: #1e3650;
+.form-grid .full {
+  grid-column: 1 / -1;
+}
+
+.form-control,
+.form-select {
+  border-color: #d0d5dd;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+}
+
+.legal-checks {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.legal-checks label {
+  align-items: start;
+  display: flex;
+  font-weight: 500;
+}
+
+.legal-checks input {
+  margin-right: 0.65rem;
+  margin-top: 0.25rem;
+}
+
+.summary-box {
+  background: #f6f8fb;
+  border-radius: 14px;
+  padding: 1rem;
+}
+
+.btn-primary {
+  background: #1e3650;
   border-color: #1e3650;
 }
 
-.btn-primary:hover,
-.btn-success:hover {
-  background-color: #15283c;
-  border-color: #15283c;
+.btn-primary:hover {
+  background: #14283c;
+  border-color: #14283c;
 }
 
-.btn-primary,
-.btn-success {
-  min-width: 180px;
+@media (max-width: 1000px) {
+  .partners-hero,
+  .benefit-grid,
+  .flow-line {
+    grid-template-columns: 1fr;
+  }
 }
 
-.form-control:focus,
-.form-select:focus {
-  border-color: #1e3650;
-  box-shadow: 0 0 0 0.2rem rgba(30, 54, 80, 0.18);
-}
-
-@media (max-width: 767px) {
-  .section-title {
-    font-size: 1.85rem;
+@media (max-width: 700px) {
+  .partners-landing {
+    padding: 62px 0;
   }
 
-  .cta-strip .btn {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero-actions .btn,
+  .step-actions .btn {
     width: 100%;
   }
 }

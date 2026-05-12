@@ -13,10 +13,10 @@ const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, 'data', 'orjuela.
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'otro'];
+const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
-const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'otro'];
-const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'won', 'rejected'];
+const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
+const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'proposal_sent', 'won', 'commission_approved', 'commission_paid', 'rejected'];
 
 const app = express();
 app.use(cors());
@@ -41,6 +41,10 @@ function createDatabase() {
       email TEXT NOT NULL,
       city TEXT NOT NULL,
       ally_type TEXT NOT NULL,
+      how_known TEXT,
+      bank_name TEXT,
+      account_type TEXT,
+      account_number TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -55,11 +59,77 @@ function createDatabase() {
       referred_city TEXT NOT NULL,
       legal_area TEXT NOT NULL,
       case_description TEXT NOT NULL,
+      urgency TEXT,
+      file_notes TEXT,
       status TEXT NOT NULL DEFAULT 'new',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (ally_id) REFERENCES allies(id)
     )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT,
+      case_type TEXT NOT NULL,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Nuevo',
+      assigned_to TEXT,
+      notes TEXT,
+      referrer_id INTEGER,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS clients (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      document_id TEXT,
+      phone TEXT,
+      email TEXT,
+      created_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS cases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      case_type TEXT NOT NULL,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'Recibido',
+      assigned_lawyer TEXT,
+      next_action TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS case_documents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      case_id INTEGER NOT NULL,
+      file_name TEXT NOT NULL,
+      file_url TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL,
+      FOREIGN KEY (case_id) REFERENCES cases(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      related_type TEXT NOT NULL,
+      related_id INTEGER NOT NULL,
+      amount REAL NOT NULL,
+      status TEXT NOT NULL,
+      payment_date TEXT,
+      created_at TEXT NOT NULL
+    )`);
+
+    [
+      `ALTER TABLE allies ADD COLUMN how_known TEXT`,
+      `ALTER TABLE allies ADD COLUMN bank_name TEXT`,
+      `ALTER TABLE allies ADD COLUMN account_type TEXT`,
+      `ALTER TABLE allies ADD COLUMN account_number TEXT`,
+      `ALTER TABLE referrals ADD COLUMN urgency TEXT`,
+      `ALTER TABLE referrals ADD COLUMN file_notes TEXT`,
+    ].forEach((sql) => db.run(sql, () => {}));
   });
   return db;
 }
@@ -155,6 +225,11 @@ app.post('/api/allies', (req, res) => {
     email: normalizeEmail(req.body.email),
     city: cleanText(req.body.city, 100),
     ally_type: cleanText(req.body.ally_type, 40),
+    how_known: cleanText(req.body.how_known, 180),
+    bank_name: cleanText(req.body.bank_name, 100),
+    account_type: cleanText(req.body.account_type, 40),
+    account_number: cleanText(req.body.account_number, 80),
+    accept_program_terms: req.body.accept_program_terms,
     accept_terms: req.body.accept_terms
   };
 
@@ -169,10 +244,10 @@ app.post('/api/allies', (req, res) => {
   }
 
   const createdAt = getTimestamp();
-  const stmt = db.prepare(`INSERT INTO allies (full_name, document_number, phone, email, city, ally_type, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`);
+  const stmt = db.prepare(`INSERT INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, bank_name, account_type, account_number, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`);
 
-  stmt.run(payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, createdAt, createdAt, function (err) {
+  stmt.run(payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, payload.how_known, payload.bank_name, payload.account_type, payload.account_number, createdAt, createdAt, function (err) {
     if (err) {
       if (err.message.includes('UNIQUE')) {
         return res.status(409).json({ error: 'Ya existe un aliado registrado con esa cédula.' });
@@ -189,6 +264,7 @@ app.post('/api/allies', (req, res) => {
       <p><strong>Correo:</strong> ${escapeHtml(payload.email)}</p>
       <p><strong>Ciudad:</strong> ${escapeHtml(payload.city)}</p>
       <p><strong>Tipo de aliado:</strong> ${escapeHtml(payload.ally_type)}</p>
+      <p><strong>Cómo conoció la firma:</strong> ${escapeHtml(payload.how_known)}</p>
       <p><strong>Fecha:</strong> ${createdAt}</p>
     `);
 
@@ -207,6 +283,8 @@ app.post('/api/referrals', (req, res) => {
     referred_city: cleanText(req.body.referred_city, 100),
     legal_area: cleanText(req.body.legal_area, 60),
     case_description: cleanText(req.body.case_description, 800),
+    urgency: cleanText(req.body.urgency, 40),
+    file_notes: cleanText(req.body.file_notes, 300),
     contact_authorization: req.body.contact_authorization
   };
 
@@ -233,10 +311,10 @@ app.post('/api/referrals', (req, res) => {
     }
 
     const createdAt = getTimestamp();
-    const stmt = db.prepare(`INSERT INTO referrals (ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`);
+    const stmt = db.prepare(`INSERT INTO referrals (ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, file_notes, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`);
 
-    stmt.run(ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, createdAt, createdAt, function (insertErr) {
+    stmt.run(ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, payload.urgency, payload.file_notes, createdAt, createdAt, function (insertErr) {
       if (insertErr) {
         console.error(insertErr);
         return res.status(500).json({ error: 'Error interno al guardar el referido.' });
@@ -250,6 +328,7 @@ app.post('/api/referrals', (req, res) => {
         <p><strong>Correo referido:</strong> ${escapeHtml(payload.referred_email || 'No proporcionado')}</p>
         <p><strong>Ciudad referido:</strong> ${escapeHtml(payload.referred_city)}</p>
         <p><strong>Área legal:</strong> ${escapeHtml(payload.legal_area)}</p>
+        <p><strong>Urgencia:</strong> ${escapeHtml(payload.urgency)}</p>
         <p><strong>Descripción:</strong> ${escapeHtml(payload.case_description)}</p>
         <p><strong>Fecha:</strong> ${createdAt}</p>
       `);
@@ -258,6 +337,50 @@ app.post('/api/referrals', (req, res) => {
     });
     stmt.finalize();
   });
+});
+
+app.post('/api/leads', (req, res) => {
+  const payload = {
+    name: cleanText(req.body.name),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    case_type: cleanText(req.body.case_type, 80),
+    source: cleanText(req.body.source || 'Web', 40),
+    assigned_to: cleanText(req.body.assigned_to, 100),
+    notes: cleanText(req.body.notes, 1000),
+    referrer_id: req.body.referrer_id ? parseInt(req.body.referrer_id, 10) : null
+  };
+
+  if (!payload.name || !payload.phone || !payload.case_type) {
+    return res.status(400).json({ error: 'Nombre, teléfono y tipo de caso son obligatorios.' });
+  }
+  if (payload.email && !isValidEmail(payload.email)) {
+    return res.status(400).json({ error: 'El correo electrónico no tiene un formato válido.' });
+  }
+
+  const createdAt = getTimestamp();
+  const stmt = db.prepare(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, referrer_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'Nuevo', ?, ?, ?, ?, ?)`);
+
+  stmt.run(payload.name, payload.phone, payload.email, payload.case_type, payload.source, payload.assigned_to, payload.notes, payload.referrer_id, createdAt, createdAt, function (err) {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Error interno al guardar el lead.' });
+    }
+
+    sendNotificationEmail('Nuevo lead desde la web', `
+      <h2>Nuevo lead comercial</h2>
+      <p><strong>Nombre:</strong> ${escapeHtml(payload.name)}</p>
+      <p><strong>Teléfono:</strong> ${escapeHtml(payload.phone)}</p>
+      <p><strong>Correo:</strong> ${escapeHtml(payload.email)}</p>
+      <p><strong>Tipo de caso:</strong> ${escapeHtml(payload.case_type)}</p>
+      <p><strong>Fuente:</strong> ${escapeHtml(payload.source)}</p>
+      <p><strong>Notas:</strong> ${escapeHtml(payload.notes)}</p>
+    `);
+
+    res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactará pronto.' });
+  });
+  stmt.finalize();
 });
 
 app.post('/api/admin/login', (req, res) => {

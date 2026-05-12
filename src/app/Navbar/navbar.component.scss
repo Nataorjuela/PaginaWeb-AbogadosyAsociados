@@ -1,5 +1,7 @@
 .navbar {
     font-weight: 500;
+    backdrop-filter: blur(18px);
+    background: rgba(16, 24, 40, 0.92) !important;
   }
   .navbar-nav .nav-link {
     cursor: pointer;
@@ -20,4 +22,13 @@
 
   .navbar-nav .nav-link:hover::after {
     width: 100%;
+  }
+
+  .btn-cta {
+    background: #1abc9c;
+    border: 0;
+    border-radius: 999px;
+    color: #092034;
+    font-weight: 800;
+    padding: 0.6rem 1rem;
   }

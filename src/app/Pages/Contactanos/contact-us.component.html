@@ -1,89 +1,49 @@
-<section id="contactanos" style="display: flex; align-items: center; flex-wrap: wrap; min-height: 100vh; font-family: Arial, sans-serif;">
-  <!-- Formulario -->
-  <div style="flex: 1; min-width: 300px; padding: 2rem; box-sizing: border-box; display: flex; justify-content: center;">
-    <div style="width: 100%; max-width: 500px;">
-      <h2 class="mb-4 text-center">Contáctame</h2>
-
-      <form [formGroup]="form" (ngSubmit)="sendEmail()" style="display: flex; flex-direction: column; gap: 1rem;">
-
-        <!-- Nombre -->
-        <div style="position: relative;">
-          <i class="bi bi-person-fill"
-            style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); color: #999;"></i>
-          <input type="text" placeholder="Nombre" formControlName="nombre" required
-            style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; border: 1px solid #ccc; border-radius: 5px;" />
+<section id="contactanos" class="lead-section">
+  <div class="container">
+    <div class="lead-layout">
+      <div class="lead-copy">
+        <span class="eyebrow">Agenda una asesoría</span>
+        <h2>Cuéntanos tu caso y recibe una ruta legal clara</h2>
+        <p>Completa el formulario y nuestro equipo revisará la información para orientarte sobre próximos pasos, documentos y opciones de atención.</p>
+        <div class="contact-points">
+          <span><i class="bi bi-whatsapp"></i> WhatsApp: 314 427 8339</span>
+          <span><i class="bi bi-geo-alt"></i> Girardot, Colombia</span>
+          <span><i class="bi bi-shield-lock"></i> Tratamiento responsable de datos</span>
         </div>
+      </div>
 
-        <!-- Correo -->
-        <div style="position: relative;">
-          <i class="bi bi-envelope-fill"
-            style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); color: #999;"></i>
-          <input type="email" placeholder="Correo" formControlName="correo" required
-            style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; border: 1px solid #ccc; border-radius: 5px;" />
-        </div>
-
-
-        <!-- Celular -->
-        <div style="position: relative;">
-          <i class="bi bi-phone-fill"
-            style="position: absolute; top: 50%; left: 10px; transform: translateY(-50%); color: #999;"></i>
-          <input type="tel" placeholder="Celular" formControlName="celular" required
-            style="width: 100%; padding: 0.5rem 0.5rem 0.5rem 2rem; border: 1px solid #ccc; border-radius: 5px;" />
-        </div>
-
-        <!-- ¿Es proveedor? -->
-        <div style="display: flex; flex-direction: column;">
-          <label style="margin-bottom: 4px;">¿Eres un consultor externo?</label>
-          <select formControlName="proveedor"
-            style="padding: 0.5rem; border-radius: 5px; border: 1px solid #ccc;">
-            <option value="">Selecciona una opción</option>
-            <option value="si">Sí</option>
-            <option value="no">No</option>
-          </select>
-        </div>
-
-        <!-- Si es proveedor, mostrar estos campos -->
-        <div *ngIf="form.get('proveedor')?.value === 'si'" style="display: flex; flex-direction: column; gap: 1rem;">
-
-          <!-- Cédula -->
-          <input type="text" placeholder="Número de cédula" formControlName="cedula"
-            style="width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 5px;" />
-
-          <!-- Descripción -->
-          <textarea placeholder="Descripción del servicio" formControlName="descripcion"
-            style="width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 5px;"></textarea>
-
-          <!-- Valor -->
-          <input type="number" placeholder="Valor cobrado" formControlName="valor"
-            style="width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 5px;" />
-
-        </div>
-
-        <!-- Aceptación tratamiento de datos -->
-        <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
-          <input type="checkbox" formControlName="aceptaDatos" required style="margin-top: 3px;" />
-          <label style="font-size: 0.9rem; color: #333;">
-            Acepto el <a href="/politica-de-tratamiento-de-datos" target="_blank" style="color: #1e3650; text-decoration: underline;">
-              tratamiento de mis datos personales
-            </a> según la política de privacidad.
+      <form class="lead-form" [formGroup]="form" (ngSubmit)="sendEmail()" novalidate>
+        <div class="form-grid">
+          <label>Nombre completo
+            <input class="form-control" formControlName="nombre" autocomplete="name" />
+          </label>
+          <label>Celular / WhatsApp
+            <input class="form-control" type="tel" formControlName="celular" autocomplete="tel" />
+          </label>
+          <label>Correo electrónico
+            <input class="form-control" type="email" formControlName="correo" autocomplete="email" />
+          </label>
+          <label>Tipo de caso
+            <select class="form-select" formControlName="case_type">
+              <option value="">Selecciona un área</option>
+              <option *ngFor="let type of caseTypes" [value]="type">{{ type }}</option>
+            </select>
+          </label>
+          <label class="full">Describe brevemente tu situación
+            <textarea class="form-control" rows="4" formControlName="notes"></textarea>
           </label>
         </div>
 
-        <!-- Botón Enviar -->
-        <button type="submit"
-          style="padding: 0.75rem; background-color: #1e3650; color: white; border: none; border-radius: 5px; cursor: pointer;">
-          Enviar
-        </button>
+        <label class="legal-check">
+          <input type="checkbox" formControlName="aceptaDatos" />
+          <span>Acepto el tratamiento de mis datos personales y autorizo que Orjuela Abogados me contacte.</span>
+        </label>
+
+        <div *ngIf="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
+        <div *ngIf="successMessage" class="alert alert-success">{{ successMessage }}</div>
+
+        <button class="btn btn-primary btn-lg w-100" type="submit">Enviar mi caso</button>
       </form>
     </div>
-  </div>
-
-  <!-- Mapa -->
-  <div style="flex: 1; min-width: 300px; height: 100vh;">
-    <iframe
-      src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3977.100334832246!2d-74.80960192420217!3d4.296301144569582!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x8e3f28ec5284f86b%3A0xb7b94038aaf6dd3b!2sCentro%20Comercial%20Sucre!5e0!3m2!1ses-419!2sco!4v1715858517997!5m2!1ses-419!2sco"
-      width="100%" height="100%" style="border:0;" allowfullscreen="" loading="lazy"
-      referrerpolicy="no-referrer-when-downgrade">
-    </iframe>
   </div>
 </section>

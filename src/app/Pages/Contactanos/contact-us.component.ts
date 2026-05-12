@@ -1,26 +1,31 @@
 import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatIconModule } from '@angular/material/icon';
 import emailjs from '@emailjs/browser';
 
 @Component({
   selector: 'app-contactUs',
   standalone: true,
-  imports: [
-    CommonModule,
-    ReactiveFormsModule,
-    MatFormFieldModule,
-    MatInputModule,
-    MatIconModule
-  ],
+  imports: [CommonModule, ReactiveFormsModule],
   templateUrl: './contact-us.component.html',
   styleUrls: ['./contact-us.component.scss']
 })
 export class ContactUsComponent implements OnInit {
   form!: FormGroup;
+  successMessage = '';
+  errorMessage = '';
+
+  caseTypes = [
+    'Derecho inmobiliario',
+    'Derecho civil',
+    'Derecho comercial',
+    'Derecho de familia',
+    'Cobro de cartera',
+    'Contratos',
+    'Sucesiones',
+    'Asesoría empresarial',
+    'Otro'
+  ];
 
   constructor(private fb: FormBuilder) {}
 
@@ -28,38 +33,20 @@ export class ContactUsComponent implements OnInit {
     this.form = this.fb.group({
       nombre: ['', Validators.required],
       correo: ['', [Validators.required, Validators.email]],
-      celular: ['', Validators.required],
-      proveedor: ['', Validators.required],
-      cedula: [''],
-      descripcion: [''],
-      valor: ['']
-    });
-
-    this.form.get('proveedor')?.valueChanges.subscribe((valor) => {
-      const cedulaControl = this.form.get('cedula');
-      const descripcionControl = this.form.get('descripcion');
-      const valorControl = this.form.get('valor');
-
-      if (valor === 'si') {
-        cedulaControl?.setValidators([Validators.required]);
-        descripcionControl?.setValidators([Validators.required]);
-        valorControl?.setValidators([Validators.required]);
-      } else {
-        cedulaControl?.clearValidators();
-        descripcionControl?.clearValidators();
-        valorControl?.clearValidators();
-      }
-
-      cedulaControl?.updateValueAndValidity();
-      descripcionControl?.updateValueAndValidity();
-      valorControl?.updateValueAndValidity();
+      celular: ['', [Validators.required, Validators.minLength(7)]],
+      case_type: ['', Validators.required],
+      source: ['Web'],
+      notes: ['', [Validators.required, Validators.maxLength(800)]],
+      aceptaDatos: [false, Validators.requiredTrue]
     });
   }
 
   sendEmail(): void {
+    this.successMessage = '';
+    this.errorMessage = '';
     if (this.form.invalid) {
       this.form.markAllAsTouched();
-      console.warn('Formulario inválido', this.form.value);
+      this.errorMessage = 'Revisa los campos marcados antes de enviar tu caso.';
       return;
     }
 
@@ -68,10 +55,9 @@ export class ContactUsComponent implements OnInit {
       from_name: formValues.nombre,
       reply_to: formValues.correo,
       celular: formValues.celular,
-      proveedor: formValues.proveedor,
-      cedula: formValues.proveedor === 'si' ? formValues.cedula : 'No aplica',
-      descripcion: formValues.proveedor === 'si' ? formValues.descripcion : 'No aplica',
-      valor: formValues.proveedor === 'si' ? formValues.valor : 'No aplica',
+      case_type: formValues.case_type,
+      source: formValues.source,
+      notes: formValues.notes,
       fecha_envio: new Date().toLocaleString('es-CO', {
         timeZone: 'America/Bogota',
         day: '2-digit',
@@ -83,19 +69,17 @@ export class ContactUsComponent implements OnInit {
     };
 
     emailjs.send(
-      'service_s0s3k19',           // Tu Service ID
-      'template_5nnggub',          // Tu Template ID
+      'service_s0s3k19',
+      'template_5nnggub',
       templateParams,
-      'bXZOYmlHdQTKmeclq'         // Reemplaza con tu Public Key real
+      'bXZOYmlHdQTKmeclq'
     ).then(
-      response => {
-        console.log('Correo enviado', response.status, response.text);
-        alert('Mensaje enviado con éxito');
-        this.form.reset();
+      () => {
+        this.successMessage = 'Tu solicitud fue recibida. Un abogado del equipo te contactará pronto.';
+        this.form.reset({ source: 'Web', aceptaDatos: false });
       },
-      error => {
-        console.error('Error al enviar el correo', error);
-        alert('Ocurrió un error al enviar el mensaje');
+      () => {
+        this.errorMessage = 'Ocurrió un error al enviar el mensaje. También puedes escribirnos por WhatsApp.';
       }
     );
   }

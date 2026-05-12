@@ -5,18 +5,30 @@
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
-      <ul class="navbar-nav gap-3">
+      <ul class="navbar-nav align-items-lg-center gap-3">
         <li class="nav-item">
-          <a class="nav-link text-white fw-semibold" (click)="onContactClick()">Contáctanos</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link text-white fw-semibold" (click)="onAboutUsClick()">Sobre nosotros</a>
+          <a class="nav-link text-white fw-semibold" href="#">Inicio</a>
         </li>
         <li class="nav-item">
           <a class="nav-link text-white fw-semibold" (click)="onServicesClick()">Servicios</a>
         </li>
         <li class="nav-item">
-          <a class="nav-link text-white fw-semibold" (click)="onAlliesClick()">Programa de aliados</a>
+          <a class="nav-link text-white fw-semibold" (click)="onHowClick()">Cómo funciona</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white fw-semibold" (click)="onAlliesClick()">Aliados</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white fw-semibold" (click)="onBlogClick()">Blog</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white fw-semibold" (click)="onContactClick()">Contacto</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link text-white fw-semibold" href="/admin">Ingresar</a>
+        </li>
+        <li class="nav-item">
+          <button class="btn btn-cta" type="button" (click)="onContactClick()">Agendar asesoría</button>
         </li>
       </ul>
     </div>

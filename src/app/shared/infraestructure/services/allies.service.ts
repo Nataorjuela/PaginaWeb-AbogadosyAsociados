@@ -9,6 +9,11 @@ export interface AllyRegistration {
   email: string;
   city: string;
   ally_type: string;
+  how_known?: string;
+  bank_name?: string;
+  account_type?: string;
+  account_number?: string;
+  accept_program_terms?: boolean;
   accept_terms: boolean;
 }
 
@@ -21,6 +26,8 @@ export interface ReferralSubmission {
   referred_city: string;
   legal_area: string;
   case_description: string;
+  urgency?: string;
+  file_notes?: string;
   contact_authorization: boolean;
 }
 

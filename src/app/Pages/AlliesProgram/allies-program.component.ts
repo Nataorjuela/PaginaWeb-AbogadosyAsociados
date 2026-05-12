@@ -4,6 +4,9 @@ import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angula
 import { HttpClientModule } from '@angular/common/http';
 import { AlliesService, AllyRegistration, ReferralSubmission } from '../../shared/infraestructure/services/allies.service';
 
+type Option = { value: string; label: string };
+type Benefit = { icon: string; title: string; description: string };
+
 @Component({
   selector: 'app-allies-program',
   standalone: true,
@@ -14,6 +17,8 @@ import { AlliesService, AllyRegistration, ReferralSubmission } from '../../share
 export class AlliesProgramComponent implements OnInit {
   registerForm!: FormGroup;
   referralForm!: FormGroup;
+  registerStep = 1;
+  referralStep = 1;
   registerMessage = '';
   referralMessage = '';
   registerError = '';
@@ -21,23 +26,45 @@ export class AlliesProgramComponent implements OnInit {
   isRegistering = false;
   isSendingReferral = false;
 
-  allyTypes = [
-    { value: 'persona_natural', label: 'Persona natural' },
-    { value: 'empresa', label: 'Empresa' },
+  allyTypes: Option[] = [
     { value: 'inmobiliaria', label: 'Inmobiliaria' },
-    { value: 'contador', label: 'Contador' },
     { value: 'asesor_comercial', label: 'Asesor comercial' },
+    { value: 'cliente', label: 'Cliente' },
+    { value: 'empresa', label: 'Empresa' },
+    { value: 'independiente', label: 'Independiente' },
     { value: 'otro', label: 'Otro' }
   ];
 
-  legalAreas = [
+  accountTypes: Option[] = [
+    { value: 'ahorros', label: 'Cuenta de ahorros' },
+    { value: 'corriente', label: 'Cuenta corriente' }
+  ];
+
+  legalAreas: Option[] = [
     { value: 'derecho_civil', label: 'Derecho civil' },
     { value: 'derecho_laboral', label: 'Derecho laboral' },
     { value: 'derecho_comercial', label: 'Derecho comercial' },
     { value: 'derecho_inmobiliario', label: 'Derecho inmobiliario' },
     { value: 'derecho_familia', label: 'Derecho de familia' },
     { value: 'cobranza', label: 'Cobranza' },
+    { value: 'contratos', label: 'Contratos' },
+    { value: 'sucesiones', label: 'Sucesiones' },
     { value: 'otro', label: 'Otro' }
+  ];
+
+  urgencyOptions: Option[] = [
+    { value: 'baja', label: 'Puede esperar' },
+    { value: 'media', label: 'Esta semana' },
+    { value: 'alta', label: 'Urgente' }
+  ];
+
+  benefits: Benefit[] = [
+    { icon: 'bi-cash-stack', title: 'Comisión por cliente efectivo', description: 'Recibe reconocimiento económico cuando un referido se convierte en cliente.' },
+    { icon: 'bi-kanban', title: 'Seguimiento de referidos', description: 'Consulta estados y próximas acciones desde una experiencia privada.' },
+    { icon: 'bi-clock-history', title: 'Historial de oportunidades', description: 'Mantén trazabilidad de cada contacto enviado a la firma.' },
+    { icon: 'bi-shield-check', title: 'Transparencia en estados', description: 'Estados claros: recibido, contactado, evaluación, cliente activo y comisión.' },
+    { icon: 'bi-headset', title: 'Soporte jurídico', description: 'Equipo disponible para orientar el proceso comercial y legal.' },
+    { icon: 'bi-share', title: 'Material para compartir', description: 'Recursos editables para comunicar los servicios de la firma.' }
   ];
 
   constructor(private fb: FormBuilder, private alliesService: AlliesService) {}
@@ -50,6 +77,11 @@ export class AlliesProgramComponent implements OnInit {
       email: ['', [Validators.required, Validators.email]],
       city: ['', Validators.required],
       ally_type: ['', Validators.required],
+      how_known: ['', Validators.required],
+      bank_name: [''],
+      account_type: [''],
+      account_number: [''],
+      accept_program_terms: [false, Validators.requiredTrue],
       accept_terms: [false, Validators.requiredTrue]
     });
 
@@ -62,8 +94,66 @@ export class AlliesProgramComponent implements OnInit {
       referred_city: ['', Validators.required],
       legal_area: ['', Validators.required],
       case_description: ['', [Validators.required, Validators.maxLength(800)]],
+      urgency: ['', Validators.required],
+      file_notes: [''],
       contact_authorization: [false, Validators.requiredTrue]
     });
+  }
+
+  get registerProgress(): number {
+    return (this.registerStep / 4) * 100;
+  }
+
+  get referralProgress(): number {
+    return (this.referralStep / 4) * 100;
+  }
+
+  get selectedLegalAreaLabel(): string {
+    const value = this.referralForm?.value?.legal_area;
+    return this.legalAreas.find((item) => item.value === value)?.label || 'Sin seleccionar';
+  }
+
+  nextRegisterStep(): void {
+    if (!this.isRegisterStepValid()) return;
+    this.registerStep = Math.min(this.registerStep + 1, 4);
+  }
+
+  previousRegisterStep(): void {
+    this.registerStep = Math.max(this.registerStep - 1, 1);
+  }
+
+  nextReferralStep(): void {
+    if (!this.isReferralStepValid()) return;
+    this.referralStep = Math.min(this.referralStep + 1, 4);
+  }
+
+  previousReferralStep(): void {
+    this.referralStep = Math.max(this.referralStep - 1, 1);
+  }
+
+  isRegisterStepValid(): boolean {
+    const controlsByStep: Record<number, string[]> = {
+      1: ['full_name', 'document_number', 'phone', 'email', 'city'],
+      2: ['ally_type', 'how_known'],
+      3: [],
+      4: ['accept_program_terms', 'accept_terms']
+    };
+    return this.validateControls(this.registerForm, controlsByStep[this.registerStep]);
+  }
+
+  isReferralStepValid(): boolean {
+    const controlsByStep: Record<number, string[]> = {
+      1: ['ally_document_number', 'ally_email'],
+      2: ['referred_full_name', 'referred_phone', 'referred_city'],
+      3: ['legal_area', 'case_description', 'urgency'],
+      4: ['contact_authorization']
+    };
+    return this.validateControls(this.referralForm, controlsByStep[this.referralStep]);
+  }
+
+  private validateControls(form: FormGroup, controlNames: string[]): boolean {
+    controlNames.forEach((controlName) => form.get(controlName)?.markAsTouched());
+    return controlNames.every((controlName) => form.get(controlName)?.valid);
   }
 
   submitRegistration(): void {
@@ -71,7 +161,7 @@ export class AlliesProgramComponent implements OnInit {
     this.registerError = '';
     if (this.registerForm.invalid) {
       this.registerForm.markAllAsTouched();
-      this.registerError = 'Por favor complete los campos obligatorios.';
+      this.registerError = 'Revisa los campos marcados antes de enviar tu registro.';
       return;
     }
 
@@ -80,7 +170,8 @@ export class AlliesProgramComponent implements OnInit {
     this.alliesService.registerAlly(payload).subscribe({
       next: (response) => {
         this.registerMessage = response?.message || 'Tu registro como aliado fue recibido correctamente. Pronto nuestro equipo validará tu información.';
-        this.registerForm.reset({ accept_terms: false });
+        this.registerForm.reset({ accept_terms: false, accept_program_terms: false });
+        this.registerStep = 1;
         this.isRegistering = false;
       },
       error: (error) => {
@@ -95,7 +186,7 @@ export class AlliesProgramComponent implements OnInit {
     this.referralError = '';
     if (this.referralForm.invalid) {
       this.referralForm.markAllAsTouched();
-      this.referralError = 'Por favor complete todos los campos obligatorios y autorice el contacto.';
+      this.referralError = 'Revisa los campos obligatorios y confirma la autorización de contacto.';
       return;
     }
 
@@ -105,6 +196,7 @@ export class AlliesProgramComponent implements OnInit {
       next: (response) => {
         this.referralMessage = response?.message || 'Referido enviado correctamente. El equipo de Orjuela Abogados se pondrá en contacto con la persona referida.';
         this.referralForm.reset({ contact_authorization: false });
+        this.referralStep = 1;
         this.isSendingReferral = false;
       },
       error: (error) => {

@@ -14,7 +14,9 @@ export class NavbarComponent {
    @Output() contactClick = new EventEmitter<void>();
    @Output() aboutUsClick = new EventEmitter<void>();
    @Output() servicesClick = new EventEmitter<void>();
+   @Output() howClick = new EventEmitter<void>();
    @Output() alliesClick = new EventEmitter<void>();
+   @Output() blogClick = new EventEmitter<void>();
   
   onContactClick() {
     this.contactClick.emit();
@@ -28,8 +30,16 @@ export class NavbarComponent {
     this.servicesClick.emit();
   }
 
+  onHowClick() {
+    this.howClick.emit();
+  }
+
   onAlliesClick() {
     this.alliesClick.emit();
+  }
+
+  onBlogClick() {
+    this.blogClick.emit();
   }
   
 }
