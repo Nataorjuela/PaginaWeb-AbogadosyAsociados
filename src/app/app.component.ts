@@ -15,6 +15,8 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { WeeklyArticleComponent } from './Pages/weekly-article/weekly-article.component';
+import { AlliesProgramComponent } from './Pages/AlliesProgram/allies-program.component';
+import { AdminComponent } from './Pages/Admin/admin.component';
 
 @Component({
   selector: 'app-root',
@@ -31,6 +33,8 @@ import { WeeklyArticleComponent } from './Pages/weekly-article/weekly-article.co
     AboutUsComponent,
     HomeComponent,
     WeeklyArticleComponent,
+    AlliesProgramComponent,
+    AdminComponent,
     MatSlideToggleModule,
     MatFormFieldModule,
     MatIconModule,
@@ -45,6 +49,8 @@ export class AppComponent {
     @ViewChild('aboutUsRef') aboutUsRef!: ElementRef;
     @ViewChild('servicesRef') servicesRef!: ElementRef;
     @ViewChild('weeklyArt') weeklyArt!:ElementRef;
+    @ViewChild('alliesRef') alliesRef!: ElementRef;
+    isAdminPath = typeof window !== 'undefined' && window.location.pathname === '/admin';
 
  
 
@@ -63,6 +69,12 @@ export class AppComponent {
   scrollServices():void{
     if(this.servicesRef){
       this.servicesRef.nativeElement.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  scrollAllies(): void {
+    if (this.alliesRef) {
+      this.alliesRef.nativeElement.scrollIntoView({ behavior: 'smooth' });
     }
   }
 

@@ -14,6 +14,7 @@ export class NavbarComponent {
    @Output() contactClick = new EventEmitter<void>();
    @Output() aboutUsClick = new EventEmitter<void>();
    @Output() servicesClick = new EventEmitter<void>();
+   @Output() alliesClick = new EventEmitter<void>();
   
   onContactClick() {
     this.contactClick.emit();
@@ -25,6 +26,10 @@ export class NavbarComponent {
 
   onServicesClick(){
     this.servicesClick.emit();
+  }
+
+  onAlliesClick() {
+    this.alliesClick.emit();
   }
   
 }

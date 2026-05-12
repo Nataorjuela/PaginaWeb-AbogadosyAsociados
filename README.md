@@ -7,10 +7,42 @@ This project was generated using [Angular CLI](https://github.com/angular/angula
 To start a local development server, run:
 
 ```bash
-ng serve
+npm run start:api
+npm start
 ```
 
 Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+
+The allies/referrals API runs on `http://localhost:3000` by default and the Angular dev server proxies `/api` to it.
+
+## Allies and referrals module
+
+Environment variables are configured from `.env` using the keys shown in `.env.example`:
+
+```bash
+PORT=3000
+DB_FILE=./data/orjuela.db
+ADMIN_EMAIL=contacto@orjuelaabogados.com
+ADMIN_PASSWORD=change-this-password
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_password
+SMTP_FROM=orjuela@yourdomain.com
+```
+
+Public form:
+
+- `Programa de aliados` is shown in the main page.
+- Allies register through `/api/allies`.
+- Referrals are created through `/api/referrals`.
+
+Administrative panel:
+
+- Open `/admin`.
+- Log in with `ADMIN_PASSWORD`.
+- Manage ally statuses and referral statuses.
 
 ## Code scaffolding
 

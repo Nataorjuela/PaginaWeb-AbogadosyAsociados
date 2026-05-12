@@ -1,0 +1,165 @@
+<section class="allies-program py-5">
+  <div class="container">
+    <div class="row align-items-center gy-4 mb-5">
+      <div class="col-lg-7">
+        <span class="section-kicker">Refiere un caso</span>
+        <h2 class="section-title">Programa de aliados</h2>
+        <p class="section-description">
+          Regístrate como aliado de Orjuela Abogados y envía referidos de forma segura. Nuestro equipo validará tu información y dará seguimiento a cada caso.
+        </p>
+      </div>
+      <div class="col-lg-5">
+        <div class="cta-strip">
+          <a href="#aliado-registro" class="btn btn-dark">Quiero ser aliado</a>
+          <a href="#aliado-referido" class="btn btn-outline-dark">Registrar referido</a>
+        </div>
+      </div>
+    </div>
+
+    <section class="program-block" id="aliado-registro">
+      <div class="row align-items-start gy-4">
+        <div class="col-lg-4">
+          <h3 class="card-title">Unirme al programa de aliados</h3>
+          <p class="text-muted">Completa tus datos para iniciar la validación por parte de la firma.</p>
+        </div>
+        <div class="col-lg-8">
+          <div class="card shadow-sm border-0">
+            <div class="card-body">
+              <form [formGroup]="registerForm" (ngSubmit)="submitRegistration()" novalidate>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Nombre completo</label>
+                    <input type="text" class="form-control" formControlName="full_name" autocomplete="name" />
+                    <div *ngIf="registerForm.get('full_name')?.touched && registerForm.get('full_name')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Cédula</label>
+                    <input type="text" class="form-control" formControlName="document_number" inputmode="numeric" />
+                    <div *ngIf="registerForm.get('document_number')?.touched && registerForm.get('document_number')?.invalid" class="text-danger small">Ingrese una cédula válida</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Celular / WhatsApp</label>
+                    <input type="tel" class="form-control" formControlName="phone" autocomplete="tel" />
+                    <div *ngIf="registerForm.get('phone')?.touched && registerForm.get('phone')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Correo electrónico</label>
+                    <input type="email" class="form-control" formControlName="email" autocomplete="email" />
+                    <div *ngIf="registerForm.get('email')?.touched && registerForm.get('email')?.invalid" class="text-danger small">Correo inválido</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Ciudad</label>
+                    <input type="text" class="form-control" formControlName="city" autocomplete="address-level2" />
+                    <div *ngIf="registerForm.get('city')?.touched && registerForm.get('city')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Tipo de aliado</label>
+                    <select class="form-select" formControlName="ally_type">
+                      <option value="">Selecciona una opción</option>
+                      <option *ngFor="let type of allyTypes" [value]="type.value">{{ type.label }}</option>
+                    </select>
+                    <div *ngIf="registerForm.get('ally_type')?.touched && registerForm.get('ally_type')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="acceptTerms" formControlName="accept_terms" />
+                  <label class="form-check-label" for="acceptTerms">
+                    Acepto el tratamiento de datos personales conforme a la Ley 1581 de 2012 y autorizo a Orjuela Abogados a validar mi información.
+                  </label>
+                  <div *ngIf="registerForm.get('accept_terms')?.touched && registerForm.get('accept_terms')?.invalid" class="text-danger small">Es obligatorio aceptar.</div>
+                </div>
+                <div *ngIf="registerError" class="alert alert-danger">{{ registerError }}</div>
+                <div *ngIf="registerMessage" class="alert alert-success">{{ registerMessage }}</div>
+                <button class="btn btn-primary" type="submit" [disabled]="isRegistering">
+                  {{ isRegistering ? 'Enviando...' : 'Enviar registro' }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="program-block referral-block" id="aliado-referido">
+      <div class="row align-items-start gy-4">
+        <div class="col-lg-4">
+          <h3 class="card-title">Registrar referido</h3>
+          <p class="text-muted">Ingresa tus datos de aliado y la información de la persona que recomienda el caso.</p>
+        </div>
+        <div class="col-lg-8">
+          <div class="card shadow-sm border-0">
+            <div class="card-body">
+              <form [formGroup]="referralForm" (ngSubmit)="submitReferral()" novalidate>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Tu cédula de aliado</label>
+                    <input type="text" class="form-control" formControlName="ally_document_number" />
+                    <div *ngIf="referralForm.get('ally_document_number')?.touched && referralForm.get('ally_document_number')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Tu correo de aliado</label>
+                    <input type="email" class="form-control" formControlName="ally_email" />
+                    <div *ngIf="referralForm.get('ally_email')?.touched && referralForm.get('ally_email')?.invalid" class="text-danger small">Correo inválido</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Nombre completo del referido</label>
+                    <input type="text" class="form-control" formControlName="referred_full_name" />
+                    <div *ngIf="referralForm.get('referred_full_name')?.touched && referralForm.get('referred_full_name')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Celular / WhatsApp del referido</label>
+                    <input type="tel" class="form-control" formControlName="referred_phone" />
+                    <div *ngIf="referralForm.get('referred_phone')?.touched && referralForm.get('referred_phone')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Correo electrónico del referido (opcional)</label>
+                    <input type="email" class="form-control" formControlName="referred_email" />
+                    <div *ngIf="referralForm.get('referred_email')?.touched && referralForm.get('referred_email')?.invalid" class="text-danger small">Correo inválido</div>
+                  </div>
+                  <div class="col-md-6 mb-3">
+                    <label class="form-label">Ciudad del referido</label>
+                    <input type="text" class="form-control" formControlName="referred_city" />
+                    <div *ngIf="referralForm.get('referred_city')?.touched && referralForm.get('referred_city')?.invalid" class="text-danger small">Requerido</div>
+                  </div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Área legal</label>
+                  <select class="form-select" formControlName="legal_area">
+                    <option value="">Selecciona un área</option>
+                    <option *ngFor="let area of legalAreas" [value]="area.value">{{ area.label }}</option>
+                  </select>
+                  <div *ngIf="referralForm.get('legal_area')?.touched && referralForm.get('legal_area')?.invalid" class="text-danger small">Requerido</div>
+                </div>
+                <div class="mb-3">
+                  <label class="form-label">Descripción breve del caso</label>
+                  <textarea class="form-control" rows="4" formControlName="case_description"></textarea>
+                  <div *ngIf="referralForm.get('case_description')?.touched && referralForm.get('case_description')?.invalid" class="text-danger small">Requerido, máximo 800 caracteres</div>
+                </div>
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" id="contactAuthorization" formControlName="contact_authorization" />
+                  <label class="form-check-label" for="contactAuthorization">
+                    Confirmo que la persona referida autorizó ser contactada por Orjuela Abogados.
+                  </label>
+                  <div *ngIf="referralForm.get('contact_authorization')?.touched && referralForm.get('contact_authorization')?.invalid" class="text-danger small">Es obligatorio autorizar el contacto.</div>
+                </div>
+                <div *ngIf="referralError" class="alert alert-danger">{{ referralError }}</div>
+                <div *ngIf="referralMessage" class="alert alert-success">{{ referralMessage }}</div>
+                <button class="btn btn-success" type="submit" [disabled]="isSendingReferral">
+                  {{ isSendingReferral ? 'Enviando...' : 'Enviar referido' }}
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</section>

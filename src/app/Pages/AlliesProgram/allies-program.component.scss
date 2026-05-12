@@ -1,0 +1,105 @@
+.allies-program {
+  background: #f7f8fa;
+  color: #1f2933;
+  scroll-margin-top: 88px;
+}
+
+.section-kicker {
+  color: #1e3650;
+  display: inline-block;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+}
+
+.section-title {
+  color: #111827;
+  font-family: 'Merriweather', serif;
+  font-size: 2.35rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+.section-description {
+  color: #59636f;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  margin: 0;
+  max-width: 760px;
+}
+
+.cta-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-lg-end;
+}
+
+.program-block {
+  scroll-margin-top: 96px;
+}
+
+.program-block + .program-block {
+  border-top: 1px solid #d8dde4;
+  margin-top: 3rem;
+  padding-top: 3rem;
+}
+
+.referral-block {
+  background: #ffffff;
+  border-radius: 8px;
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
+  padding: 2rem 0.75rem;
+}
+
+.card {
+  border-radius: 8px;
+}
+
+.card-body {
+  padding: 1.5rem;
+}
+
+.card-title {
+  color: #1e3650;
+  font-family: 'Merriweather', serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.btn-primary,
+.btn-success {
+  background-color: #1e3650;
+  border-color: #1e3650;
+}
+
+.btn-primary:hover,
+.btn-success:hover {
+  background-color: #15283c;
+  border-color: #15283c;
+}
+
+.btn-primary,
+.btn-success {
+  min-width: 180px;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: #1e3650;
+  box-shadow: 0 0 0 0.2rem rgba(30, 54, 80, 0.18);
+}
+
+@media (max-width: 767px) {
+  .section-title {
+    font-size: 1.85rem;
+  }
+
+  .cta-strip .btn {
+    width: 100%;
+  }
+}

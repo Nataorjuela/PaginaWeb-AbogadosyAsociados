@@ -1,21 +1,31 @@
-<app-navbar 
-  (contactClick)="scrollToContact()"
-  (aboutUsClick)="scrollAboutUS()"
-  (servicesClick)="scrollServices()"
-></app-navbar>
-<div #contactForm>
-    <app-home (contactClick)=" scrollToContact()"></app-home>
-</div>
-<div #contactRef>
-  <app-contactUs></app-contactUs>
-</div>
-<div #aboutUsRef>
-  <app-aboutUs></app-aboutUs>
-</div>
-<div #servicesRef>
-  <app-services></app-services>
-</div>
-<div #weeklyArt>
-  <app-weekly-article></app-weekly-article>
-</div>
-<app-footer></app-footer>
+<ng-container *ngIf="isAdminPath; else publicSite">
+  <app-admin></app-admin>
+</ng-container>
+
+<ng-template #publicSite>
+  <app-navbar
+    (contactClick)="scrollToContact()"
+    (aboutUsClick)="scrollAboutUS()"
+    (servicesClick)="scrollServices()"
+    (alliesClick)="scrollAllies()"
+  ></app-navbar>
+  <div #contactForm>
+    <app-home (contactClick)="scrollToContact()"></app-home>
+  </div>
+  <div #contactRef>
+    <app-contactUs></app-contactUs>
+  </div>
+  <div #aboutUsRef>
+    <app-aboutUs></app-aboutUs>
+  </div>
+  <div #servicesRef>
+    <app-services></app-services>
+  </div>
+  <div #alliesRef>
+    <app-allies-program></app-allies-program>
+  </div>
+  <div #weeklyArt>
+    <app-weekly-article></app-weekly-article>
+  </div>
+  <app-footer></app-footer>
+</ng-template>
