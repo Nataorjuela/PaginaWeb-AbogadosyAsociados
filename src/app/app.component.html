@@ -1,6 +1,12 @@
+<ng-container *ngIf="isPlatformPath; else legacyAdminOrPublic">
+  <app-auth-portal></app-auth-portal>
+</ng-container>
+
+<ng-template #legacyAdminOrPublic>
 <ng-container *ngIf="isAdminPath; else publicSite">
   <app-admin></app-admin>
 </ng-container>
+</ng-template>
 
 <ng-template #publicSite>
   <app-navbar

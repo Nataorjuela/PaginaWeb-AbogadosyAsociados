@@ -1,0 +1,229 @@
+<main class="auth-platform" [class.admin-mode]="mode === 'admin-login' || mode === 'admin-dashboard'">
+  <section class="access-select" *ngIf="mode === 'access'">
+    <div class="container">
+      <div class="access-heading">
+        <span class="secure-pill"><i class="bi bi-shield-lock"></i> Acceso seguro Orjuela Abogados</span>
+        <h1>Ingresa a tu portal legal</h1>
+        <p>Selecciona el acceso correspondiente para continuar con una experiencia privada, organizada y segura.</p>
+      </div>
+      <div class="access-grid">
+        <article class="access-card" *ngFor="let card of accessCards">
+          <i class="bi {{ card.icon }}"></i>
+          <h2>{{ card.title }}</h2>
+          <p>{{ card.text }}</p>
+          <a class="btn btn-primary" [href]="card.href">{{ card.button }}</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="login-split" *ngIf="mode === 'partner-login'">
+    <div class="login-visual">
+      <div class="mock-card">
+        <span>Portal aliados</span>
+        <h2>Haz seguimiento a tus referidos desde un solo lugar.</h2>
+        <div class="mini-chart"><b style="height: 46%"></b><b style="height: 68%"></b><b style="height: 82%"></b><b style="height: 58%"></b></div>
+      </div>
+    </div>
+    <div class="login-panel">
+      <a class="back-link" href="/ingresar">Volver</a>
+      <h1>Ingresar como aliado</h1>
+      <p>Gestiona referidos, estados, pagos e historial comercial.</p>
+      <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'ally', button: 'Ingresar al portal' }"></ng-container>
+      <div class="auth-alt">¿Aún no eres aliado? <a href="/aliados/registro">Regístrate aquí</a></div>
+    </div>
+  </section>
+
+  <section class="login-split client-login" *ngIf="mode === 'client-login'">
+    <div class="login-visual calm">
+      <div class="mock-card">
+        <span>Portal cliente</span>
+        <h2>Consulta tu caso de forma rápida y segura.</h2>
+        <p>Estado, documentos, citas y mensajes protegidos.</p>
+      </div>
+    </div>
+    <div class="login-panel">
+      <a class="back-link" href="/ingresar">Volver</a>
+      <h1>Portal clientes</h1>
+      <p>Consulta el estado de tu caso y tus próximos pasos.</p>
+      <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'client', button: 'Ingresar' }"></ng-container>
+      <div class="auth-alt">¿Necesitas ayuda? <a href="https://wa.me/573144278339" target="_blank" rel="noopener">Contactar soporte</a></div>
+    </div>
+  </section>
+
+  <section class="login-split admin-login" *ngIf="mode === 'admin-login'">
+    <div class="login-visual dark">
+      <div class="mock-card">
+        <i class="bi bi-lock"></i>
+        <span>Acceso interno</span>
+        <h2>Panel interno Orjuela Abogados</h2>
+        <p>Acceso exclusivo para personal autorizado.</p>
+      </div>
+    </div>
+    <div class="login-panel dark-panel">
+      <a class="back-link" href="/ingresar">Volver</a>
+      <span class="secure-pill"><i class="bi bi-shield-check"></i> Acceso seguro</span>
+      <h1>Ingresar al panel</h1>
+      <p>CRM jurídico, leads, clientes, casos, aliados y reportes.</p>
+      <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'admin', button: 'Ingresar al panel' }"></ng-container>
+    </div>
+  </section>
+
+  <section class="register-page" *ngIf="mode === 'partner-register'">
+    <div class="container register-layout">
+      <div class="register-copy">
+        <a class="back-link" href="/aliados/login">Ya tengo cuenta</a>
+        <span class="secure-pill">Registro de aliado</span>
+        <h1>Crea tu cuenta de aliado</h1>
+        <p>Completa la información para activar tu portal, enviar referidos y consultar el avance de cada oportunidad.</p>
+      </div>
+      <div class="register-card">
+        <div class="progress"><div class="progress-bar" [style.width.%]="registerProgress"></div></div>
+        <form [formGroup]="partnerRegisterForm" (ngSubmit)="registerPartner()" novalidate>
+          <div *ngIf="registerStep === 1" class="step-pane">
+            <h2>Datos personales</h2>
+            <div class="form-grid">
+              <label>Nombre completo<input class="form-control" formControlName="full_name"></label>
+              <label>Cédula<input class="form-control" formControlName="document_id"></label>
+              <label>Celular<input class="form-control" formControlName="phone"></label>
+              <label>Correo<input class="form-control" formControlName="email"></label>
+              <label>Ciudad<input class="form-control" formControlName="city"></label>
+            </div>
+          </div>
+          <div *ngIf="registerStep === 2" class="step-pane">
+            <h2>Perfil del aliado</h2>
+            <div class="form-grid">
+              <label>Tipo de aliado<select class="form-select" formControlName="partner_type"><option value="">Selecciona</option><option *ngFor="let type of partnerTypes">{{ type }}</option></select></label>
+              <label>Empresa opcional<input class="form-control" formControlName="company"></label>
+              <label class="full">Cómo conoció la firma<input class="form-control" formControlName="how_known"></label>
+            </div>
+          </div>
+          <div *ngIf="registerStep === 3" class="step-pane">
+            <h2>Seguridad</h2>
+            <div class="form-grid">
+              <label>Crear contraseña<input class="form-control" type="password" formControlName="password"></label>
+              <label>Confirmar contraseña<input class="form-control" type="password" formControlName="confirm_password"></label>
+            </div>
+          </div>
+          <div *ngIf="registerStep === 4" class="step-pane">
+            <h2>Términos</h2>
+            <label class="check-row"><input type="checkbox" formControlName="terms"> Acepto las políticas del programa de aliados.</label>
+            <label class="check-row"><input type="checkbox" formControlName="data_auth"> Autorizo el tratamiento de mis datos personales.</label>
+          </div>
+          <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+          <div *ngIf="message" class="success-state">
+            <i class="bi bi-check-circle"></i>
+            <strong>{{ message }}</strong>
+            <button class="btn btn-primary" type="button" (click)="go('/aliados/dashboard')">Ir al portal</button>
+          </div>
+          <div class="step-actions" *ngIf="!message">
+            <button class="btn btn-outline-dark" type="button" *ngIf="registerStep > 1" (click)="previousRegisterStep()">Atrás</button>
+            <button class="btn btn-primary" type="button" *ngIf="registerStep < 4" (click)="nextRegisterStep()">Continuar</button>
+            <button class="btn btn-primary" type="submit" *ngIf="registerStep === 4" [disabled]="loading">Crear cuenta</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <ng-container *ngIf="mode === 'partner-dashboard'">
+    <ng-container *ngTemplateOutlet="dashboardShell; context: { kind: 'partner' }"></ng-container>
+  </ng-container>
+  <ng-container *ngIf="mode === 'client-dashboard'">
+    <ng-container *ngTemplateOutlet="dashboardShell; context: { kind: 'client' }"></ng-container>
+  </ng-container>
+  <ng-container *ngIf="mode === 'admin-dashboard'">
+    <ng-container *ngTemplateOutlet="dashboardShell; context: { kind: 'admin' }"></ng-container>
+  </ng-container>
+
+  <section class="recovery-page" *ngIf="mode === 'recovery'">
+    <form class="login-panel" [formGroup]="recoveryForm" (ngSubmit)="recoverPassword()">
+      <span class="secure-pill">Recuperar acceso</span>
+      <h1>Restablece tu contraseña</h1>
+      <p>Te enviaremos un enlace temporal para crear una nueva contraseña.</p>
+      <label>Correo electrónico<input class="form-control" formControlName="email"></label>
+      <div *ngIf="message" class="alert alert-success">{{ message }}</div>
+      <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+      <button class="btn btn-primary w-100">Enviar instrucciones</button>
+    </form>
+  </section>
+</main>
+
+<ng-template #loginFormTemplate let-role="role" let-button="button">
+  <form class="auth-form" [formGroup]="loginForm" (ngSubmit)="login(role)">
+    <label>{{ role === 'client' ? 'Correo o documento' : role === 'admin' ? 'Correo corporativo' : 'Correo electrónico' }}
+      <input class="form-control" formControlName="email" autocomplete="email">
+    </label>
+    <label>Contraseña
+      <div class="password-field">
+        <input class="form-control" [type]="showPassword ? 'text' : 'password'" formControlName="password">
+        <button type="button" (click)="showPassword = !showPassword"><i class="bi" [class.bi-eye]="!showPassword" [class.bi-eye-slash]="showPassword"></i></button>
+      </div>
+    </label>
+    <div class="form-options">
+      <label><input type="checkbox" formControlName="remember"> Recordarme</label>
+      <a href="/recuperar-contrasena">Recuperar contraseña</a>
+    </div>
+    <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+    <button class="btn btn-primary w-100" [disabled]="loading">{{ loading ? 'Validando...' : button }}</button>
+    <button class="btn btn-outline-dark w-100" type="button" *ngIf="role === 'ally'" (click)="go('/aliados/registro')">Crear cuenta de aliado</button>
+  </form>
+</ng-template>
+
+<ng-template #dashboardShell let-kind="kind">
+  <section class="dashboard-shell" [class.dark-dashboard]="kind === 'admin'">
+    <aside class="sidebar">
+      <strong>Orjuela</strong>
+      <nav *ngIf="kind === 'partner'">
+        <a>Inicio</a><a>Mis referidos</a><a>Nuevo referido</a><a>Comisiones</a><a>Historial de pagos</a><a>Recursos</a><a>Mi perfil</a><button (click)="logout()">Cerrar sesión</button>
+      </nav>
+      <nav *ngIf="kind === 'client'">
+        <a>Inicio</a><a>Mis casos</a><a>Documentos</a><a>Pagos</a><a>Citas</a><a>Mensajes</a><a>Perfil</a><button (click)="logout()">Cerrar sesión</button>
+      </nav>
+      <nav *ngIf="kind === 'admin'">
+        <a>Dashboard</a><a>Leads</a><a>Clientes</a><a>Casos</a><a>Aliados</a><a>Referidos</a><a>Pagos</a><a>Agenda</a><a>Documentos</a><a>Reportes</a><a>Configuración</a><button (click)="logout()">Cerrar sesión</button>
+      </nav>
+    </aside>
+    <div class="dashboard-main">
+      <header class="dashboard-header">
+        <div>
+          <span class="secure-pill">{{ kind === 'partner' ? 'Cuenta activa' : kind === 'client' ? 'Caso protegido' : 'Acceso interno seguro' }}</span>
+          <h1>{{ kind === 'partner' ? 'Dashboard de aliados' : kind === 'client' ? 'Portal clientes' : 'CRM jurídico administrativo' }}</h1>
+        </div>
+        <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
+      </header>
+
+      <div class="metric-grid">
+        <article class="metric-card" *ngFor="let metric of kind === 'partner' ? partnerMetrics : kind === 'client' ? clientMetrics : adminMetrics">
+          <span>{{ metric.label }}</span><strong>{{ metric.value }}</strong>
+        </article>
+      </div>
+
+      <div class="content-grid" *ngIf="kind === 'partner'">
+        <section class="data-card wide">
+          <div class="data-toolbar"><h2>Referidos enviados</h2><input class="form-control" placeholder="Buscar referido"><select class="form-select"><option>Todos los estados</option></select></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Cliente</th><th>Tipo de caso</th><th>Fecha</th><th>Estado</th><th>Comisión</th><th>Acción</th></tr></thead><tbody><tr *ngFor="let item of referrals"><td>{{ item.client }}</td><td>{{ item.caseType }}</td><td>{{ item.date }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ item.commission }}</td><td>{{ item.action }}</td></tr></tbody></table></div>
+        </section>
+      </div>
+
+      <div class="content-grid" *ngIf="kind === 'client'">
+        <section class="data-card wide">
+          <h2>Mis casos</h2>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Tipo de caso</th><th>Estado</th><th>Última actualización</th><th>Abogado asignado</th><th>Próxima acción</th></tr></thead><tbody><tr *ngFor="let item of clientCases"><td>{{ item.caseType }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ item.updatedAt }}</td><td>{{ item.lawyer }}</td><td>{{ item.nextAction }}</td></tr></tbody></table></div>
+        </section>
+        <section class="data-card"><h2>Timeline</h2><ol class="timeline"><li>Recibido</li><li>En revisión</li><li>Documentos solicitados</li><li>En trámite</li></ol></section>
+        <section class="data-card"><h2>Documentos</h2><button class="btn btn-outline-dark w-100">Subir documento</button><button class="btn btn-outline-dark w-100 mt-2">Descargar archivos</button></section>
+        <section class="data-card"><h2>Mensajes</h2><textarea class="form-control" rows="4" placeholder="Escribe una solicitud"></textarea><button class="btn btn-primary mt-2">Enviar mensaje</button></section>
+      </div>
+
+      <div class="content-grid" *ngIf="kind === 'admin'">
+        <section class="data-card wide">
+          <h2>Leads recientes</h2>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ lead.date }}</td></tr></tbody></table></div>
+        </section>
+        <section class="data-card chart-card"><h2>Leads por fuente</h2><div class="chart-bars"><b style="height:70%"></b><b style="height:45%"></b><b style="height:62%"></b><b style="height:38%"></b></div></section>
+        <section class="data-card chart-card"><h2>Casos por estado</h2><div class="chart-bars gold"><b style="height:40%"></b><b style="height:76%"></b><b style="height:58%"></b><b style="height:30%"></b></div></section>
+      </div>
+    </div>
+  </section>
+</ng-template>

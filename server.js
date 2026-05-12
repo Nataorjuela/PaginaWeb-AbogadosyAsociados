@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const sqlite3 = require('sqlite3').verbose();
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
@@ -12,11 +13,13 @@ const PORT = process.env.PORT || 3000;
 const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, 'data', 'orjuela.db');
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 
 const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
 const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
 const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'proposal_sent', 'won', 'commission_approved', 'commission_paid', 'rejected'];
+const AUTH_ROLES = ['admin', 'abogado', 'asistente', 'ally', 'client'];
 
 const app = express();
 app.use(cors());
@@ -122,6 +125,38 @@ function createDatabase() {
       created_at TEXT NOT NULL
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      full_name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      reset_token_hash TEXT,
+      reset_token_expires_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS partners (
+      user_id INTEGER PRIMARY KEY,
+      document_id TEXT NOT NULL UNIQUE,
+      phone TEXT NOT NULL,
+      city TEXT NOT NULL,
+      partner_type TEXT NOT NULL,
+      company TEXT,
+      how_known TEXT,
+      commission_balance REAL DEFAULT 0,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS auth_clients (
+      user_id INTEGER PRIMARY KEY,
+      document_id TEXT UNIQUE,
+      assigned_lawyer TEXT,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
     [
       `ALTER TABLE allies ADD COLUMN how_known TEXT`,
       `ALTER TABLE allies ADD COLUMN bank_name TEXT`,
@@ -205,6 +240,60 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function base64Url(input) {
+  return Buffer.from(input).toString('base64url');
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.pbkdf2Sync(String(password), salt, 120000, 32, 'sha256').toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, storedHash) {
+  if (!storedHash || !storedHash.includes(':')) return false;
+  const [salt, hash] = storedHash.split(':');
+  const candidate = hashPassword(password, salt).split(':')[1];
+  return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(candidate));
+}
+
+function signToken(payload) {
+  const header = base64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const body = base64Url(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + 60 * 60 * 8 }));
+  const signature = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+  return `${header}.${body}.${signature}`;
+}
+
+function verifyToken(token) {
+  const [header, body, signature] = String(token || '').split('.');
+  if (!header || !body || !signature) return null;
+  const expected = crypto.createHmac('sha256', JWT_SECRET).update(`${header}.${body}`).digest('base64url');
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+  const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  if (payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload;
+}
+
+function requireAuth(roles = []) {
+  return (req, res, next) => {
+    const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const payload = verifyToken(token);
+    if (!payload) return res.status(401).json({ error: 'Sesión inválida o expirada.' });
+    if (roles.length && !roles.includes(payload.role)) return res.status(403).json({ error: 'No tienes permisos para acceder a este recurso.' });
+    req.user = payload;
+    next();
+  };
+}
+
+function publicUser(row) {
+  return {
+    id: row.id,
+    full_name: row.full_name,
+    email: row.email,
+    role: row.role,
+    status: row.status
+  };
+}
+
 function authorizeAdmin(req, res, next) {
   const password = (req.headers['x-admin-password'] || '').toString();
   if (!password || password !== ADMIN_PASSWORD) {
@@ -215,6 +304,132 @@ function authorizeAdmin(req, res, next) {
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+app.post('/api/auth/register-partner', (req, res) => {
+  const payload = {
+    full_name: cleanText(req.body.full_name),
+    document_id: normalizeDocument(req.body.document_id),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 100),
+    partner_type: cleanText(req.body.partner_type, 60),
+    company: cleanText(req.body.company, 120),
+    how_known: cleanText(req.body.how_known, 180),
+    password: String(req.body.password || ''),
+    terms: req.body.terms,
+    data_auth: req.body.data_auth
+  };
+
+  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.partner_type || !payload.password || payload.terms !== true || payload.data_auth !== true) {
+    return res.status(400).json({ error: 'Completa los campos obligatorios y acepta las políticas.' });
+  }
+  if (!isValidEmail(payload.email) || payload.password.length < 8) {
+    return res.status(400).json({ error: 'Correo o contraseña no válidos.' });
+  }
+
+  const createdAt = getTimestamp();
+  db.serialize(() => {
+    const stmt = db.prepare(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'ally', 'active', ?, ?)`);
+    stmt.run(payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt, function (err) {
+      if (err) {
+        if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Ya existe una cuenta con este correo.' });
+        console.error(err);
+        return res.status(500).json({ error: 'Error al crear usuario.' });
+      }
+
+      const userId = this.lastID;
+      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, commission_balance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known], (partnerErr) => {
+        if (partnerErr) {
+          console.error(partnerErr);
+          return res.status(500).json({ error: 'Error al crear perfil de aliado.' });
+        }
+
+        const user = { id: userId, full_name: payload.full_name, email: payload.email, role: 'ally', status: 'active' };
+        res.status(201).json({ message: 'Tu cuenta de aliado fue creada exitosamente.', token: signToken(user), user });
+      });
+    });
+    stmt.finalize();
+  });
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const email = normalizeEmail(req.body.email);
+  const password = String(req.body.password || '');
+  const requestedRole = cleanText(req.body.role, 20);
+
+  if (!email || !password || !requestedRole) {
+    return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
+  }
+
+  db.get(`SELECT id, full_name, email, password_hash, role, status FROM users WHERE email = ?`, [email], (err, user) => {
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Error al validar credenciales.' });
+    }
+
+    if (!user && requestedRole === 'admin' && password === ADMIN_PASSWORD) {
+      const adminUser = { id: 0, full_name: 'Equipo Orjuela', email, role: 'admin', status: 'active' };
+      return res.json({ token: signToken(adminUser), user: adminUser });
+    }
+
+    if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Credenciales inválidas.' });
+    }
+    if (requestedRole === 'admin' && !['admin', 'abogado', 'asistente'].includes(user.role)) {
+      return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
+    }
+    if (requestedRole === 'ally' && user.role !== 'ally') {
+      return res.status(403).json({ error: 'Esta cuenta no pertenece al portal de aliados.' });
+    }
+    if (requestedRole === 'client' && user.role !== 'client') {
+      return res.status(403).json({ error: 'Esta cuenta no pertenece al portal de clientes.' });
+    }
+
+    const safeUser = publicUser(user);
+    res.json({ token: signToken(safeUser), user: safeUser });
+  });
+});
+
+app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
+  res.json({ user: req.user });
+});
+
+app.post('/api/auth/recovery/request', (req, res) => {
+  const email = normalizeEmail(req.body.email);
+  if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Ingresa un correo válido.' });
+
+  const rawToken = crypto.randomBytes(24).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
+
+  db.run(`UPDATE users SET reset_token_hash = ?, reset_token_expires_at = ?, updated_at = ? WHERE email = ?`, [tokenHash, expiresAt, getTimestamp(), email], () => {
+    sendNotificationEmail('Recuperación de contraseña', `
+      <h2>Solicitud de recuperación de acceso</h2>
+      <p>Correo: ${escapeHtml(email)}</p>
+      <p>Token temporal: ${escapeHtml(rawToken)}</p>
+      <p>Vence: ${escapeHtml(expiresAt)}</p>
+    `);
+    res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
+  });
+});
+
+app.post('/api/auth/recovery/reset', (req, res) => {
+  const tokenHash = crypto.createHash('sha256').update(String(req.body.token || '')).digest('hex');
+  const password = String(req.body.password || '');
+  if (!tokenHash || password.length < 8) return res.status(400).json({ error: 'Token o contraseña no válidos.' });
+
+  db.get(`SELECT id, reset_token_expires_at FROM users WHERE reset_token_hash = ?`, [tokenHash], (err, user) => {
+    if (err || !user || new Date(user.reset_token_expires_at).getTime() < Date.now()) {
+      return res.status(400).json({ error: 'Token inválido o vencido.' });
+    }
+
+    db.run(`UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = ? WHERE id = ?`, [hashPassword(password), getTimestamp(), user.id], () => {
+      res.json({ message: 'Contraseña actualizada correctamente.' });
+    });
+  });
 });
 
 app.post('/api/allies', (req, res) => {

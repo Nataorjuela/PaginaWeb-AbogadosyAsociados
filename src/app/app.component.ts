@@ -14,6 +14,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { AlliesProgramComponent } from './Pages/AlliesProgram/allies-program.component';
 import { AdminComponent } from './Pages/Admin/admin.component';
+import { AuthPortalComponent } from './Pages/AuthPortal/auth-portal.component';
 
 type StatItem = { value: string; label: string; detail: string };
 type StepItem = { title: string; description: string; icon: string };
@@ -38,6 +39,7 @@ type ClientCase = { title: string; status: string; lawyer: string; nextAppointme
     ContactUsComponent,
     AlliesProgramComponent,
     AdminComponent,
+    AuthPortalComponent,
     MatSlideToggleModule,
     MatFormFieldModule,
     MatIconModule,
@@ -54,6 +56,13 @@ export class AppComponent {
     @ViewChild('howRef') howRef!: ElementRef;
     @ViewChild('blogRef') blogRef!: ElementRef;
     isAdminPath = typeof window !== 'undefined' && window.location.pathname === '/admin';
+    isPlatformPath = typeof window !== 'undefined' && (
+      window.location.pathname === '/ingresar' ||
+      window.location.pathname.startsWith('/aliados/') ||
+      window.location.pathname.startsWith('/clientes/') ||
+      window.location.pathname.startsWith('/admin/') ||
+      window.location.pathname.startsWith('/recuperar-contrasena')
+    );
     whatsappMessage = 'Hola, quiero recibir asesoría legal';
 
     trustStats: StatItem[] = [
