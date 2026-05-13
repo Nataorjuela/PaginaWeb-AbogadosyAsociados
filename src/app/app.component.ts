@@ -24,6 +24,7 @@ type FaqItem = { question: string; answer: string };
 type BlogItem = { title: string; summary: string; category: string; date: string };
 type DashboardReferral = { name: string; type: string; date: string; status: string; nextAction: string };
 type ClientCase = { title: string; status: string; lawyer: string; nextAppointment: string; pendingPayment: string };
+type LawyerItem = { name: string; role: string; description: string; image: string };
 
 @Component({
   selector: 'app-root',
@@ -86,6 +87,27 @@ export class AppComponent {
       { title: 'Abogados especializados', description: 'Asignación según área legal y complejidad.', icon: 'bi-award' },
       { title: 'WhatsApp conectado', description: 'Canales humanos y directos para resolver dudas.', icon: 'bi-whatsapp' },
       { title: 'Portal digital', description: 'Experiencia preparada para clientes y aliados.', icon: 'bi-window-sidebar' }
+    ];
+
+    lawyers: LawyerItem[] = [
+      {
+        name: 'Diego Orjuela Hernández',
+        role: 'Director Jurídico - Socio Fundador',
+        image: 'assets/orjuela.jpg',
+        description: 'Especialista en Derecho Comercial, con amplia trayectoria en litigio civil, comercial y asesoría jurídica para sectores público y privado.'
+      },
+      {
+        name: 'Liliana Marcela Navarro García',
+        role: 'Abogada asociada',
+        image: 'assets/lilianaMarcela.jpg',
+        description: 'Abogada especialista en derecho penal, con experiencia en litigio, representación judicial, atención y reparación a víctimas.'
+      },
+      {
+        name: 'Jerson Fabián Naranjo Buitrago',
+        role: 'Abogado asociado',
+        image: 'assets/yerson.jpg',
+        description: 'Abogado experto en Derecho Laboral y de la Seguridad Social, con amplia experiencia en asesoría y litigio en el área.'
+      }
     ];
 
     testimonials: TestimonialItem[] = [

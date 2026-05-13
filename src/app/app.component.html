@@ -119,6 +119,29 @@
       </div>
     </section>
 
+    <section class="section-shell lawyers-section">
+      <div class="container">
+        <div class="section-heading">
+          <span class="eyebrow">Nuestro equipo</span>
+          <h2>Abogados que combinan criterio jurídico, cercanía y estrategia</h2>
+          <p>Profesionales especializados que acompañan cada caso con claridad, seguimiento y una visión práctica del resultado que necesitas.</p>
+        </div>
+        <div class="lawyers-grid">
+          <article class="lawyer-card" *ngFor="let lawyer of lawyers">
+            <div class="lawyer-photo">
+              <img [src]="lawyer.image" [alt]="lawyer.name">
+            </div>
+            <div class="lawyer-copy">
+              <span>{{ lawyer.role }}</span>
+              <h3>{{ lawyer.name }}</h3>
+              <p>{{ lawyer.description }}</p>
+              <button class="btn btn-outline-dark" type="button" (click)="scrollToContact()">Solicitar asesoría</button>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
     <div #alliesRef (mouseenter)="updateWhatsAppContext('Hola, quiero ser aliado de Orjuela Abogados')">
       <app-allies-program></app-allies-program>
     </div>
