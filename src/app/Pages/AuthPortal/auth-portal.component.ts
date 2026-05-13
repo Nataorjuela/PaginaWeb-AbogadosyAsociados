@@ -60,11 +60,6 @@ export class AuthPortalComponent implements OnInit {
   formMessage = '';
   formError = '';
   readonly environment = this.resolveEnvironment();
-  readonly demoCredentials = [
-    { portal: 'Aliado', email: 'aliado@orjuela.demo', password: 'Aliado123!' },
-    { portal: 'Cliente', email: 'cliente@orjuela.demo', password: 'Cliente123!' },
-    { portal: 'Admin', email: 'admin@orjuela.demo', password: 'Admin123!' }
-  ];
 
   accessCards: AccessCard[] = [
     { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Gestiona tus referidos y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
