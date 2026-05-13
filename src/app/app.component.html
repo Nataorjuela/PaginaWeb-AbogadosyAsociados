@@ -1,4 +1,4 @@
-<ng-container *ngIf="isPlatformPath; else legacyAdminOrPublic">
+﻿<ng-container *ngIf="isPlatformPath; else legacyAdminOrPublic">
   <app-auth-portal></app-auth-portal>
 </ng-container>
 
@@ -18,15 +18,15 @@
   ></app-navbar>
 
   <main>
-    <section class="premium-hero" (mouseenter)="updateWhatsAppContext('Hola, quiero recibir asesoría legal')">
+    <section class="premium-hero" (mouseenter)="updateWhatsAppContext('Hola, quiero recibir asesorÃ­a legal')">
       <div class="container">
         <div class="hero-grid">
           <div class="hero-copy">
             <span class="eyebrow">Firma legal moderna en Colombia</span>
-            <h1>Acompañamiento legal que te da claridad, respaldo y tranquilidad en cada paso</h1>
-            <p>En Orjuela Abogados & Asociados combinamos experiencia jurídica, atención personalizada y tecnología para acompañarte en cada etapa de tu caso.</p>
+            <h1>AcompaÃ±amiento legal que te da claridad, respaldo y tranquilidad en cada paso</h1>
+            <p>En Orjuela Abogados & Asociados combinamos experiencia jurÃ­dica, atenciÃ³n personalizada y tecnologÃ­a para acompaÃ±arte en cada etapa de tu caso.</p>
             <div class="hero-actions">
-              <button class="btn btn-primary btn-lg" (click)="scrollToContact()">Agendar asesoría</button>
+              <button class="btn btn-primary btn-lg" (click)="scrollToContact()">Agendar asesorÃ­a</button>
               <button class="btn btn-outline-light btn-lg" (click)="scrollToContact()">Enviar mi caso</button>
             </div>
             <div class="hero-links">
@@ -38,7 +38,7 @@
           <div class="legal-dashboard" aria-label="Vista previa de seguimiento legal digital">
             <div class="dashboard-top">
               <span>Portal legal</span>
-              <strong>En revisión</strong>
+              <strong>En revisiÃ³n</strong>
             </div>
             <div class="case-progress">
               <div style="width: 68%"></div>
@@ -54,7 +54,7 @@
               <article>
                 <i class="bi bi-calendar2-check"></i>
                 <div>
-                  <strong>Próxima cita</strong>
+                  <strong>PrÃ³xima cita</strong>
                   <span>Viernes 16 de mayo, 9:00 a. m.</span>
                 </div>
               </article>
@@ -81,16 +81,16 @@
       </div>
     </section>
 
-    <div #servicesRef (mouseenter)="updateWhatsAppContext('Hola, necesito asesoría legal sobre un servicio de Orjuela Abogados')">
+    <div #servicesRef (mouseenter)="updateWhatsAppContext('Hola, necesito asesorÃ­a legal sobre un servicio de Orjuela Abogados')">
       <app-services (adviceClick)="updateWhatsAppContext($event); scrollToContact()"></app-services>
     </div>
 
     <section class="section-shell" #howRef>
       <div class="container">
         <div class="section-heading">
-          <span class="eyebrow">Cómo funciona</span>
-          <h2>Acompañamiento legal claro, medible y sin fricción</h2>
-          <p>Un proceso diseñado para que sepas qué pasa, quién responde y cuál es la próxima acción.</p>
+          <span class="eyebrow">CÃ³mo funciona</span>
+          <h2>AcompaÃ±amiento legal claro, medible y sin fricciÃ³n</h2>
+          <p>Un proceso diseÃ±ado para que sepas quÃ© pasa, quiÃ©n responde y cuÃ¡l es la prÃ³xima acciÃ³n.</p>
         </div>
         <div class="steps-grid">
           <article class="step-card" *ngFor="let step of howSteps; let i = index">
@@ -119,29 +119,45 @@
       </div>
     </section>
 
-    <section class="section-shell lawyers-section">
+    <section class="section-shell lawyers-section" id="equipo">
       <div class="container">
-        <div class="section-heading">
-          <span class="eyebrow">Nuestro equipo</span>
-          <h2>Abogados que combinan criterio jurídico, cercanía y estrategia</h2>
-          <p>Profesionales especializados que acompañan cada caso con claridad, seguimiento y una visión práctica del resultado que necesitas.</p>
-        </div>
-        <div class="lawyers-grid">
-          <article class="lawyer-card" *ngFor="let lawyer of lawyers">
-            <div class="lawyer-photo">
-              <img [src]="lawyer.image" [alt]="lawyer.name">
+        <div class="lawyers-editorial">
+          <div class="team-intro">
+            <span class="eyebrow">Nuestro equipo</span>
+            <h2>Direccion juridica con criterio, estrategia y acompanamiento cercano</h2>
+            <p>Un equipo legal preparado para analizar cada caso con rigor, comunicacion clara y una vision practica orientada a proteger tus intereses.</p>
+            <div class="team-proof">
+              <span><i class="bi bi-shield-check"></i> Criterio especializado</span>
+              <span><i class="bi bi-chat-dots"></i> Comunicacion directa</span>
+              <span><i class="bi bi-folder-check"></i> Seguimiento organizado</span>
             </div>
-            <div class="lawyer-copy">
-              <span>{{ lawyer.role }}</span>
-              <h3>{{ lawyer.name }}</h3>
-              <p>{{ lawyer.description }}</p>
-              <button class="btn btn-outline-dark" type="button" (click)="scrollToContact()">Solicitar asesoría</button>
-            </div>
-          </article>
+            <button class="btn btn-primary btn-lg" type="button" (click)="scrollToContact()">Agendar asesoria</button>
+          </div>
+
+          <div class="lawyers-grid">
+            <article class="lawyer-card" *ngFor="let lawyer of lawyers; let i = index" [class.is-featured]="i === 0">
+              <div class="lawyer-media">
+                <div class="lawyer-photo">
+                  <img [src]="lawyer.image" [alt]="lawyer.name">
+                </div>
+              </div>
+              <div class="lawyer-copy">
+                <span>{{ lawyer.role }}</span>
+                <h3>{{ lawyer.name }}</h3>
+                <p>{{ lawyer.description }}</p>
+                <div class="lawyer-actions">
+                  <button class="btn btn-outline-dark" type="button" (click)="scrollToContact()">
+                    <i class="bi bi-calendar2-check"></i>
+                    Solicitar asesoria
+                  </button>
+                  <small>Atencion personalizada</small>
+                </div>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     </section>
-
     <div #alliesRef (mouseenter)="updateWhatsAppContext('Hola, quiero ser aliado de Orjuela Abogados')">
       <app-allies-program></app-allies-program>
     </div>
@@ -151,7 +167,7 @@
         <div class="section-heading">
           <span class="eyebrow">Portal privado de aliados</span>
           <h2>Seguimiento comercial para tus referidos</h2>
-          <p>Vista preparada para autenticación privada, filtros, comisiones y trazabilidad de oportunidades.</p>
+          <p>Vista preparada para autenticaciÃ³n privada, filtros, comisiones y trazabilidad de oportunidades.</p>
         </div>
         <div class="metric-grid">
           <article class="metric-card" *ngFor="let metric of partnerMetrics">
@@ -172,7 +188,7 @@
                   <th>Tipo de caso</th>
                   <th>Fecha</th>
                   <th>Estado</th>
-                  <th>Próxima acción</th>
+                  <th>PrÃ³xima acciÃ³n</th>
                 </tr>
               </thead>
               <tbody>
@@ -195,7 +211,7 @@
         <div class="section-heading">
           <span class="eyebrow">Portal cliente</span>
           <h2>Consulta el estado de tu caso sin perder el hilo</h2>
-          <p>Estado del caso, documentos, próximas citas, abogado asignado, pagos y solicitudes en un solo lugar.</p>
+          <p>Estado del caso, documentos, prÃ³ximas citas, abogado asignado, pagos y solicitudes en un solo lugar.</p>
         </div>
         <div class="client-portal">
           <article class="client-case" *ngFor="let legalCase of clientCases">
@@ -220,11 +236,11 @@
       <div class="container">
         <div class="section-heading">
           <span class="eyebrow">Historias de confianza</span>
-          <h2>Una experiencia jurídica más clara y humana</h2>
+          <h2>Una experiencia jurÃ­dica mÃ¡s clara y humana</h2>
         </div>
         <div class="testimonial-grid">
           <article class="testimonial-card" *ngFor="let testimonial of testimonials">
-            <p>“{{ testimonial.quote }}”</p>
+            <p>â€œ{{ testimonial.quote }}â€</p>
             <strong>{{ testimonial.name }}</strong>
             <span>{{ testimonial.role }}</span>
           </article>
@@ -236,7 +252,7 @@
       <div class="container">
         <div class="section-heading">
           <span class="eyebrow">Recursos legales</span>
-          <h2>Guías prácticas para tomar mejores decisiones</h2>
+          <h2>GuÃ­as prÃ¡cticas para tomar mejores decisiones</h2>
         </div>
         <div class="blog-grid">
           <article class="blog-card" *ngFor="let post of blogPosts">
@@ -244,7 +260,7 @@
             <h3>{{ post.title }}</h3>
             <p>{{ post.summary }}</p>
             <small>{{ post.date | date:'longDate' }}</small>
-            <button class="btn btn-link p-0" (click)="scrollToContact()">Solicitar asesoría</button>
+            <button class="btn btn-link p-0" (click)="scrollToContact()">Solicitar asesorÃ­a</button>
           </article>
         </div>
       </div>
@@ -277,8 +293,8 @@
 
     <section class="final-cta">
       <div class="container">
-        <h2>¿Necesitas resolver un asunto legal?</h2>
-        <p>Recibe acompañamiento legal claro, oportuno y profesional desde el primer contacto.</p>
+        <h2>Â¿Necesitas resolver un asunto legal?</h2>
+        <p>Recibe acompaÃ±amiento legal claro, oportuno y profesional desde el primer contacto.</p>
         <a class="btn btn-light btn-lg" [href]="whatsappUrl" target="_blank" rel="noopener">Hablar con un abogado</a>
       </div>
     </section>
