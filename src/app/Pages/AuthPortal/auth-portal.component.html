@@ -188,8 +188,20 @@
         <button [class.active]="partnerSection === 'network'" (click)="setPartnerSection('network')">Mi red de aliados</button>
         <button [class.active]="partnerSection === 'network-referrals'" (click)="setPartnerSection('network-referrals')">Referidos de mi red</button>
         <button [class.active]="partnerSection === 'commissions'" (click)="setPartnerSection('commissions')">Comisiones</button>
+        <button [class.active]="partnerSection === 'crm'" (click)="setPartnerSection('crm')">Mis referidos</button>
+        <button [class.active]="partnerSection === 'activity'" (click)="setPartnerSection('activity')">Actividad reciente</button>
+        <button [class.active]="partnerSection === 'level'" (click)="setPartnerSection('level')">Mi nivel</button>
+        <button [class.active]="partnerSection === 'goals'" (click)="setPartnerSection('goals')">Metas del mes</button>
+        <button [class.active]="partnerSection === 'calculator'" (click)="setPartnerSection('calculator')">Calculadora</button>
+        <button [class.active]="partnerSection === 'notifications'" (click)="setPartnerSection('notifications')">Notificaciones</button>
+        <button [class.active]="partnerSection === 'finance'" (click)="setPartnerSection('finance')">Finanzas</button>
+        <button [class.active]="partnerSection === 'tree'" (click)="setPartnerSection('tree')">Mi red</button>
+        <button [class.active]="partnerSection === 'academy'" (click)="setPartnerSection('academy')">Academia</button>
+        <button [class.active]="partnerSection === 'kyc'" (click)="setPartnerSection('kyc')">Verificación KYC</button>
+        <button [class.active]="partnerSection === 'legal'" (click)="setPartnerSection('legal')">Documentos legales</button>
         <button [class.active]="partnerSection === 'resources'" (click)="setPartnerSection('resources')">Material para compartir</button>
-        <button [class.active]="partnerSection === 'profile'" (click)="setPartnerSection('profile')">Configuración</button>
+        <button [class.active]="partnerSection === 'ally-profile'" (click)="setPartnerSection('ally-profile')">Mi perfil</button>
+        <button [class.active]="partnerSection === 'profile'" (click)="setPartnerSection('profile')">Cómo funciona</button>
         <button (click)="logout()">Cerrar sesión</button>
       </nav>
       <nav *ngIf="kind === 'client'">
@@ -313,7 +325,101 @@
             <article><span>Mensaje para clientes</span><p>{{ partnerNetwork.share?.client_message }}</p><button class="btn btn-outline-dark" (click)="copyText(partnerNetwork.share?.client_message)">Copiar mensaje</button></article>
             <article><span>Mensaje para aliados</span><p>{{ partnerNetwork.share?.ally_message }}</p><button class="btn btn-outline-dark" (click)="copyText(partnerNetwork.share?.ally_message)">Copiar mensaje</button></article>
             <article class="code-card"><span>Tarjeta simple</span><strong>{{ partnerNetwork.partner?.referral_code }}</strong><small>ORJUELA Abogados & Asociados</small></article>
+            <article *ngFor="let resource of partnerAdvanced.resources || []">
+              <span>{{ resource.resource_type }}</span>
+              <strong>{{ resource.title }}</strong>
+              <p>{{ resource.description || resource.content }}</p>
+              <a class="btn btn-outline-dark" *ngIf="resource.url" [href]="resource.url" target="_blank" rel="noopener">Descargar</a>
+              <button class="btn btn-outline-dark" *ngIf="resource.content" (click)="copyText(resource.content)">Copiar texto</button>
+            </article>
           </div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'crm'">
+          <h2>Mis referidos</h2>
+          <div class="pipeline-grid">
+            <article *ngFor="let status of ['Nuevo','Contactado','Documentos solicitados','Consulta agendada','Caso en análisis','Cliente activo','Caso cerrado','Rechazado']">
+              <span>{{ status }}</span>
+              <strong>{{ pipelineCount(status) }}</strong>
+            </article>
+          </div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Teléfono</th><th>Tipo de caso</th><th>Registro</th><th>Estado</th><th>Última actualización</th><th>Observaciones</th><th></th></tr></thead><tbody><tr *ngFor="let referral of partnerAdvanced.crm_referrals || []"><td>{{ referral.name }}</td><td>{{ referral.phone }}</td><td>{{ referral.case_type }}</td><td>{{ referral.registered_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.current_status }}</span></td><td>{{ referral.updated_at | date:'mediumDate' }}</td><td>{{ referral.observations }}</td><td><button class="btn btn-outline-dark btn-sm">Ver detalle</button></td></tr></tbody></table></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'activity'">
+          <h2>Actividad reciente</h2>
+          <div class="activity-list"><article *ngFor="let item of partnerAdvanced.activity || []"><i class="bi {{ item.icon || 'bi-activity' }}"></i><div><strong>{{ item.type }}</strong><span>{{ item.description }}</span><small>{{ item.date | date:'medium' }}</small></div><span class="status-badge">{{ item.status }}</span></article></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'level'">
+          <h2>Mi nivel de aliado</h2>
+          <div class="level-card"><span>Nivel actual</span><strong>{{ partnerAdvanced.level?.current?.name || 'Bronce' }}</strong><p>{{ partnerAdvanced.level?.current?.benefits }}</p><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.level?.progress || 0"></div></div><small>Progreso al siguiente nivel: {{ partnerAdvanced.level?.progress || 0 }}%</small><p *ngIf="partnerAdvanced.level?.next">Para subir a {{ partnerAdvanced.level.next.name }}: {{ partnerAdvanced.level.next.min_converted_referrals }} clientes vinculados, {{ formatCurrency(partnerAdvanced.level.next.min_commissions) }} en comisiones y {{ partnerAdvanced.level.next.min_active_allies }} aliados activos.</p></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'goals'">
+          <h2>Mis metas del mes</h2>
+          <div class="commission-summary-grid">
+            <article><span>Meta de referidos</span><strong>{{ partnerAdvanced.goals?.referral_goal || 0 }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.referral_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.referral_progress || 0 }}%</small></article>
+            <article><span>Clientes vinculados</span><strong>{{ partnerAdvanced.goals?.converted_goal || 0 }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.converted_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.converted_progress || 0 }}%</small></article>
+            <article><span>Meta de comisiones</span><strong>{{ formatCurrency(partnerAdvanced.goals?.commission_goal) }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.commission_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.commission_progress || 0 }}%</small></article>
+          </div>
+          <div class="legal-notice">{{ partnerAdvanced.goals?.message }}</div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'calculator'">
+          <h2>Calculadora de ganancias</h2>
+          <form class="settings-form" [formGroup]="calculatorForm">
+            <label>Valor estimado del contrato legal<input class="form-control" type="number" formControlName="contract_value"></label>
+            <label>Tipo de comisión<select class="form-select" formControlName="commission_type"><option *ngFor="let type of commissionTypes" [value]="type.value">{{ type.label }}</option></select></label>
+            <article class="result-card"><span>Porcentaje aplicable</span><strong>{{ calculatorPercentage }}%</strong></article>
+            <article class="result-card"><span>Resultado estimado</span><strong>{{ formatCurrency(calculatorResult) }}</strong></article>
+          </form>
+          <div class="legal-notice">Este cálculo es únicamente estimado. Las comisiones reales están sujetas a validación, pago efectivo del cliente y políticas internas del programa.</div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'notifications'">
+          <div class="panel-header"><h2>Centro de notificaciones</h2><button class="btn btn-outline-dark" (click)="markAllNotificationsRead()">Marcar todas como leídas</button></div>
+          <p>{{ unreadNotifications }} notificaciones no leídas</p>
+          <div class="activity-list"><article *ngFor="let item of partnerAdvanced.notifications || []" [class.unread]="!item.is_read"><i class="bi bi-bell"></i><div><strong>{{ item.title }}</strong><span>{{ item.description }}</span><small>{{ item.created_at | date:'medium' }}</small></div><button class="btn btn-outline-dark btn-sm" (click)="markNotificationRead(item.id)">Marcar leída</button></article></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'ally-profile'">
+          <h2>Mi perfil profesional</h2>
+          <div class="profile-grid">
+            <div class="profile-avatar">{{ (partnerAdvanced.profile?.full_name || currentUser?.full_name || 'A').charAt(0) }}</div>
+            <p><strong>Nombre:</strong> {{ partnerAdvanced.profile?.full_name || currentUser?.full_name }}</p><p><strong>Cédula:</strong> {{ partnerAdvanced.profile?.document_id }}</p><p><strong>Teléfono:</strong> {{ partnerAdvanced.profile?.phone }}</p><p><strong>Correo:</strong> {{ partnerAdvanced.profile?.email || currentUser?.email }}</p><p><strong>Ciudad:</strong> {{ partnerAdvanced.profile?.city }}</p><p><strong>Ocupación:</strong> {{ partnerAdvanced.profile?.occupation }}</p><p><strong>Código:</strong> {{ partnerAdvanced.profile?.referral_code }}</p><p><strong>Estado:</strong> {{ partnerAdvanced.profile?.status }}</p><p><strong>Fecha de ingreso:</strong> {{ partnerAdvanced.profile?.joined_at | date:'mediumDate' }}</p><p><strong>Banco:</strong> {{ partnerAdvanced.profile?.bank_name }}</p>
+          </div>
+          <div class="legal-notice">Los datos sensibles como cédula, correo principal y cuenta bancaria requieren aprobación administrativa para ser modificados.</div>
+          <button class="btn btn-primary">Editar datos no sensibles</button>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'legal'">
+          <h2>Documentos legales y firma electrónica</h2>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Documento</th><th>Versión</th><th>Estado</th><th>Fecha</th><th>PDF</th></tr></thead><tbody><tr *ngFor="let doc of partnerAdvanced.legal_documents || []"><td>{{ doc.document_type }}</td><td>{{ doc.version }}</td><td><span class="status-badge">{{ doc.status }}</span></td><td>{{ doc.accepted_at | date:'medium' }}</td><td><button class="btn btn-outline-dark btn-sm">Descargar copia</button></td></tr></tbody></table></div>
+          <form class="settings-form" [formGroup]="legalAcceptanceForm" (ngSubmit)="acceptLegalDocument()"><label>Documento<select class="form-select" formControlName="document_type"><option>Contrato de aliado</option><option>Política de comisiones</option><option>Habeas data</option><option>Autorización de tratamiento de datos</option></select></label><label class="check-row"><input type="checkbox" formControlName="accepted"> Acepto el documento seleccionado</label><button class="btn btn-primary">Aceptar políticas</button></form>
+          <form class="network-form" [formGroup]="signatureForm" (ngSubmit)="submitSignature()"><label>Documento a firmar<select class="form-select" formControlName="document_type"><option>Contrato de aliado</option><option>Actualización de datos bancarios</option></select></label><label>Nombre completo<input class="form-control" formControlName="full_name"></label><label>Número de documento<input class="form-control" formControlName="document_number"></label><label class="check-row full"><input type="checkbox" formControlName="accepted"> Firmo electrónicamente este documento</label><button class="btn btn-primary">Registrar firma</button></form>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'finance'">
+          <h2>Dashboard financiero</h2>
+          <div class="chart-grid"><article *ngFor="let chart of [{title:'Comisiones por mes',data:partnerAdvanced.charts?.commissions_by_month},{title:'Referidos por mes',data:partnerAdvanced.charts?.referrals_by_month},{title:'Comisiones directas vs indirectas',data:partnerAdvanced.charts?.direct_vs_indirect},{title:'Pagos pendientes vs pagados',data:partnerAdvanced.charts?.pending_vs_paid}]"><h3>{{ chart.title }}</h3><div class="bar-row" *ngFor="let item of chart.data || []"><span>{{ item.label }}</span><div><b [style.width.%]="item.value > 100 ? 100 : item.value"></b></div><strong>{{ item.value }}</strong></div></article></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'tree'">
+          <h2>Árbol visual de red</h2>
+          <div class="tree-root"><article><strong>{{ partnerAdvanced.network_tree?.name }}</strong><span>{{ partnerAdvanced.network_tree?.level }} · {{ partnerAdvanced.network_tree?.status }}</span><small>{{ partnerAdvanced.network_tree?.referrals_count }} referidos · {{ formatCurrency(partnerAdvanced.network_tree?.commissions) }}</small></article><div class="tree-children"><article *ngFor="let node of partnerAdvanced.network_tree?.children || []"><strong>{{ node.name }}</strong><span>{{ node.level }} · {{ node.status }}</span><small>{{ node.referrals_count }} referidos · {{ formatCurrency(node.commissions) }}</small></article></div></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'academy'">
+          <h2>Academia de Aliados</h2>
+          <div class="academy-grid"><article *ngFor="let module of partnerAdvanced.academy || []"><span class="status-badge">{{ module.progress_status }}</span><h3>{{ module.title }}</h3><p>{{ module.description }}</p><div class="progress"><div class="progress-bar" [style.width.%]="module.progress || 0"></div></div><small>{{ module.progress || 0 }}% completado</small><button class="btn btn-outline-dark">Ver contenido</button></article></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="partnerSection === 'kyc'">
+          <h2>Verificación / KYC</h2>
+          <p>Estado actual: <span class="status-badge">{{ partnerAdvanced.kyc?.status || 'Sin verificar' }}</span></p>
+          <form class="network-form" [formGroup]="kycForm" (ngSubmit)="submitKyc()"><label>Cédula frontal URL<input class="form-control" formControlName="front_document_url"></label><label>Cédula posterior URL<input class="form-control" formControlName="back_document_url"></label><label>Selfie o foto de perfil URL<input class="form-control" formControlName="selfie_url"></label><label>Banco<input class="form-control" formControlName="bank_name"></label><label>Tipo de cuenta<input class="form-control" formControlName="account_type"></label><label>Número de cuenta<input class="form-control" formControlName="account_number"></label><button class="btn btn-primary">Enviar a revisión</button></form>
+          <div class="legal-notice">Solo aliados verificados pueden solicitar pagos. Los datos bancarios quedan sujetos a validación administrativa.</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'profile'">
@@ -478,6 +584,17 @@
         <section class="data-card wide">
           <h2>Comisiones</h2>
           <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Aliado recibe</th><th>Fuente</th><th>Referido</th><th>Tipo</th><th>%</th><th>Monto</th><th>Estado</th><th>Acción</th></tr></thead><tbody><tr *ngFor="let commission of adminNetwork.commissions"><td>{{ commission.ally_name }}</td><td>{{ commission.source_ally_name }}</td><td>{{ commission.referred_full_name }}</td><td>{{ commission.commission_type }}</td><td>{{ commission.percentage }}%</td><td><input class="form-control amount-input" #amountInput [value]="commission.amount"></td><td><span class="status-badge">{{ commission.status }}</span></td><td><select class="form-select table-select" [value]="commission.status" (change)="updateCommissionStatus(commission.id, $any($event.target).value, amountInput.value)"><option *ngFor="let status of commissionStatuses" [value]="status">{{ status }}</option></select></td></tr></tbody></table></div>
+        </section>
+        <section class="data-card wide" *ngIf="kind === 'admin' && adminSection === 'partner-network'">
+          <h2>Configuración avanzada del programa</h2>
+          <div class="admin-config-grid">
+            <article><span>Niveles configurados</span><strong>{{ adminNetwork.levels?.length || 0 }}</strong><p>Bronce, Plata, Oro y Elite con requisitos configurables.</p></article>
+            <article><span>Metas activas</span><strong>{{ adminNetwork.goals?.length || 0 }}</strong><p>Metas mensuales por aliado o generales.</p></article>
+            <article><span>Recursos de marketing</span><strong>{{ adminNetwork.resources?.length || 0 }}</strong><p>Mensajes, flyers, PDFs, logos y tarjetas digitales autorizadas.</p></article>
+            <article><span>Academia</span><strong>{{ adminNetwork.academy?.length || 0 }}</strong><p>Módulos de formación y progreso de aliados.</p></article>
+            <article><span>Verificaciones KYC</span><strong>{{ adminNetwork.kyc?.length || 0 }}</strong><p>Documentos, selfie, validaciones y datos bancarios.</p></article>
+            <article><span>Alertas antifraude</span><strong>{{ adminNetwork.fraudAlerts?.length || 0 }}</strong><p>Riesgos por duplicados, autoreferidos o actividad sospechosa.</p></article>
+          </div>
         </section>
       </div>
     </div>

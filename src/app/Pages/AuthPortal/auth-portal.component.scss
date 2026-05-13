@@ -753,6 +753,145 @@ h2 {
   padding: 0.45rem 0.7rem;
 }
 
+.pipeline-grid,
+.chart-grid,
+.academy-grid,
+.profile-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.admin-config-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-config-grid article {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+}
+
+.admin-config-grid span {
+  color: #667085;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.admin-config-grid strong {
+  color: #1e3650;
+  font-size: 1.7rem;
+}
+
+.pipeline-grid article,
+.chart-grid article,
+.academy-grid article,
+.result-card,
+.level-card,
+.tree-root article {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.activity-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.activity-list article {
+  align-items: center;
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: 38px 1fr auto;
+  padding: 0.95rem;
+}
+
+.activity-list i {
+  align-items: center;
+  background: #eefcf8;
+  border-radius: 50%;
+  color: #0f766e;
+  display: flex;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+
+.activity-list span,
+.activity-list small {
+  color: #667085;
+  display: block;
+}
+
+.activity-list .unread {
+  border-color: rgba(26, 188, 156, 0.45);
+}
+
+.big-number {
+  color: #1e3650;
+  font-size: 2.4rem;
+}
+
+.bar-row {
+  align-items: center;
+  display: grid;
+  gap: 0.7rem;
+  grid-template-columns: 90px 1fr auto;
+}
+
+.bar-row div {
+  background: #e6eaf0;
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+}
+
+.bar-row b {
+  background: #1abc9c;
+  display: block;
+  height: 100%;
+}
+
+.tree-root {
+  display: grid;
+  gap: 1rem;
+}
+
+.tree-children {
+  border-left: 2px solid #d0d5dd;
+  display: grid;
+  gap: 0.75rem;
+  margin-left: 1rem;
+  padding-left: 1rem;
+}
+
+.profile-avatar {
+  align-items: center;
+  background: #1e3650;
+  border-radius: 24px;
+  color: #ffffff;
+  display: flex;
+  font-size: 2rem;
+  font-weight: 900;
+  grid-row: span 3;
+  justify-content: center;
+  min-height: 140px;
+}
+
 .lead-hero-card {
   align-items: center;
   background: linear-gradient(135deg, #0b1624, #1e3650);
@@ -955,7 +1094,12 @@ h2 {
   .commission-summary-grid,
   .share-grid,
   .how-network-grid,
-  .settings-form {
+  .settings-form,
+  .pipeline-grid,
+  .chart-grid,
+  .academy-grid,
+  .profile-grid,
+  .admin-config-grid {
     grid-template-columns: 1fr;
   }
 

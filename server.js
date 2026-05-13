@@ -16,13 +16,14 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const APP_ENV = process.env.APP_ENV || 'development';
 const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
+const SEED_ACCESS_USERS = process.env.SEED_ACCESS_USERS === 'true';
 
 const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
 const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
 const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'proposal_sent', 'won', 'commission_approved', 'commission_paid', 'rejected'];
 const AUTH_ROLES = ['admin', 'abogado', 'asistente', 'ally', 'client'];
-const NETWORK_REFERRAL_STATUSES = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente convertido', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
+const NETWORK_REFERRAL_STATUSES = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente vinculado', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
 const COMMISSION_STATUSES = ['pending', 'approved', 'paid', 'rejected'];
 const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
 
@@ -135,6 +136,7 @@ function createDatabase() {
     db.run(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
+      document_id TEXT,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL,
@@ -188,6 +190,136 @@ function createDatabase() {
       updated_at TEXT NOT NULL
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS referral_status_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      referral_id INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      notes TEXT,
+      visible_to_ally INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (referral_id) REFERENCES referrals(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      icon TEXT,
+      status TEXT,
+      created_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_resources (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      resource_type TEXT NOT NULL,
+      description TEXT,
+      url TEXT,
+      content TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_levels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      min_converted_referrals INTEGER NOT NULL,
+      min_commissions REAL NOT NULL,
+      min_active_allies INTEGER NOT NULL,
+      benefits TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      is_active INTEGER NOT NULL DEFAULT 1
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_goals (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER,
+      month TEXT NOT NULL,
+      referral_goal INTEGER NOT NULL DEFAULT 5,
+      converted_goal INTEGER NOT NULL DEFAULT 1,
+      commission_goal REAL NOT NULL DEFAULT 500000,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      notification_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_legal_acceptances (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      document_type TEXT NOT NULL,
+      accepted_at TEXT,
+      ip_address TEXT,
+      version TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_kyc_verifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL UNIQUE,
+      front_document_url TEXT,
+      back_document_url TEXT,
+      selfie_url TEXT,
+      bank_name TEXT,
+      account_type TEXT,
+      account_number TEXT,
+      phone_validated INTEGER NOT NULL DEFAULT 0,
+      email_validated INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'Sin verificar',
+      updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_electronic_signatures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      document_type TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      document_number TEXT NOT NULL,
+      version TEXT NOT NULL,
+      signed_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'accepted'
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_fraud_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER,
+      referral_id INTEGER,
+      risk_level TEXT NOT NULL,
+      alert_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_academy_modules (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT,
+      video_url TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 1,
+      is_active INTEGER NOT NULL DEFAULT 1
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS ally_academy_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      module_id INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pendiente',
+      progress INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      UNIQUE(ally_id, module_id)
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS auth_clients (
       user_id INTEGER PRIMARY KEY,
       document_id TEXT UNIQUE,
@@ -209,11 +341,52 @@ function createDatabase() {
       `ALTER TABLE partners ADD COLUMN invited_by_partner_id INTEGER`,
       `ALTER TABLE partners ADD COLUMN created_at TEXT`,
       `ALTER TABLE partners ADD COLUMN updated_at TEXT`,
+      `ALTER TABLE users ADD COLUMN document_id TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
       SELECT 10, 3, 1, 1, ?, ?
       WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()]);
+
+    const seedNow = new Date().toISOString();
+    [
+      ['Bronce', 0, 0, 0, 'Acceso a recursos base, portal de seguimiento y soporte comercial.', 1],
+      ['Plata', 3, 500000, 1, 'Prioridad en soporte, plantillas avanzadas y revisión mensual de desempeño.', 2],
+      ['Oro', 8, 1500000, 3, 'Acompañamiento comercial dedicado y materiales personalizados.', 3],
+      ['Elite', 15, 3500000, 5, 'Beneficios preferenciales, sesiones estratégicas y reconocimiento destacado.', 4]
+    ].forEach((item) => {
+      db.run(`INSERT OR IGNORE INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?)`, item);
+    });
+
+    [
+      ['Mensaje para cliente', 'whatsapp', 'Texto base para recomendar servicios legales.', '', 'Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoría jurídica personalizada.'],
+      ['Mensaje para invitar aliado', 'whatsapp', 'Texto base para invitar aliados.', '', 'Hola, quiero invitarte al programa de aliados de Orjuela Abogados.'],
+      ['Texto para redes sociales', 'social', 'Copy breve para publicar en redes.', '', 'Acompañamiento legal claro, profesional y personalizado con Orjuela Abogados.'],
+      ['Flyer servicios legales', 'flyer', 'Pieza descargable para compartir.', '/assets/logoCompleto.jpg', ''],
+      ['PDF portafolio de servicios', 'pdf', 'Documento comercial editable.', '/assets/logoCompleto.jpg', ''],
+      ['Logo autorizado', 'logo', 'Uso de marca aprobado para aliados.', '/assets/logoCompleto.jpg', '']
+    ].forEach((item) => {
+      db.run(`INSERT INTO ally_resources (title, resource_type, description, url, content, created_at)
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM ally_resources WHERE title = ?)`, [...item, seedNow, item[0]]);
+    });
+
+    [
+      ['Cómo funciona el programa', 'Conoce reglas, estados y buenas prácticas.', 'El programa funciona por referidos efectivos y comisiones sujetas a validación.'],
+      ['Cómo referir correctamente', 'Aprende a registrar información clara y autorizada.', 'Registra datos completos, necesidad legal y autorización de contacto.'],
+      ['Cómo hablar de los servicios legales', 'Guía para explicar servicios sin promesas indebidas.', 'Comunica claridad, respaldo y acompañamiento profesional.'],
+      ['Protección de datos personales', 'Tratamiento responsable de datos en Colombia.', 'Solicita autorización previa y evita compartir datos sensibles por canales no seguros.'],
+      ['Ética en la captación de clientes', 'Buenas prácticas para recomendaciones legales.', 'Evita presiones, promesas de resultado y mensajes engañosos.'],
+      ['Uso correcto de la marca Orjuela Abogados', 'Lineamientos de marca para aliados.', 'Usa solo piezas autorizadas desde el portal.'],
+      ['Preguntas frecuentes', 'Respuestas para situaciones comunes.', 'Consulta estados, comisiones, pagos y políticas.'],
+      ['Scripts de venta', 'Guiones profesionales para conversaciones.', 'Mantén un tono claro, honesto y consultivo.'],
+      ['Buenas prácticas', 'Recomendaciones para mejorar vinculación.', 'Prioriza calidad de información y seguimiento oportuno.']
+    ].forEach((item, index) => {
+      db.run(`INSERT INTO ally_academy_modules (title, description, content, sort_order)
+        SELECT ?, ?, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM ally_academy_modules WHERE title = ?)`, [item[0], item[1], item[2], index + 1, item[0]]);
+    });
   });
   return db;
 }
@@ -337,10 +510,89 @@ function publicUser(row) {
   return {
     id: row.id,
     full_name: row.full_name,
+    document_id: row.document_id,
     email: row.email,
     role: row.role,
     status: row.status
   };
+}
+
+function upsertSeedUser({ fullName, documentId, email, password, role }, callback) {
+  const now = getTimestamp();
+  const passwordHash = hashPassword(password);
+
+  db.get(`SELECT id FROM users WHERE email = ?`, [email], (selectErr, existingUser) => {
+    if (selectErr) return callback(selectErr);
+
+    if (existingUser) {
+      return db.run(`UPDATE users
+        SET full_name = ?, document_id = ?, password_hash = ?, role = ?, status = 'active', updated_at = ?
+        WHERE id = ?`, [fullName, documentId, passwordHash, role, now, existingUser.id], (updateErr) => {
+        callback(updateErr, existingUser.id);
+      });
+    }
+
+    return db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`, [fullName, documentId, email, passwordHash, role, now, now], function insertUser(insertErr) {
+      callback(insertErr, this?.lastID);
+    });
+  });
+}
+
+function seedProductionAccessUsers() {
+  const now = getTimestamp();
+  const sharedProfile = {
+    fullName: 'Usuario Prueba',
+    documentId: '12345678'
+  };
+  const accessUsers = [
+    { ...sharedProfile, email: 'cliente@orjuela.com', password: 'Cliente123!', role: 'client' },
+    { ...sharedProfile, email: 'aliado@orjuela.com', password: 'Aliado123!', role: 'ally' },
+    { ...sharedProfile, email: 'admin@orjuela.com', password: 'Admin123!', role: 'admin' }
+  ];
+
+  accessUsers.forEach((user) => {
+    upsertSeedUser(user, (userErr, userId) => {
+      if (userErr || !userId) {
+        console.error('[seed] Error creating access user:', user.email, userErr);
+        return;
+      }
+
+      if (user.role === 'client') {
+        db.run(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer)
+          VALUES (?, ?, 'Equipo Orjuela')
+          ON CONFLICT(user_id) DO UPDATE SET
+            document_id = excluded.document_id,
+            assigned_lawyer = excluded.assigned_lawyer`, [userId, user.documentId]);
+
+        db.run(`INSERT INTO clients (name, document_id, phone, email, created_at)
+          SELECT ?, ?, '3000000000', ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM clients WHERE email = ?)`,
+          [user.fullName, user.documentId, user.email, now, user.email]);
+      }
+
+      if (user.role === 'ally') {
+        db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
+          VALUES (?, ?, '3000000000', 'Bogota', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba', 'Usuario de prueba', 'ORJUELAPRUEBA', 0, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET
+            document_id = excluded.document_id,
+            phone = excluded.phone,
+            city = excluded.city,
+            partner_type = excluded.partner_type,
+            company = excluded.company,
+            how_known = excluded.how_known,
+            occupation = excluded.occupation,
+            referral_code = excluded.referral_code,
+            updated_at = excluded.updated_at`, [userId, user.documentId, now, now], (partnerErr) => {
+          if (partnerErr) {
+            console.error('[seed] Error creating partner access profile:', partnerErr);
+          }
+        });
+      }
+    });
+  });
+
+  console.log('[seed] Production access users enabled. Users: cliente@orjuela.com, aliado@orjuela.com, admin@orjuela.com');
 }
 
 function generateReferralCode(fullName = 'ALIADO') {
@@ -395,6 +647,16 @@ function maskName(value) {
   const first = parts[0];
   const second = parts[1] ? `${parts[1].charAt(0)}.` : '';
   return `${first} ${second}`.trim();
+}
+
+function currentMonthKey() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function progressPercent(value, target) {
+  const total = Number(target || 0);
+  if (!total) return 0;
+  return Math.min(100, Math.round((Number(value || 0) / total) * 100));
 }
 
 function getBaseUrl(req) {
@@ -540,6 +802,10 @@ if (QA_DEMO_DATA) {
   seedQaData();
 }
 
+if (SEED_ACCESS_USERS) {
+  seedProductionAccessUsers();
+}
+
 function authorizeAdmin(req, res, next) {
   const password = (req.headers['x-admin-password'] || '').toString();
   if (!password || password !== ADMIN_PASSWORD) {
@@ -631,7 +897,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
   }
 
-  db.get(`SELECT id, full_name, email, password_hash, role, status FROM users WHERE email = ?`, [email], (err, user) => {
+  db.get(`SELECT id, full_name, document_id, email, password_hash, role, status FROM users WHERE email = ?`, [email], (err, user) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al validar credenciales.' });
@@ -717,14 +983,14 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                 const summary = {
                   total_referrals: directReferrals.length,
                   in_review: directReferrals.filter((item) => ['new', 'in_progress', 'Nuevo referido', 'En revision'].includes(item.status)).length,
-                  converted: directReferrals.filter((item) => ['won', 'Cliente convertido'].includes(item.status)).length,
+                  converted: directReferrals.filter((item) => ['won', 'Cliente vinculado'].includes(item.status)).length,
                   pending_commission: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0),
                   approved_commission: commissions.filter((item) => item.status === 'approved').reduce((sum, item) => sum + money(item.amount), 0),
                   paid_commission: commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + money(item.amount), 0),
                   active_team_members: team.filter((item) => item.status === 'active').length
                 };
 
-                res.json({
+      res.json({
                   partner: {
                     full_name: partner.full_name,
                     email: partner.email,
@@ -742,6 +1008,94 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                     masked_name: maskName(item.referred_full_name)
                   })),
                   commissions,
+                  activity: [
+                    ...directReferrals.slice(0, 4).map((item) => ({
+                      date: item.created_at,
+                      type: 'Referido registrado',
+                      description: `${item.referred_full_name} fue registrado en el programa.`,
+                      icon: 'bi-person-plus',
+                      status: item.status
+                    })),
+                    ...commissions.slice(0, 4).map((item) => ({
+                      date: item.created_at,
+                      type: item.status === 'paid' ? 'Comision pagada' : 'Comision aprobada',
+                      description: `${item.commission_type} por ${item.referred_full_name}.`,
+                      icon: 'bi-cash-coin',
+                      status: item.status
+                    })),
+                    ...team.slice(0, 3).map((item) => ({
+                      date: item.created_at || getTimestamp(),
+                      type: 'Nuevo aliado unido a mi red',
+                      description: `${item.full_name} forma parte de tu equipo de aliados.`,
+                      icon: 'bi-diagram-3',
+                      status: item.status
+                    }))
+                  ].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 8),
+                  crm_referrals: directReferrals.map((item) => ({
+                    id: item.id,
+                    name: item.referred_full_name,
+                    phone: item.referred_phone,
+                    case_type: item.legal_area,
+                    registered_at: item.created_at,
+                    current_status: item.status,
+                    updated_at: item.updated_at,
+                    observations: item.file_notes || item.case_description || 'Nuestro equipo actualizará novedades visibles para el aliado.',
+                  })),
+                  resources: [],
+                  level: {},
+                  goals: {},
+                  notifications: [],
+                  profile: {
+                    full_name: partner.full_name,
+                    document_id: partner.document_id,
+                    phone: partner.phone,
+                    email: partner.email,
+                    city: partner.city,
+                    occupation: partner.occupation || partner.partner_type,
+                    referral_code: referralCode,
+                    invite_link: inviteLink,
+                    status: partner.status,
+                    joined_at: partner.created_at,
+                    bank_name: 'Requiere aprobación administrativa',
+                    account_type: 'Dato sensible protegido',
+                    account_number: '****'
+                  },
+                  legal_documents: [],
+                  charts: {
+                    commissions_by_month: [],
+                    referrals_by_month: [],
+                    conversion_rate: summary.total_referrals ? Math.round((summary.converted / summary.total_referrals) * 100) : 0,
+                    network_growth: [],
+                    direct_vs_indirect: [
+                      { label: 'Directas', value: commissions.filter((item) => item.commission_type === 'direct').reduce((sum, item) => sum + money(item.amount), 0) },
+                      { label: 'Indirectas', value: commissions.filter((item) => item.commission_type !== 'direct').reduce((sum, item) => sum + money(item.amount), 0) }
+                    ],
+                    pending_vs_paid: [
+                      { label: 'Pendientes', value: summary.pending_commission },
+                      { label: 'Pagadas', value: summary.paid_commission }
+                    ]
+                  },
+                  network_tree: {
+                    name: partner.full_name,
+                    level: 'Aliado principal',
+                    status: partner.status,
+                    referrals_count: directReferrals.length,
+                    commissions: commissions.reduce((sum, item) => sum + money(item.amount), 0),
+                    children: team.map((item) => ({
+                      name: item.full_name,
+                      level: 'Nivel 1',
+                      status: item.status,
+                      referrals_count: item.referrals_count || 0,
+                      commissions: item.generated_commissions || 0
+                    }))
+                  },
+                  academy: [],
+                  kyc: {},
+                  calculator: {
+                    direct_percentage: settings.direct_percentage,
+                    level_1_percentage: settings.level_1_percentage,
+                    level_2_percentage: settings.level_2_percentage
+                  },
                   share: {
                     client_message: `Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoria juridica personalizada. Puedes dejar tus datos aqui: ${inviteLink}`,
                     ally_message: `Hola, quiero invitarte al programa de aliados de Orjuela Abogados. Puedes referir personas que necesiten servicios legales y recibir comisiones por casos efectivos. Registrate aqui: ${inviteLink}`
@@ -792,6 +1146,169 @@ app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => 
       });
     });
     stmt.finalize();
+  });
+});
+
+app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
+  const allyId = req.user.id;
+  const month = currentMonthKey();
+  const response = {};
+
+  db.serialize(() => {
+    db.all(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type, title`, (resourceErr, resources) => {
+      if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
+      response.resources = resources;
+
+      db.all(`SELECT * FROM ally_notifications WHERE ally_id = ? ORDER BY created_at DESC`, [allyId], (notificationErr, notifications) => {
+        if (notificationErr) return res.status(500).json({ error: 'Error al cargar notificaciones.' });
+        response.notifications = notifications;
+
+        db.all(`SELECT m.*, COALESCE(p.status, 'pendiente') AS progress_status, COALESCE(p.progress, 0) AS progress
+          FROM ally_academy_modules m
+          LEFT JOIN ally_academy_progress p ON p.module_id = m.id AND p.ally_id = ?
+          WHERE m.is_active = 1
+          ORDER BY m.sort_order`, [allyId], (academyErr, academy) => {
+          if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
+          response.academy = academy;
+
+          db.get(`SELECT * FROM ally_kyc_verifications WHERE ally_id = ?`, [allyId], (kycErr, kyc) => {
+            if (kycErr) return res.status(500).json({ error: 'Error al cargar verificacion.' });
+            response.kyc = kyc || { status: 'Sin verificar', phone_validated: 0, email_validated: 0 };
+
+            db.all(`SELECT * FROM ally_legal_acceptances WHERE ally_id = ? ORDER BY document_type`, [allyId], (legalErr, legalDocuments) => {
+              if (legalErr) return res.status(500).json({ error: 'Error al cargar documentos legales.' });
+              response.legal_documents = legalDocuments;
+
+              db.get(`SELECT * FROM ally_goals WHERE (ally_id = ? OR ally_id IS NULL) AND month = ? AND is_active = 1 ORDER BY ally_id DESC LIMIT 1`, [allyId, month], (goalErr, goal) => {
+                if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
+                const activeGoal = goal || { month, referral_goal: 5, converted_goal: 1, commission_goal: 500000 };
+
+                db.all(`SELECT r.status, r.created_at FROM referrals r WHERE r.ally_id = ?`, [allyId], (refErr, refs) => {
+                  if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
+                  db.all(`SELECT commission_type, amount, status, created_at FROM commissions WHERE ally_id = ?`, [allyId], (commErr, commissions) => {
+                    if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
+                    db.all(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
+                      if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
+
+                      const converted = refs.filter((item) => ['Cliente activo', 'Cliente vinculado', 'won'].includes(item.status)).length;
+                      const totalCommissions = commissions.reduce((sum, item) => sum + money(item.amount), 0);
+                      db.all(`SELECT user_id FROM partners WHERE invited_by_partner_id = ?`, [allyId], (teamErr, team) => {
+                        if (teamErr) return res.status(500).json({ error: 'Error al cargar red.' });
+                        const activeAllies = team.length;
+                        const currentLevel = [...levels].reverse().find((level) =>
+                          converted >= level.min_converted_referrals &&
+                          totalCommissions >= level.min_commissions &&
+                          activeAllies >= level.min_active_allies
+                        ) || levels[0];
+                        const nextLevel = levels.find((level) => level.sort_order > currentLevel.sort_order);
+
+                        response.level = {
+                          current: currentLevel,
+                          next: nextLevel,
+                          progress: nextLevel ? Math.min(100, Math.round((
+                            progressPercent(converted, nextLevel.min_converted_referrals) +
+                            progressPercent(totalCommissions, nextLevel.min_commissions) +
+                            progressPercent(activeAllies, nextLevel.min_active_allies)
+                          ) / 3)) : 100
+                        };
+                        response.goals = {
+                          ...activeGoal,
+                          referral_progress: progressPercent(refs.length, activeGoal.referral_goal),
+                          converted_progress: progressPercent(converted, activeGoal.converted_goal),
+                          commission_progress: progressPercent(totalCommissions, activeGoal.commission_goal),
+                          message: 'Mantén referidos de calidad y seguimiento oportuno. Las comisiones dependen de validación interna.'
+                        };
+                        const byMonth = (rows, valueFn = () => 1) => {
+                          const grouped = {};
+                          rows.forEach((row) => {
+                            const key = String(row.created_at || '').slice(0, 7) || month;
+                            grouped[key] = (grouped[key] || 0) + valueFn(row);
+                          });
+                          return Object.entries(grouped).map(([label, value]) => ({ label, value }));
+                        };
+                        response.charts = {
+                          commissions_by_month: byMonth(commissions, (item) => money(item.amount)),
+                          referrals_by_month: byMonth(refs),
+                          conversion_rate: refs.length ? Math.round((converted / refs.length) * 100) : 0,
+                          network_growth: [{ label: month, value: activeAllies }],
+                          direct_vs_indirect: [
+                            { label: 'Directas', value: commissions.filter((item) => item.commission_type === 'direct').reduce((sum, item) => sum + money(item.amount), 0) },
+                            { label: 'Indirectas', value: commissions.filter((item) => item.commission_type !== 'direct').reduce((sum, item) => sum + money(item.amount), 0) }
+                          ],
+                          pending_vs_paid: [
+                            { label: 'Pendientes', value: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0) },
+                            { label: 'Pagadas', value: commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + money(item.amount), 0) }
+                          ]
+                        };
+                        res.json(response);
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+app.post('/api/partner/notifications/:id/read', requireAuth(['ally']), (req, res) => {
+  db.run(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = ? AND id = ?`, [req.user.id, parseInt(req.params.id, 10)], () => {
+    res.json({ message: 'Notificacion marcada como leida.' });
+  });
+});
+
+app.post('/api/partner/notifications/read-all', requireAuth(['ally']), (req, res) => {
+  db.run(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = ?`, [req.user.id], () => {
+    res.json({ message: 'Notificaciones marcadas como leidas.' });
+  });
+});
+
+app.post('/api/partner/legal-acceptances', requireAuth(['ally']), (req, res) => {
+  const documentType = cleanText(req.body.document_type, 80);
+  const version = cleanText(req.body.version || 'v1.0', 20);
+  if (!documentType) return res.status(400).json({ error: 'Tipo de documento obligatorio.' });
+  db.run(`INSERT INTO ally_legal_acceptances (ally_id, document_type, accepted_at, ip_address, version, status)
+    VALUES (?, ?, ?, ?, ?, 'accepted')`, [req.user.id, documentType, getTimestamp(), req.ip || '', version], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible registrar la aceptacion.' });
+    res.status(201).json({ message: 'Documento aceptado correctamente.', id: this.lastID });
+  });
+});
+
+app.post('/api/partner/electronic-signatures', requireAuth(['ally']), (req, res) => {
+  const payload = {
+    document_type: cleanText(req.body.document_type, 80),
+    full_name: cleanText(req.body.full_name, 140),
+    document_number: normalizeDocument(req.body.document_number),
+    version: cleanText(req.body.version || 'v1.0', 20)
+  };
+  if (!payload.document_type || !payload.full_name || !payload.document_number) return res.status(400).json({ error: 'Datos de firma incompletos.' });
+  db.run(`INSERT INTO ally_electronic_signatures (ally_id, document_type, full_name, document_number, version, signed_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'accepted')`, [req.user.id, payload.document_type, payload.full_name, payload.document_number, payload.version, getTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible registrar la firma.' });
+    res.status(201).json({ message: 'Firma electronica registrada.', id: this.lastID });
+  });
+});
+
+app.post('/api/partner/kyc', requireAuth(['ally']), (req, res) => {
+  const payload = {
+    front_document_url: cleanText(req.body.front_document_url, 300),
+    back_document_url: cleanText(req.body.back_document_url, 300),
+    selfie_url: cleanText(req.body.selfie_url, 300),
+    bank_name: cleanText(req.body.bank_name, 100),
+    account_type: cleanText(req.body.account_type, 60),
+    account_number: cleanText(req.body.account_number, 80)
+  };
+  const now = getTimestamp();
+  db.run(`INSERT INTO ally_kyc_verifications (ally_id, front_document_url, back_document_url, selfie_url, bank_name, account_type, account_number, status, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'En revision', ?)
+    ON CONFLICT(ally_id) DO UPDATE SET front_document_url = excluded.front_document_url, back_document_url = excluded.back_document_url,
+      selfie_url = excluded.selfie_url, bank_name = excluded.bank_name, account_type = excluded.account_type, account_number = excluded.account_number,
+      status = 'En revision', updated_at = excluded.updated_at`, [req.user.id, payload.front_document_url, payload.back_document_url, payload.selfie_url, payload.bank_name, payload.account_type, payload.account_number, now], (err) => {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la verificacion.' });
+    res.json({ message: 'Verificacion enviada a revision.' });
   });
 });
 
@@ -864,7 +1381,25 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
 
         getActiveCommissionSettings((settingsErr, settings) => {
           if (settingsErr) return res.status(500).json({ error: 'Error al cargar configuracion.' });
-          res.json({ allies, referrals: referralsRows, commissions, settings });
+          db.all(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
+            if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
+            db.all(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`, (resourceErr, resources) => {
+              if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
+              db.all(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
+                if (kycErr) return res.status(500).json({ error: 'Error al cargar KYC.' });
+                db.all(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
+                  if (fraudErr) return res.status(500).json({ error: 'Error al cargar alertas.' });
+                  db.all(`SELECT * FROM ally_academy_modules WHERE is_active = 1 ORDER BY sort_order`, (academyErr, academy) => {
+                    if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
+                    db.all(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
+                      if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
+                      res.json({ allies, referrals: referralsRows, commissions, settings, levels, resources, kyc, fraudAlerts, academy, goals });
+                    });
+                  });
+                });
+              });
+            });
+          });
         });
       });
     });
