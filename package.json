@@ -7,6 +7,7 @@
     "start:qa": "ng serve --proxy-config proxy.conf.json",
     "start:api": "node server.js",
     "start:api:qa": "set APP_ENV=qa&& set QA_DEMO_DATA=true&& set PORT=3000&& set DB_FILE=./data/orjuela-qa.db&& set ADMIN_EMAIL=qa@orjuela.local&& set ADMIN_PASSWORD=Admin123!&& set JWT_SECRET=orjuela-qa-local-secret&& node server.js",
+    "seed:access-users": "node scripts/seed-access-users.js",
     "build": "ng build",
     "build:qa": "ng build",
     "watch": "ng build --watch --configuration development",
