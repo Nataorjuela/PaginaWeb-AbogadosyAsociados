@@ -1,4 +1,4 @@
-// src/app/app.component.ts
+﻿// src/app/app.component.ts
 import { Component, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule } from '@angular/forms';
@@ -191,4 +191,5 @@ export class AppComponent {
   }
 
 }
+
 

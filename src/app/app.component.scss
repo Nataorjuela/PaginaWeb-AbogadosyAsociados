@@ -268,181 +268,81 @@
 }
 
 .lawyers-section {
-  background:
-    linear-gradient(135deg, rgba(16, 24, 40, 0.96), rgba(30, 54, 80, 0.94)),
-    radial-gradient(circle at 85% 12%, rgba(26, 188, 156, 0.2), transparent 34%);
-  color: #ffffff;
-  overflow: hidden;
-  position: relative;
+  background: linear-gradient(180deg, #ffffff 0%, #f6faf9 100%);
 }
 
-.lawyers-section::before {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent);
-  content: "";
-  height: 1px;
-  left: 0;
-  position: absolute;
-  right: 0;
-  top: 0;
-}
-
-.lawyers-editorial {
-  align-items: start;
-  display: grid;
-  gap: clamp(2rem, 4vw, 4rem);
-  grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
-}
-
-.team-intro {
-  position: sticky;
-  top: 96px;
-}
-
-.team-intro .eyebrow {
-  color: #77ead7;
-}
-
-.team-intro h2 {
-  color: #ffffff;
-  font-size: clamp(2rem, 4vw, 3.55rem);
-  font-weight: 900;
-  line-height: 1.02;
-  margin: 0 0 1rem;
-  max-width: 620px;
-}
-
-.team-intro p {
-  color: #d7dee7;
-  font-size: 1.05rem;
-  line-height: 1.75;
-  margin-bottom: 1.35rem;
-  max-width: 580px;
-}
-
-.team-proof {
-  display: grid;
-  gap: 0.8rem;
-  margin: 1.6rem 0 2rem;
-}
-
-.team-proof span {
-  align-items: center;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.13);
-  border-radius: 999px;
-  color: #f8fafc;
-  display: inline-flex;
-  font-weight: 800;
-  gap: 0.65rem;
-  padding: 0.75rem 1rem;
-  width: fit-content;
-}
-
-.team-proof i {
-  color: #1abc9c;
+.team-heading {
+  margin-inline: auto;
+  max-width: 780px;
 }
 
 .lawyers-grid {
   display: grid;
-  gap: 1.1rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .lawyer-card {
-  animation: teamReveal 0.7s ease both;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 28px;
-  box-shadow: 0 28px 90px rgba(2, 8, 23, 0.24);
-  display: grid;
-  grid-template-columns: 150px 1fr;
+  background: #ffffff;
+  border: 1px solid #e5e9ef;
+  border-radius: 22px;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.08);
   overflow: hidden;
-  padding: 0.75rem;
-  position: relative;
+  padding: 0;
   transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
-.lawyer-card.is-featured {
-  grid-column: 1 / -1;
-  grid-template-columns: 205px 1fr;
-}
-
-.lawyer-card::after {
-  background: linear-gradient(135deg, rgba(26, 188, 156, 0.14), transparent 54%);
-  content: "";
-  inset: 0;
-  opacity: 0;
-  pointer-events: none;
-  position: absolute;
-  transition: opacity 0.25s ease;
-}
-
 .lawyer-card:hover {
-  border-color: rgba(26, 188, 156, 0.42);
-  box-shadow: 0 34px 105px rgba(2, 8, 23, 0.32);
-  transform: translateY(-6px);
-}
-
-.lawyer-card:hover::after {
-  opacity: 1;
+  border-color: rgba(26, 188, 156, 0.5);
+  box-shadow: 0 26px 75px rgba(15, 23, 42, 0.13);
+  transform: translateY(-5px);
 }
 
 .lawyer-media {
-  background: linear-gradient(145deg, #0f172a, #1e3650);
-  border-radius: 22px;
-  padding: 0.42rem;
-  position: relative;
+  background: linear-gradient(135deg, #f2f7f6, #ffffff);
+  padding: 1.2rem 1.2rem 0;
 }
 
 .lawyer-photo {
-  background: #101828;
+  background: #eef3f2;
+  border: 1px solid #e3ebe9;
   border-radius: 18px;
-  height: 100%;
-  min-height: 178px;
+  height: 245px;
   overflow: hidden;
-  position: relative;
   width: 100%;
 }
 
-.lawyer-card.is-featured .lawyer-photo {
-  min-height: 235px;
-}
-
 .lawyer-photo img {
-  filter: grayscale(0.08) contrast(1.05) saturate(0.92);
+  filter: contrast(1.04) saturate(0.96);
   height: 100%;
   object-fit: cover;
-  object-position: center 18%;
-  transform: scale(1.01);
+  object-position: center 14%;
   transition: filter 0.3s ease, transform 0.35s ease;
   width: 100%;
 }
 
 .lawyer-card:nth-child(2) .lawyer-photo img {
-  object-position: center 10%;
+  object-position: center 28%;
 }
 
 .lawyer-card:nth-child(3) .lawyer-photo img {
-  object-position: center 8%;
+  object-position: center 43%;
 }
 
 .lawyer-card:hover .lawyer-photo img {
-  filter: grayscale(0) contrast(1.08) saturate(1);
-  transform: scale(1.05);
+  filter: contrast(1.07) saturate(1);
+  transform: scale(1.035);
 }
 
 .lawyer-copy {
-  align-content: center;
-  display: grid;
-  padding: 1rem 1rem 1rem 1.2rem;
-  position: relative;
-  z-index: 1;
+  padding: 1.2rem;
+  text-align: left;
 }
 
 .lawyer-copy span {
   color: #1abc9c;
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   font-weight: 900;
   letter-spacing: 0.04em;
   margin-bottom: 0.55rem;
@@ -450,7 +350,7 @@
 }
 
 .lawyer-copy h3 {
-  color: #101828;
+  color: #1e3650;
   font-size: 1.2rem;
   font-weight: 900;
   line-height: 1.15;
@@ -461,6 +361,7 @@
   color: #5f6b7a;
   font-size: 0.94rem;
   line-height: 1.58;
+  min-height: 118px;
   margin-bottom: 1rem;
 }
 
@@ -480,23 +381,6 @@
   font-weight: 900;
   gap: 0.45rem;
   padding: 0.58rem 0.9rem;
-}
-
-.lawyer-actions small {
-  color: #667085;
-  font-weight: 800;
-}
-
-@keyframes teamReveal {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .dashboard-section {
@@ -634,33 +518,16 @@
     grid-template-columns: repeat(2, 1fr);
   }
 
-  .lawyers-editorial {
-    grid-template-columns: 1fr;
-  }
-
-  .team-intro {
-    position: static;
-  }
-
   .lawyers-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .lawyer-card {
-    grid-template-columns: 1fr;
-  }
-
-  .lawyer-card.is-featured {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .lawyer-photo {
-    min-height: 220px;
+    height: 230px;
   }
 
   .lawyer-copy {
-    padding: 1rem 0.65rem 0.65rem;
-    text-align: left;
+    padding: 1.1rem;
   }
 
   .lawyer-copy p {
@@ -690,16 +557,10 @@
 
   .lawyer-card {
     border-radius: 24px;
-    display: grid;
-    padding: 0.65rem;
   }
 
   .lawyer-photo {
-    min-height: 245px;
-  }
-
-  .team-proof span {
-    width: 100%;
+    height: 235px;
   }
 
   .section-shell {
