@@ -555,6 +555,204 @@ h2 {
   gap: 1rem;
 }
 
+.partner-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.partner-hero-card {
+  align-items: center;
+  background: linear-gradient(135deg, #0b1624, #1e3650);
+  border-radius: 24px;
+  color: #ffffff;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.4rem;
+}
+
+.partner-hero-card p {
+  color: #d7dee7;
+  margin: 0;
+}
+
+.partner-hero-card h2 {
+  margin: 0.7rem 0 0.35rem;
+}
+
+.hero-actions-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.partner-code-card {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 220px minmax(0, 1fr) auto;
+}
+
+.partner-code-card span,
+.share-grid span,
+.commission-summary-grid span {
+  color: #667085;
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.partner-code-card strong {
+  color: #1e3650;
+  display: block;
+  font-size: 1.45rem;
+}
+
+.partner-code-card code,
+.share-grid code {
+  background: #eefcf8;
+  border-radius: 12px;
+  color: #0f766e;
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 0.55rem 0.7rem;
+}
+
+.network-form,
+.settings-form {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.network-form.single {
+  grid-template-columns: 1fr;
+}
+
+.network-form label,
+.settings-form label {
+  color: #344054;
+  display: grid;
+  font-weight: 800;
+  gap: 0.4rem;
+}
+
+.network-form .full {
+  grid-column: 1 / -1;
+}
+
+.section-split {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.team-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.team-list article {
+  align-items: center;
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: 1fr auto;
+  padding: 0.9rem;
+}
+
+.team-list span,
+.team-list small {
+  display: block;
+}
+
+.team-list small {
+  color: #667085;
+  grid-column: 1 / -1;
+}
+
+.commission-summary-grid,
+.share-grid,
+.how-network-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.commission-summary-grid article,
+.share-grid article,
+.how-network-grid article {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+}
+
+.commission-summary-grid strong,
+.code-card strong {
+  color: #1e3650;
+  font-size: 1.45rem;
+}
+
+.share-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.share-grid p {
+  color: #667085;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.code-card {
+  background: linear-gradient(135deg, #0b1624, #1e3650) !important;
+  color: #ffffff;
+}
+
+.code-card span,
+.code-card small,
+.code-card strong {
+  color: #ffffff;
+}
+
+.how-network-grid article strong {
+  align-items: center;
+  background: #1abc9c;
+  border-radius: 50%;
+  color: #092034;
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+.legal-notice {
+  background: #fff8e5;
+  border: 1px solid #ead79a;
+  border-radius: 18px;
+  color: #7a5c12;
+  font-weight: 700;
+  line-height: 1.6;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.table-select {
+  min-width: 170px;
+  padding: 0.45rem 0.7rem;
+}
+
+.amount-input {
+  min-width: 130px;
+  padding: 0.45rem 0.7rem;
+}
+
 .lead-hero-card {
   align-items: center;
   background: linear-gradient(135deg, #0b1624, #1e3650);
@@ -701,6 +899,21 @@ h2 {
   font-weight: 800;
 }
 
+.btn-secondary-contrast {
+  background: #1abc9c;
+  border: 1px solid #1abc9c;
+  border-radius: 999px;
+  color: #092034;
+  font-weight: 900;
+}
+
+.btn-secondary-contrast:hover,
+.btn-secondary-contrast:focus {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #0b1624;
+}
+
 @media (max-width: 1080px) {
   .access-grid,
   .demo-access-card,
@@ -736,8 +949,19 @@ h2 {
   .lead-workspace,
   .lead-toolbar,
   .lead-detail-list,
-  .lead-actions {
+  .lead-actions,
+  .partner-code-card,
+  .section-split,
+  .commission-summary-grid,
+  .share-grid,
+  .how-network-grid,
+  .settings-form {
     grid-template-columns: 1fr;
+  }
+
+  .partner-hero-card {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
@@ -753,6 +977,7 @@ h2 {
   }
 
   .form-grid,
+  .network-form,
   .content-grid,
   .data-toolbar,
   .metric-grid {

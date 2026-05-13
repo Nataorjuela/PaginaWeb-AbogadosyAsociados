@@ -22,6 +22,9 @@ const ALLY_STATUSES = ['pending', 'active', 'inactive'];
 const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
 const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'proposal_sent', 'won', 'commission_approved', 'commission_paid', 'rejected'];
 const AUTH_ROLES = ['admin', 'abogado', 'asistente', 'ally', 'client'];
+const NETWORK_REFERRAL_STATUSES = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente convertido', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
+const COMMISSION_STATUSES = ['pending', 'approved', 'paid', 'rejected'];
+const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
 
 const app = express();
 app.use(cors());
@@ -59,11 +62,13 @@ function createDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ally_id INTEGER NOT NULL,
       referred_full_name TEXT NOT NULL,
+      client_identification TEXT,
       referred_phone TEXT NOT NULL,
       referred_email TEXT,
       referred_city TEXT NOT NULL,
       legal_area TEXT NOT NULL,
       case_description TEXT NOT NULL,
+      referral_channel TEXT,
       urgency TEXT,
       file_notes TEXT,
       status TEXT NOT NULL DEFAULT 'new',
@@ -148,8 +153,39 @@ function createDatabase() {
       partner_type TEXT NOT NULL,
       company TEXT,
       how_known TEXT,
+      occupation TEXT,
+      referral_code TEXT UNIQUE,
+      invited_by_partner_id INTEGER,
       commission_balance REAL DEFAULT 0,
+      created_at TEXT,
+      updated_at TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS commissions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ally_id INTEGER NOT NULL,
+      referral_id INTEGER NOT NULL,
+      source_ally_id INTEGER NOT NULL,
+      commission_type TEXT NOT NULL,
+      percentage REAL NOT NULL,
+      amount REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      paid_at TEXT,
+      FOREIGN KEY (ally_id) REFERENCES partners(user_id),
+      FOREIGN KEY (source_ally_id) REFERENCES partners(user_id),
+      FOREIGN KEY (referral_id) REFERENCES referrals(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS commission_settings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      direct_percentage REAL NOT NULL DEFAULT 10,
+      level_1_percentage REAL NOT NULL DEFAULT 3,
+      level_2_percentage REAL NOT NULL DEFAULT 1,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS auth_clients (
@@ -166,7 +202,18 @@ function createDatabase() {
       `ALTER TABLE allies ADD COLUMN account_number TEXT`,
       `ALTER TABLE referrals ADD COLUMN urgency TEXT`,
       `ALTER TABLE referrals ADD COLUMN file_notes TEXT`,
+      `ALTER TABLE referrals ADD COLUMN client_identification TEXT`,
+      `ALTER TABLE referrals ADD COLUMN referral_channel TEXT`,
+      `ALTER TABLE partners ADD COLUMN occupation TEXT`,
+      `ALTER TABLE partners ADD COLUMN referral_code TEXT`,
+      `ALTER TABLE partners ADD COLUMN invited_by_partner_id INTEGER`,
+      `ALTER TABLE partners ADD COLUMN created_at TEXT`,
+      `ALTER TABLE partners ADD COLUMN updated_at TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
+
+    db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
+      SELECT 10, 3, 1, 1, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()]);
   });
   return db;
 }
@@ -296,6 +343,107 @@ function publicUser(row) {
   };
 }
 
+function generateReferralCode(fullName = 'ALIADO') {
+  const prefix = cleanText(fullName, 40)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .slice(0, 4)
+    .toUpperCase() || 'OA';
+  return `${prefix}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+}
+
+function ensurePartnerReferralCode(userId, fullName, callback) {
+  db.get(`SELECT referral_code FROM partners WHERE user_id = ?`, [userId], (err, partner) => {
+    if (err || !partner) return callback(err || new Error('Partner not found'));
+    if (partner.referral_code) return callback(null, partner.referral_code);
+
+    const attempt = () => {
+      const code = generateReferralCode(fullName);
+      db.run(`UPDATE partners SET referral_code = ? WHERE user_id = ? AND (referral_code IS NULL OR referral_code = '')`, [code, userId], (updateErr) => {
+        if (updateErr) {
+          if (String(updateErr.message).includes('UNIQUE')) return attempt();
+          return callback(updateErr);
+        }
+        callback(null, code);
+      });
+    };
+    attempt();
+  });
+}
+
+function getActiveCommissionSettings(callback) {
+  db.get(`SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`, (err, row) => {
+    callback(err, row || { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 });
+  });
+}
+
+function getPartnerProfile(userId, callback) {
+  db.get(`SELECT p.*, u.full_name, u.email, u.status
+    FROM partners p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.user_id = ?`, [userId], callback);
+}
+
+function money(value) {
+  return Number(value || 0);
+}
+
+function maskName(value) {
+  const parts = cleanText(value, 120).split(' ').filter(Boolean);
+  if (!parts.length) return 'Referido';
+  const first = parts[0];
+  const second = parts[1] ? `${parts[1].charAt(0)}.` : '';
+  return `${first} ${second}`.trim();
+}
+
+function getBaseUrl(req) {
+  return `${req.protocol}://${req.get('host')}`;
+}
+
+function createCommissionRows(referralId, sourceAllyId, callback) {
+  getActiveCommissionSettings((settingsErr, settings) => {
+    if (settingsErr) return callback(settingsErr);
+    const createdAt = getTimestamp();
+    const rows = [{
+      allyId: sourceAllyId,
+      sourceAllyId,
+      type: 'direct',
+      percentage: settings.direct_percentage
+    }];
+
+    getPartnerProfile(sourceAllyId, (profileErr, partner) => {
+      if (profileErr) return callback(profileErr);
+      const finish = () => {
+        const stmt = db.prepare(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+          VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`);
+        rows.forEach((row) => stmt.run(row.allyId, referralId, row.sourceAllyId, row.type, row.percentage, createdAt));
+        stmt.finalize(callback);
+      };
+
+      if (!partner?.invited_by_partner_id) return finish();
+      rows.push({
+        allyId: partner.invited_by_partner_id,
+        sourceAllyId,
+        type: 'indirect_level_1',
+        percentage: settings.level_1_percentage
+      });
+
+      getPartnerProfile(partner.invited_by_partner_id, (parentErr, parentPartner) => {
+        if (!parentErr && parentPartner?.invited_by_partner_id && settings.level_2_percentage > 0) {
+          rows.push({
+            allyId: parentPartner.invited_by_partner_id,
+            sourceAllyId,
+            type: 'indirect_level_2',
+            percentage: settings.level_2_percentage
+          });
+        }
+        finish();
+      });
+    });
+  });
+}
+
 function seedQaData() {
   const now = getTimestamp();
   const demoUsers = [
@@ -316,7 +464,21 @@ function seedQaData() {
       if (!err && partnerUser) {
         db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, commission_balance)
           VALUES (?, '900111222', '300 111 2233', 'Bogota', 'Independiente', 'Orjuela QA', 'Ambiente QA', 320000)`, [partnerUser.id]);
+        db.run(`UPDATE partners SET referral_code = COALESCE(referral_code, 'ORJUELAQA'), occupation = COALESCE(occupation, 'Asesor comercial') WHERE user_id = ?`, [partnerUser.id]);
+        db.run(`UPDATE partners SET invited_by_partner_id = ? WHERE user_id IN (9101, 9102)`, [partnerUser.id]);
       }
+    });
+
+    const networkUsers = [
+      { id: 9101, fullName: 'Camila Red Aliada', email: 'camila.red@orjuela.demo', password: 'Aliado123!', document: '900333111', phone: '300 333 1111', city: 'Medellin', code: 'CAMILAQA' },
+      { id: 9102, fullName: 'Andres Red Aliado', email: 'andres.red@orjuela.demo', password: 'Aliado123!', document: '900333222', phone: '300 333 2222', city: 'Cali', code: 'ANDRESQA' }
+    ];
+
+    networkUsers.forEach((item) => {
+      db.run(`INSERT OR IGNORE INTO users (id, full_name, email, password_hash, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'ally', 'active', ?, ?)`, [item.id, item.fullName, item.email, hashPassword(item.password), now, now]);
+      db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
+        VALUES (?, ?, ?, ?, 'Independiente', 'Aliado comercial', ?, 1, 0)`, [item.id, item.document, item.phone, item.city, item.code]);
     });
 
     db.get(`SELECT id FROM users WHERE email = ?`, ['cliente@orjuela.demo'], (err, clientUser) => {
@@ -363,6 +525,13 @@ function seedQaData() {
       }
     });
 
+    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+      VALUES (1, 1, 1, 1, 'direct', 10, 180000, 'approved', ?)`, [now]);
+    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at, paid_at)
+      VALUES (2, 1, 2, 1, 'direct', 10, 120000, 'paid', ?, ?)`, [now, now]);
+    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+      VALUES (3, 1, 3, 9101, 'indirect_level_1', 3, 90000, 'pending', ?)`, [now]);
+
     console.log('[qa] Demo data enabled. Users: aliado@orjuela.demo, cliente@orjuela.demo, admin@orjuela.demo');
   });
 }
@@ -393,6 +562,8 @@ app.post('/api/auth/register-partner', (req, res) => {
     partner_type: cleanText(req.body.partner_type, 60),
     company: cleanText(req.body.company, 120),
     how_known: cleanText(req.body.how_known, 180),
+    occupation: cleanText(req.body.occupation, 120),
+    ref: cleanText(req.query.ref || req.body.ref || req.body.referral_code, 40).toUpperCase(),
     password: String(req.body.password || ''),
     terms: req.body.terms,
     data_auth: req.body.data_auth
@@ -406,7 +577,23 @@ app.post('/api/auth/register-partner', (req, res) => {
   }
 
   const createdAt = getTimestamp();
-  db.serialize(() => {
+  db.get(`SELECT user_id FROM partners WHERE referral_code = ?`, [payload.ref], (refErr, referrer) => {
+    if (refErr) {
+      console.error(refErr);
+      return res.status(500).json({ error: 'Error al validar el codigo de invitacion.' });
+    }
+    db.get(`SELECT u.id FROM users u
+      LEFT JOIN partners p ON p.user_id = u.id
+      WHERE u.email = ? OR p.document_id = ? OR p.phone = ?`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
+      if (dupErr) {
+        console.error(dupErr);
+        return res.status(500).json({ error: 'Error al validar duplicados.' });
+      }
+      if (duplicate) {
+        return res.status(409).json({ error: 'Ya existe un aliado registrado con ese correo, cedula o telefono.' });
+      }
+
+      db.serialize(() => {
     const stmt = db.prepare(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
       VALUES (?, ?, ?, 'ally', 'active', ?, ?)`);
     stmt.run(payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt, function (err) {
@@ -417,8 +604,9 @@ app.post('/api/auth/register-partner', (req, res) => {
       }
 
       const userId = this.lastID;
-      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, commission_balance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known], (partnerErr) => {
+      const referralCode = generateReferralCode(payload.full_name);
+      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
         if (partnerErr) {
           console.error(partnerErr);
           return res.status(500).json({ error: 'Error al crear perfil de aliado.' });
@@ -429,6 +617,8 @@ app.post('/api/auth/register-partner', (req, res) => {
       });
     });
     stmt.finalize();
+      });
+    });
   });
 });
 
@@ -472,6 +662,259 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
   res.json({ user: req.user });
+});
+
+app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
+  getPartnerProfile(req.user.id, (profileErr, partner) => {
+    if (profileErr || !partner) return res.status(404).json({ error: 'No encontramos tu perfil de aliado.' });
+
+    ensurePartnerReferralCode(req.user.id, req.user.full_name, (codeErr, referralCode) => {
+      if (codeErr) return res.status(500).json({ error: 'No fue posible generar tu codigo de aliado.' });
+
+      const baseUrl = getBaseUrl(req);
+      const inviteLink = `${baseUrl}/aliados/registro?ref=${encodeURIComponent(referralCode)}`;
+
+      db.all(`SELECT r.*, c.amount AS commission_amount, c.status AS commission_status
+        FROM referrals r
+        LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = ? AND c.commission_type = 'direct'
+        WHERE r.ally_id = ?
+        ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (refErr, directReferrals) => {
+        if (refErr) return res.status(500).json({ error: 'Error al cargar tus referidos.' });
+
+        db.all(`SELECT p.user_id, p.city, p.referral_code, p.created_at, u.full_name, u.status,
+            COUNT(r.id) AS referrals_count,
+            COALESCE(SUM(c.amount), 0) AS generated_commissions
+          FROM partners p
+          JOIN users u ON u.id = p.user_id
+          LEFT JOIN referrals r ON r.ally_id = p.user_id
+          LEFT JOIN commissions c ON c.source_ally_id = p.user_id AND c.ally_id = ?
+          WHERE p.invited_by_partner_id = ?
+          GROUP BY p.user_id
+          ORDER BY p.user_id DESC`, [req.user.id, req.user.id], (teamErr, team) => {
+          if (teamErr) return res.status(500).json({ error: 'Error al cargar tu equipo.' });
+
+          db.all(`SELECT r.id, r.referred_full_name, r.legal_area, r.status, r.created_at,
+              u.full_name AS source_ally_name, c.amount AS commission_amount, c.status AS commission_status
+            FROM referrals r
+            JOIN users u ON u.id = r.ally_id
+            JOIN partners p ON p.user_id = r.ally_id
+            LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = ?
+            WHERE p.invited_by_partner_id = ?
+            ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (networkErr, networkReferrals) => {
+            if (networkErr) return res.status(500).json({ error: 'Error al cargar referidos de tu red.' });
+
+            db.all(`SELECT c.*, r.referred_full_name, r.legal_area, u.full_name AS source_ally_name
+              FROM commissions c
+              JOIN referrals r ON r.id = c.referral_id
+              JOIN users u ON u.id = c.source_ally_id
+              WHERE c.ally_id = ?
+              ORDER BY c.created_at DESC`, [req.user.id], (commissionErr, commissions) => {
+              if (commissionErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
+
+              getActiveCommissionSettings((settingsErr, settings) => {
+                if (settingsErr) return res.status(500).json({ error: 'Error al cargar configuracion de comisiones.' });
+
+                const summary = {
+                  total_referrals: directReferrals.length,
+                  in_review: directReferrals.filter((item) => ['new', 'in_progress', 'Nuevo referido', 'En revision'].includes(item.status)).length,
+                  converted: directReferrals.filter((item) => ['won', 'Cliente convertido'].includes(item.status)).length,
+                  pending_commission: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0),
+                  approved_commission: commissions.filter((item) => item.status === 'approved').reduce((sum, item) => sum + money(item.amount), 0),
+                  paid_commission: commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + money(item.amount), 0),
+                  active_team_members: team.filter((item) => item.status === 'active').length
+                };
+
+                res.json({
+                  partner: {
+                    full_name: partner.full_name,
+                    email: partner.email,
+                    city: partner.city,
+                    phone: partner.phone,
+                    referral_code: referralCode,
+                    invite_link: inviteLink
+                  },
+                  summary,
+                  settings,
+                  team,
+                  direct_referrals: directReferrals,
+                  network_referrals: networkReferrals.map((item) => ({
+                    ...item,
+                    masked_name: maskName(item.referred_full_name)
+                  })),
+                  commissions,
+                  share: {
+                    client_message: `Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoria juridica personalizada. Puedes dejar tus datos aqui: ${inviteLink}`,
+                    ally_message: `Hola, quiero invitarte al programa de aliados de Orjuela Abogados. Puedes referir personas que necesiten servicios legales y recibir comisiones por casos efectivos. Registrate aqui: ${inviteLink}`
+                  }
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => {
+  const payload = {
+    client_name: cleanText(req.body.client_name),
+    client_identification: normalizeDocument(req.body.client_identification),
+    client_phone: cleanText(req.body.client_phone, 60),
+    client_email: normalizeEmail(req.body.client_email),
+    city: cleanText(req.body.city, 100),
+    legal_area: cleanText(req.body.legal_area, 80),
+    description: cleanText(req.body.description, 900),
+    referral_channel: cleanText(req.body.referral_channel, 100),
+    data_authorization: req.body.data_authorization
+  };
+
+  if (!payload.client_name || !payload.client_identification || !payload.client_phone || !payload.city || !payload.legal_area || !payload.description || payload.data_authorization !== true) {
+    return res.status(400).json({ error: 'Completa los campos obligatorios y confirma la autorizacion de datos.' });
+  }
+  if (payload.client_email && !isValidEmail(payload.client_email)) {
+    return res.status(400).json({ error: 'El correo del referido no tiene un formato valido.' });
+  }
+
+  db.get(`SELECT id FROM referrals WHERE client_identification = ? OR referred_phone = ? OR referred_email = ?`, [payload.client_identification, payload.client_phone, payload.client_email], (dupErr, duplicate) => {
+    if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
+    if (duplicate) return res.status(409).json({ error: 'Este referido ya existe por cedula, telefono o correo.' });
+
+    const createdAt = getTimestamp();
+    const stmt = db.prepare(`INSERT INTO referrals (ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nuevo referido', ?, ?)`);
+    stmt.run(req.user.id, payload.client_name, payload.client_identification, payload.client_phone, payload.client_email, payload.city, payload.legal_area, payload.description, payload.referral_channel, createdAt, createdAt, function (insertErr) {
+      if (insertErr) return res.status(500).json({ error: 'No fue posible guardar el referido.' });
+      const referralId = this.lastID;
+      createCommissionRows(referralId, req.user.id, (commissionErr) => {
+        if (commissionErr) console.error(commissionErr);
+        res.status(201).json({ message: 'Referido enviado correctamente. Quedo asociado a tu cuenta de aliado.', id: referralId });
+      });
+    });
+    stmt.finalize();
+  });
+});
+
+app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) => {
+  const payload = {
+    full_name: cleanText(req.body.full_name),
+    document_id: normalizeDocument(req.body.document_id),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 100),
+    occupation: cleanText(req.body.occupation, 120),
+    message: cleanText(req.body.message, 500)
+  };
+
+  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.occupation) {
+    return res.status(400).json({ error: 'Completa los datos obligatorios del nuevo aliado.' });
+  }
+  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo invalido.' });
+
+  db.get(`SELECT u.id FROM users u
+    LEFT JOIN partners p ON p.user_id = u.id
+    WHERE u.email = ? OR p.document_id = ? OR p.phone = ?`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
+    if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
+    if (duplicate) return res.status(409).json({ error: 'Ya existe un aliado con ese correo, cedula o telefono.' });
+
+    const createdAt = getTimestamp();
+    const tempPassword = crypto.randomBytes(10).toString('hex');
+    db.run(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, 'ally', 'pending', ?, ?)`, [payload.full_name, payload.email, hashPassword(tempPassword), createdAt, createdAt], function (userErr) {
+      if (userErr) return res.status(500).json({ error: 'No fue posible crear la invitacion.' });
+      const invitedUserId = this.lastID;
+      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
+        VALUES (?, ?, ?, ?, 'Invitado', ?, ?, ?, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name), req.user.id], (partnerErr) => {
+        if (partnerErr) return res.status(500).json({ error: 'No fue posible asociar el aliado invitado.' });
+        sendNotificationEmail('Nuevo aliado invitado', `<p>${escapeHtml(req.user.full_name)} invito a ${escapeHtml(payload.full_name)} (${escapeHtml(payload.email)}).</p>`);
+        res.status(201).json({ message: 'Invitacion registrada correctamente. El nuevo aliado quedo asociado a tu red.' });
+      });
+    });
+  });
+});
+
+app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
+      u.full_name, u.email, u.status,
+      inviter.full_name AS invited_by_name,
+      COUNT(DISTINCT r.id) AS referrals_count,
+      COALESCE(SUM(c.amount), 0) AS commissions_total
+    FROM partners p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
+    LEFT JOIN referrals r ON r.ally_id = p.user_id
+    LEFT JOIN commissions c ON c.ally_id = p.user_id
+    GROUP BY p.user_id
+    ORDER BY u.created_at DESC`, (allyErr, allies) => {
+    if (allyErr) return res.status(500).json({ error: 'Error al cargar aliados.' });
+
+    db.all(`SELECT r.*, u.full_name AS ally_name
+      FROM referrals r
+      JOIN users u ON u.id = r.ally_id
+      ORDER BY r.created_at DESC`, (refErr, referralsRows) => {
+      if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
+
+      db.all(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
+        FROM commissions c
+        JOIN users receiver ON receiver.id = c.ally_id
+        JOIN users source ON source.id = c.source_ally_id
+        JOIN referrals r ON r.id = c.referral_id
+        ORDER BY c.created_at DESC`, (commErr, commissions) => {
+        if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
+
+        getActiveCommissionSettings((settingsErr, settings) => {
+          if (settingsErr) return res.status(500).json({ error: 'Error al cargar configuracion.' });
+          res.json({ allies, referrals: referralsRows, commissions, settings });
+        });
+      });
+    });
+  });
+});
+
+app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const status = cleanText(req.body.status, 40);
+  if (!id || !NETWORK_REFERRAL_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado no valido.' });
+  db.run(`UPDATE referrals SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el referido.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Referido no encontrado.' });
+    res.json({ message: 'Estado actualizado correctamente.' });
+  });
+});
+
+app.patch('/api/admin/commissions/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const status = cleanText(req.body.status, 20);
+  const amount = req.body.amount !== undefined ? Number(req.body.amount) : null;
+  if (!id || !COMMISSION_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado de comision no valido.' });
+  const paidAt = status === 'paid' ? getTimestamp() : null;
+  const params = amount !== null && !Number.isNaN(amount)
+    ? [status, amount, paidAt, id]
+    : [status, paidAt, id];
+  const sql = amount !== null && !Number.isNaN(amount)
+    ? `UPDATE commissions SET status = ?, amount = ?, paid_at = ? WHERE id = ?`
+    : `UPDATE commissions SET status = ?, paid_at = ? WHERE id = ?`;
+  db.run(sql, params, function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la comision.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Comision no encontrada.' });
+    res.json({ message: 'Comision actualizada correctamente.' });
+  });
+});
+
+app.patch('/api/admin/commission-settings', requireAuth(['admin']), (req, res) => {
+  const direct = Number(req.body.direct_percentage);
+  const level1 = Number(req.body.level_1_percentage);
+  const level2 = Number(req.body.level_2_percentage);
+  if ([direct, level1, level2].some((value) => Number.isNaN(value) || value < 0 || value > 100)) {
+    return res.status(400).json({ error: 'Porcentajes no validos.' });
+  }
+  const now = getTimestamp();
+  db.run(`UPDATE commission_settings SET is_active = 0 WHERE is_active = 1`);
+  db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, 1, ?, ?)`, [direct, level1, level2, now, now], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible guardar la configuracion.' });
+    res.json({ message: 'Configuracion actualizada.', id: this.lastID });
+  });
 });
 
 app.post('/api/auth/recovery/request', (req, res) => {
