@@ -1,4 +1,4 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
@@ -8,6 +8,25 @@ type AccessCard = { icon: string; title: string; text: string; button: string; h
 type PortalMetric = { label: string; value: string };
 type ReferralRow = { client: string; caseType: string; date: string; status: string; commission: string; action: string };
 type CaseRow = { caseType: string; status: string; updatedAt: string; lawyer: string; nextAction: string };
+type ClientPortalCase = {
+  id: number;
+  title: string;
+  type: string;
+  status: string;
+  lawyer: string;
+  startDate: string;
+  updatedAt: string;
+  nextAction: string;
+  description: string;
+  timeline: { date: string; title: string; description: string; status: string }[];
+  tasks: string[];
+};
+type ClientDocument = { id: number; caseTitle: string; name: string; uploadedBy: string; uploadedAt: string; status: string; observations: string; size: string };
+type ClientPayment = { concept: string; caseTitle: string; amount: number; dueDate: string; status: string; receipt: string };
+type ClientAppointment = { title: string; caseTitle: string; date: string; type: string; status: string; location: string };
+type ClientMessage = { caseTitle: string; from: string; date: string; unread: boolean; text: string; attachmentName?: string };
+type ClientNotification = { title: string; description: string; date: string; type: string; unread: boolean };
+type LegalServiceRequest = { service_type: string; description: string; urgency: string; documents: string; city: string; email: string; phone: string };
 type PartnerNetworkSummary = Record<string, number>;
 type AdminLead = {
   name: string;
@@ -47,10 +66,11 @@ export class AuthPortalComponent implements OnInit {
   networkReferralForm!: FormGroup;
   invitationForm!: FormGroup;
   commissionSettingsForm!: FormGroup;
-  calculatorForm!: FormGroup;
-  legalAcceptanceForm!: FormGroup;
-  signatureForm!: FormGroup;
-  kycForm!: FormGroup;
+  clientDocumentForm!: FormGroup;
+  clientAppointmentForm!: FormGroup;
+  clientMessageForm!: FormGroup;
+  clientServiceForm!: FormGroup;
+  clientProfileForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   loading = false;
@@ -59,11 +79,17 @@ export class AuthPortalComponent implements OnInit {
   currentUser: any = null;
   adminSection = 'dashboard';
   partnerSection = 'overview';
+  clientSection = 'dashboard';
   partnerNetwork: PartnerNetwork = {};
   partnerAdvanced: any = {};
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
   formMessage = '';
   formError = '';
+  clientFormMessage = '';
+  clientFormError = '';
+  clientMessageAttachmentName = '';
+  clientServiceAttachmentName = '';
+  selectedClientCaseId = 1;
   readonly environment = this.resolveEnvironment();
 
   accessCards: AccessCard[] = [
@@ -113,6 +139,87 @@ export class AuthPortalComponent implements OnInit {
     { caseType: 'Sucesión', status: 'Documentos solicitados', updatedAt: '2026-05-09', lawyer: 'Área civil y familia', nextAction: 'Cargar registros civiles' }
   ];
 
+  clientPortalCases: ClientPortalCase[] = [
+    {
+      id: 1,
+      title: 'Revisión contrato de compraventa',
+      type: 'Derecho inmobiliario',
+      status: 'En revisión',
+      lawyer: 'Equipo inmobiliario',
+      startDate: '2026-05-02',
+      updatedAt: '2026-05-12',
+      nextAction: 'Enviar certificado de tradición actualizado',
+      description: 'Análisis de promesa de compraventa, documentos del inmueble y riesgos jurídicos antes de firma.',
+      timeline: [
+        { date: '2026-05-02', title: 'Caso recibido', description: 'Se registró la solicitud y documentos iniciales.', status: 'Completado' },
+        { date: '2026-05-06', title: 'Revisión documental', description: 'El abogado asignado inició validación de certificados y promesa.', status: 'En curso' },
+        { date: '2026-05-12', title: 'Documento solicitado', description: 'Se pidió certificado de tradición actualizado.', status: 'Pendiente' }
+      ],
+      tasks: ['Cargar certificado de tradición actualizado', 'Confirmar fecha tentativa de firma', 'Enviar paz y salvo de administración']
+    },
+    {
+      id: 2,
+      title: 'Sucesión familiar',
+      type: 'Familia',
+      status: 'Pendiente de documentos',
+      lawyer: 'Área civil y familia',
+      startDate: '2026-04-22',
+      updatedAt: '2026-05-09',
+      nextAction: 'Cargar registros civiles',
+      description: 'Organización documental para trámite sucesoral y revisión de herederos.',
+      timeline: [
+        { date: '2026-04-22', title: 'Apertura de caso', description: 'Se creó expediente digital del proceso.', status: 'Completado' },
+        { date: '2026-04-29', title: 'Lista documental enviada', description: 'Se compartió listado de documentos requeridos.', status: 'Completado' },
+        { date: '2026-05-09', title: 'Pendiente de documentos', description: 'Faltan registros civiles para avanzar.', status: 'Pendiente' }
+      ],
+      tasks: ['Subir registro civil de nacimiento', 'Subir registro civil de defunción', 'Confirmar datos de contacto de herederos']
+    }
+  ];
+
+  clientDocuments: ClientDocument[] = [
+    { id: 1, caseTitle: 'Revisión contrato de compraventa', name: 'Promesa de compraventa.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-03', status: 'Aprobado', observations: 'Documento legible y completo.', size: '1.2 MB' },
+    { id: 2, caseTitle: 'Revisión contrato de compraventa', name: 'Certificado de tradición.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-04', status: 'Requiere corrección', observations: 'Debe estar actualizado a máximo 30 días.', size: '840 KB' },
+    { id: 3, caseTitle: 'Sucesión familiar', name: 'Lista de documentos requeridos.pdf', uploadedBy: 'Firma', uploadedAt: '2026-04-29', status: 'Recibido', observations: 'Documento guía para continuar el trámite.', size: '430 KB' }
+  ];
+
+  clientPayments: ClientPayment[] = [
+    { concept: 'Honorarios revisión contractual', caseTitle: 'Revisión contrato de compraventa', amount: 850000, dueDate: '2026-05-20', status: 'Pendiente', receipt: 'Pendiente de soporte' },
+    { concept: 'Abono inicial sucesión', caseTitle: 'Sucesión familiar', amount: 600000, dueDate: '2026-04-25', status: 'Pagado', receipt: 'RC-2026-041' },
+    { concept: 'Gastos notariales estimados', caseTitle: 'Sucesión familiar', amount: 320000, dueDate: '2026-05-28', status: 'Próximo vencimiento', receipt: 'Por generar' }
+  ];
+
+  clientAppointments: ClientAppointment[] = [
+    { title: 'Revisión de hallazgos', caseTitle: 'Revisión contrato de compraventa', date: '2026-05-16 09:00', type: 'Virtual', status: 'Confirmada', location: 'Google Meet pendiente de envío' },
+    { title: 'Organización documental', caseTitle: 'Sucesión familiar', date: '2026-05-21 15:30', type: 'Llamada', status: 'Solicitada', location: 'Llamada a celular registrado' },
+    { title: 'Primera asesoría', caseTitle: 'Revisión contrato de compraventa', date: '2026-05-03 10:00', type: 'Virtual', status: 'Realizada', location: 'Google Meet' }
+  ];
+
+  clientMessages: ClientMessage[] = [
+    { caseTitle: 'Revisión contrato de compraventa', from: 'Equipo inmobiliario', date: '2026-05-12 16:10', unread: true, text: 'Por favor carga el certificado de tradición actualizado para continuar la revisión.', attachmentName: 'lista-observaciones.pdf' },
+    { caseTitle: 'Sucesión familiar', from: 'Área civil y familia', date: '2026-05-09 09:20', unread: false, text: 'Te enviamos el listado de documentos necesarios para avanzar con el trámite.' }
+  ];
+
+  clientNotifications: ClientNotification[] = [
+    { title: 'Documento pendiente', description: 'Certificado de tradición requiere actualización.', date: '2026-05-12', type: 'Documentos', unread: true },
+    { title: 'Cita confirmada', description: 'Revisión de hallazgos el 16 de mayo a las 9:00 a. m.', date: '2026-05-11', type: 'Citas', unread: true },
+    { title: 'Pago próximo', description: 'Honorarios revisión contractual vencen el 20 de mayo.', date: '2026-05-10', type: 'Pagos', unread: false }
+  ];
+
+  clientServiceRequests: Array<LegalServiceRequest & { status: string; createdAt: string }> = [
+    { service_type: 'Contratos', description: 'Revisión de contrato de arrendamiento comercial.', urgency: 'Media', documents: 'contrato-preliminar.pdf', city: 'Bogotá', email: 'cliente@orjuela.com', phone: '3000000000', status: 'En análisis', createdAt: '2026-05-10' }
+  ];
+
+  clientProfile = {
+    full_name: 'Usuario Prueba',
+    document_id: '12345678',
+    email: 'cliente@orjuela.com',
+    phone: '3000000000',
+    city: 'Bogotá',
+    address: 'Dirección por actualizar',
+    created_at: '2026-05-01',
+    verified: false
+  };
+
   adminLeads: AdminLead[] = [
     { name: 'Laura Méndez', phone: '300 456 7890', email: 'laura@example.com', caseType: 'Derecho civil', source: 'Web', status: 'Nuevo', owner: 'Comercial', date: '2026-05-12', nextAction: 'Llamar hoy antes de las 5:00 p. m.', priority: 'Alta' },
     { name: 'Inmobiliaria Norte', phone: '311 222 3344', email: 'contacto@inmobiliaria.test', caseType: 'Contratos', source: 'Aliado', status: 'Contactado', owner: 'Asistente', date: '2026-05-11', nextAction: 'Enviar propuesta de revisión contractual', priority: 'Media' },
@@ -125,12 +232,6 @@ export class AuthPortalComponent implements OnInit {
   legalAreas = ['Familia', 'Civil', 'Laboral', 'Comercial', 'Penal', 'Inmobiliario', 'Otro'];
   referralStatuses = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente vinculado', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
   commissionStatuses = ['pending', 'approved', 'paid', 'rejected'];
-  commissionTypes = [
-    { label: 'Directa', value: 'direct', field: 'direct_percentage' },
-    { label: 'Red nivel 1', value: 'level_1', field: 'level_1_percentage' },
-    { label: 'Red nivel 2', value: 'level_2', field: 'level_2_percentage' }
-  ];
-
   constructor(private fb: FormBuilder, private http: HttpClient) {}
 
   ngOnInit(): void {
@@ -187,33 +288,46 @@ export class AuthPortalComponent implements OnInit {
       level_2_percentage: [1, Validators.required]
     });
 
-    this.calculatorForm = this.fb.group({
-      contract_value: [5000000, Validators.required],
-      commission_type: ['direct', Validators.required]
+    this.clientDocumentForm = this.fb.group({
+      caseTitle: ['Revisión contrato de compraventa', Validators.required],
+      fileName: ['', Validators.required],
+      fileType: ['', Validators.required],
+      fileSizeMb: [1, [Validators.required, Validators.max(10)]],
+      observations: ['']
     });
 
-    this.legalAcceptanceForm = this.fb.group({
-      document_type: ['Contrato de aliado', Validators.required],
-      accepted: [false, Validators.requiredTrue]
+    this.clientAppointmentForm = this.fb.group({
+      caseTitle: ['Revisión contrato de compraventa', Validators.required],
+      type: ['Virtual', Validators.required],
+      requestedDate: ['', Validators.required],
+      reason: ['', Validators.required]
     });
 
-    this.signatureForm = this.fb.group({
-      document_type: ['Contrato de aliado', Validators.required],
-      full_name: ['', Validators.required],
-      document_number: ['', Validators.required],
-      accepted: [false, Validators.requiredTrue]
+    this.clientMessageForm = this.fb.group({
+      caseTitle: ['Revisión contrato de compraventa', Validators.required],
+      message: ['', [Validators.required, Validators.minLength(8)]],
+      attachment: ['']
     });
 
-    this.kycForm = this.fb.group({
-      front_document_url: ['', Validators.required],
-      back_document_url: ['', Validators.required],
-      selfie_url: ['', Validators.required],
-      bank_name: ['', Validators.required],
-      account_type: ['', Validators.required],
-      account_number: ['', Validators.required]
+    this.clientServiceForm = this.fb.group({
+      service_type: ['', Validators.required],
+      description: ['', [Validators.required, Validators.minLength(12)]],
+      urgency: ['Media', Validators.required],
+      documents: [''],
+      city: ['', Validators.required],
+      email: [this.clientProfile.email, [Validators.required, Validators.email]],
+      phone: [this.clientProfile.phone, Validators.required]
+    });
+
+    this.clientProfileForm = this.fb.group({
+      full_name: [this.clientProfile.full_name, Validators.required],
+      phone: [this.clientProfile.phone, Validators.required],
+      city: [this.clientProfile.city, Validators.required],
+      address: [this.clientProfile.address]
     });
 
     this.restoreSession();
+    this.enforceDashboardAccess();
     if (this.mode === 'partner-dashboard') {
       this.loadPartnerNetwork();
       this.loadPartnerAdvanced();
@@ -334,9 +448,20 @@ export class AuthPortalComponent implements OnInit {
 
   setPartnerSection(section: string): void {
     this.partnerSection = section;
-    if (['crm', 'activity', 'level', 'goals', 'calculator', 'notifications', 'ally-profile', 'legal', 'finance', 'tree', 'academy', 'kyc'].includes(section)) {
+    if (['crm', 'activity', 'level', 'goals', 'notifications', 'ally-profile', 'finance', 'tree', 'academy'].includes(section)) {
       this.loadPartnerAdvanced();
     }
+  }
+
+  setClientSection(section: string): void {
+    this.clientSection = section;
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+  }
+
+  selectClientCase(caseId: number): void {
+    this.selectedClientCaseId = caseId;
+    this.clientSection = 'case-detail';
   }
 
   selectLead(lead: AdminLead): void {
@@ -370,24 +495,92 @@ export class AuthPortalComponent implements OnInit {
     const indirect = commissions.filter((item) => item.commission_type !== 'direct').reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const total = direct + indirect;
     const pending = commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    const approved = commissions.filter((item) => item.status === 'approved').reduce((sum, item) => sum + Number(item.amount || 0), 0);
     const paid = commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + Number(item.amount || 0), 0);
-    return { direct, indirect, total, pending, paid };
+    const rejected = commissions.filter((item) => item.status === 'rejected').reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    return { direct, indirect, total, pending, approved, paid, rejected, receivable: pending + approved };
   }
 
-  get calculatorPercentage(): number {
-    const type = this.calculatorForm?.value?.commission_type || 'direct';
-    const settings = this.partnerNetwork.settings || this.partnerAdvanced.calculator || {};
-    if (type === 'level_1') return Number(settings.level_1_percentage || 3);
-    if (type === 'level_2') return Number(settings.level_2_percentage || 1);
-    return Number(settings.direct_percentage || 10);
+  get payableCommissions(): any[] {
+    return (this.partnerNetwork.commissions || []).filter((item) => item.status === 'approved' || item.status === 'pending');
   }
 
-  get calculatorResult(): number {
-    return Number(this.calculatorForm?.value?.contract_value || 0) * (this.calculatorPercentage / 100);
+  get paidCommissions(): any[] {
+    return (this.partnerNetwork.commissions || []).filter((item) => item.status === 'paid');
+  }
+
+  get partnerDynamicTree() {
+    const directReferrals = this.partnerNetwork.direct_referrals || [];
+    const commissions = this.partnerNetwork.commissions || [];
+    const team = this.partnerNetwork.team || [];
+    const totalCommissions = commissions.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    return {
+      name: this.partnerNetwork.partner?.full_name || this.currentUser?.full_name || 'Aliado Orjuela',
+      level: 'Aliado principal',
+      status: this.partnerNetwork.partner?.status || this.currentUser?.status || 'Activo',
+      referrals_count: directReferrals.length,
+      commissions: totalCommissions,
+      children: team.map((ally) => ({
+        name: ally.full_name,
+        level: 'Nivel 1',
+        status: ally.status === 'active' ? 'Activo' : ally.status === 'pending' ? 'Invitado' : 'Inactivo',
+        referrals_count: Number(ally.referrals_count || 0),
+        commissions: Number(ally.generated_commissions || 0),
+        city: ally.city
+      }))
+    };
+  }
+
+  commissionTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      direct: 'Directa',
+      indirect_level_1: 'Red nivel 1',
+      indirect_level_2: 'Red nivel 2'
+    };
+    return labels[type] || type || 'Comisión';
+  }
+
+  commissionStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+      pending: 'Pendiente de validación',
+      approved: 'Aprobada para pago',
+      paid: 'Pagada',
+      rejected: 'Rechazada'
+    };
+    return labels[status] || status || 'Pendiente';
   }
 
   get unreadNotifications(): number {
     return (this.partnerAdvanced.notifications || []).filter((item: any) => !item.is_read).length;
+  }
+
+  get selectedClientCase(): ClientPortalCase {
+    return this.clientPortalCases.find((item) => item.id === this.selectedClientCaseId) || this.clientPortalCases[0];
+  }
+
+  get clientDashboardMetrics(): PortalMetric[] {
+    const pendingDocs = this.clientDocuments.filter((item) => item.status === 'Requiere corrección' || item.status === 'En revisión').length;
+    const pendingPayments = this.clientPayments.filter((item) => item.status !== 'Pagado').length;
+    const unread = this.clientMessages.filter((item) => item.unread).length + this.clientNotifications.filter((item) => item.unread).length;
+    return [
+      { label: 'Procesos activos', value: String(this.clientPortalCases.filter((item) => item.status !== 'Finalizado').length) },
+      { label: 'Próxima cita', value: '16 may' },
+      { label: 'Documentos pendientes', value: String(pendingDocs) },
+      { label: 'Pagos por revisar', value: String(pendingPayments) },
+      { label: 'Mensajes nuevos', value: String(unread) }
+    ];
+  }
+
+  get latestClientDocuments(): ClientDocument[] {
+    return this.clientDocuments.slice(0, 3);
+  }
+
+  get nextClientAppointment(): ClientAppointment | undefined {
+    return this.clientAppointments.find((item) => item.status !== 'Realizada' && item.status !== 'Cancelada');
+  }
+
+  get pendingClientPayment(): ClientPayment | undefined {
+    return this.clientPayments.find((item) => item.status !== 'Pagado');
   }
 
   submitNetworkReferral(): void {
@@ -440,7 +633,7 @@ export class AuthPortalComponent implements OnInit {
     const token = this.getToken();
     if (!token) return;
     this.http.get<PartnerNetwork>('/api/partner/network', { headers: this.authHeaders() }).subscribe({
-      next: (response) => this.partnerNetwork = response,
+      next: (response) => this.partnerNetwork = this.applyDemoPartnerDataIfNeeded(response),
       error: () => {
         if (this.environment.enableDemoData) this.partnerNetwork = this.demoPartnerNetwork();
       }
@@ -513,48 +706,186 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
-  acceptLegalDocument(): void {
-    if (this.legalAcceptanceForm.invalid) {
-      this.legalAcceptanceForm.markAllAsTouched();
+  submitClientDocument(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (this.clientDocumentForm.invalid) {
+      this.clientDocumentForm.markAllAsTouched();
+      this.clientFormError = 'Completa los datos del documento. Tamaño máximo: 10 MB.';
       return;
     }
-    this.http.post<any>('/api/partner/legal-acceptances', {
-      document_type: this.legalAcceptanceForm.value.document_type,
-      version: 'v1.0'
-    }, { headers: this.authHeaders() }).subscribe({
-      next: (response) => {
-        this.formMessage = response.message;
-        this.legalAcceptanceForm.patchValue({ accepted: false });
-        this.loadPartnerAdvanced();
-      }
+    const fileName = this.clientDocumentForm.value.fileName;
+    const fileType = String(this.clientDocumentForm.value.fileType || '').toLowerCase();
+    if (!['pdf', 'jpg', 'jpeg', 'png', 'docx'].includes(fileType)) {
+      this.clientFormError = 'Formato no permitido. Usa PDF, JPG, PNG o DOCX.';
+      return;
+    }
+    this.clientDocuments.unshift({
+      id: Date.now(),
+      caseTitle: this.clientDocumentForm.value.caseTitle,
+      name: fileName,
+      uploadedBy: 'Cliente',
+      uploadedAt: new Date().toISOString().slice(0, 10),
+      status: 'Recibido',
+      observations: this.clientDocumentForm.value.observations || 'Pendiente de revisión por el abogado.',
+      size: `${this.clientDocumentForm.value.fileSizeMb} MB`
     });
+    this.clientFormMessage = 'Documento registrado correctamente. Quedó pendiente de revisión.';
+    this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
   }
 
-  submitSignature(): void {
-    if (this.signatureForm.invalid) {
-      this.signatureForm.markAllAsTouched();
+  submitClientAppointment(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (this.clientAppointmentForm.invalid) {
+      this.clientAppointmentForm.markAllAsTouched();
+      this.clientFormError = 'Completa la información para solicitar la cita.';
       return;
     }
-    this.http.post<any>('/api/partner/electronic-signatures', this.signatureForm.value, { headers: this.authHeaders() }).subscribe({
-      next: (response) => {
-        this.formMessage = response.message;
-        this.signatureForm.patchValue({ accepted: false });
-        this.loadPartnerAdvanced();
-      }
+    this.clientAppointments.unshift({
+      title: this.clientAppointmentForm.value.reason,
+      caseTitle: this.clientAppointmentForm.value.caseTitle,
+      date: this.clientAppointmentForm.value.requestedDate,
+      type: this.clientAppointmentForm.value.type,
+      status: 'Solicitada',
+      location: 'Pendiente de confirmación'
     });
+    this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmará disponibilidad.';
+    this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '' });
   }
 
-  submitKyc(): void {
-    if (this.kycForm.invalid) {
-      this.kycForm.markAllAsTouched();
+  submitClientMessage(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (this.clientMessageForm.invalid) {
+      this.clientMessageForm.markAllAsTouched();
+      this.clientFormError = 'Escribe un mensaje claro para el abogado asignado.';
       return;
     }
-    this.http.post<any>('/api/partner/kyc', this.kycForm.value, { headers: this.authHeaders() }).subscribe({
-      next: (response) => {
-        this.formMessage = response.message;
-        this.loadPartnerAdvanced();
-      }
+    this.clientMessages.unshift({
+      caseTitle: this.clientMessageForm.value.caseTitle,
+      from: this.currentUser?.full_name || 'Cliente',
+      date: new Date().toISOString(),
+      unread: false,
+      text: this.clientMessageForm.value.message,
+      attachmentName: this.clientMessageForm.value.attachment || undefined
     });
+    this.clientFormMessage = 'Mensaje enviado a la firma.';
+    this.clientMessageAttachmentName = '';
+    this.clientMessageForm.patchValue({ message: '', attachment: '' });
+  }
+
+  onClientMessageAttachmentChange(event: Event): void {
+    this.clientFormError = '';
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) {
+      this.clientMessageAttachmentName = '';
+      this.clientMessageForm.patchValue({ attachment: '' });
+      return;
+    }
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      this.clientFormError = 'Adjunta únicamente documentos PDF, DOC, DOCX o imágenes JPG, PNG, WEBP.';
+      input.value = '';
+      this.clientMessageAttachmentName = '';
+      this.clientMessageForm.patchValue({ attachment: '' });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      this.clientFormError = 'El archivo adjunto no puede superar 10 MB.';
+      input.value = '';
+      this.clientMessageAttachmentName = '';
+      this.clientMessageForm.patchValue({ attachment: '' });
+      return;
+    }
+
+    this.clientMessageAttachmentName = file.name;
+    this.clientMessageForm.patchValue({ attachment: file.name });
+  }
+
+  onClientServiceDocumentChange(event: Event): void {
+    this.clientFormError = '';
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) {
+      this.clientServiceAttachmentName = '';
+      this.clientServiceForm.patchValue({ documents: '' });
+      return;
+    }
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      this.clientFormError = 'Adjunta únicamente documentos PDF, DOC, DOCX o imágenes JPG, PNG, WEBP.';
+      input.value = '';
+      this.clientServiceAttachmentName = '';
+      this.clientServiceForm.patchValue({ documents: '' });
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      this.clientFormError = 'El documento inicial no puede superar 10 MB.';
+      input.value = '';
+      this.clientServiceAttachmentName = '';
+      this.clientServiceForm.patchValue({ documents: '' });
+      return;
+    }
+
+    this.clientServiceAttachmentName = file.name;
+    this.clientServiceForm.patchValue({ documents: file.name });
+  }
+
+  submitClientServiceRequest(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (this.clientServiceForm.invalid) {
+      this.clientServiceForm.markAllAsTouched();
+      this.clientFormError = 'Completa los campos obligatorios para solicitar el servicio.';
+      return;
+    }
+    this.clientServiceRequests.unshift({
+      ...this.clientServiceForm.value,
+      status: 'Enviada',
+      createdAt: new Date().toISOString().slice(0, 10)
+    });
+    this.clientFormMessage = 'Solicitud enviada. Queda lista para registrarse en el panel administrativo cuando se conecte al API.';
+    this.clientServiceAttachmentName = '';
+    this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone });
+  }
+
+  saveClientProfile(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (this.clientProfileForm.invalid) {
+      this.clientProfileForm.markAllAsTouched();
+      this.clientFormError = 'Revisa los datos básicos antes de guardar.';
+      return;
+    }
+    this.clientProfile = { ...this.clientProfile, ...this.clientProfileForm.value };
+    this.clientFormMessage = 'Datos actualizados correctamente.';
+  }
+
+  markClientNotificationsRead(): void {
+    this.clientNotifications = this.clientNotifications.map((item) => ({ ...item, unread: false }));
+    this.clientFormMessage = 'Notificaciones marcadas como leídas.';
   }
 
   formatCurrency(value: any): string {
@@ -584,6 +915,23 @@ export class AuthPortalComponent implements OnInit {
     this.currentUser = raw ? JSON.parse(raw) : null;
   }
 
+  private enforceDashboardAccess(): void {
+    if (!this.mode.endsWith('dashboard')) return;
+    if (!this.currentUser) {
+      this.go('/ingresar');
+      return;
+    }
+    if (this.mode === 'client-dashboard' && this.currentUser.role !== 'client') {
+      this.go(this.currentUser.role === 'ally' ? '/aliados/dashboard' : '/admin/dashboard');
+    }
+    if (this.mode === 'partner-dashboard' && this.currentUser.role !== 'ally') {
+      this.go(this.currentUser.role === 'client' ? '/clientes/dashboard' : '/admin/dashboard');
+    }
+    if (this.mode === 'admin-dashboard' && !['admin', 'abogado', 'asistente'].includes(this.currentUser.role)) {
+      this.go(this.currentUser.role === 'client' ? '/clientes/dashboard' : '/aliados/dashboard');
+    }
+  }
+
   private resolveEnvironment() {
     const host = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
     const isPreviewHost = ['localhost', '127.0.0.1'].includes(host)
@@ -601,27 +949,60 @@ export class AuthPortalComponent implements OnInit {
 
   private demoPartnerNetwork(): PartnerNetwork {
     const invite = 'http://localhost:4200/aliados/registro?ref=ORJUELAQA';
+    const directReferrals = [
+      { id: 1, referred_full_name: 'Maria Rodriguez', legal_area: 'Inmobiliario', created_at: '2026-05-08', status: 'Contactado', commission_amount: 180000 },
+      { id: 2, referred_full_name: 'Carlos Perez', legal_area: 'Civil', created_at: '2026-05-04', status: 'Nuevo', commission_amount: 120000 },
+      { id: 3, referred_full_name: 'Empresa Andina', legal_area: 'Contratos', created_at: '2026-04-29', status: 'Cliente activo', commission_amount: 320000 },
+      { id: 4, referred_full_name: 'Laura Mendez', legal_area: 'Familia', created_at: '2026-05-12', status: 'En revision', commission_amount: 240000 },
+      { id: 5, referred_full_name: 'Jorge Salinas', legal_area: 'Cobro de cartera', created_at: '2026-05-10', status: 'Caso cerrado', commission_amount: 0 }
+    ];
+    const networkReferrals = [
+      { id: 6, masked_name: 'Juliana M.', legal_area: 'Familia', source_ally_name: 'Camila Red Aliada', status: 'En revision', commission_amount: 90000, created_at: '2026-05-11' },
+      { id: 7, masked_name: 'Inmobiliaria N.', legal_area: 'Contratos', source_ally_name: 'Camila Red Aliada', status: 'Cliente activo', commission_amount: 135000, created_at: '2026-05-09' },
+      { id: 8, masked_name: 'Daniel R.', legal_area: 'Laboral', source_ally_name: 'Andres Red Aliado', status: 'Comision pagada', commission_amount: 60000, created_at: '2026-04-25' },
+      { id: 9, masked_name: 'Sofia P.', legal_area: 'Comercial', source_ally_name: 'Camila Red Aliada', status: 'Nuevo referido', commission_amount: 45000, created_at: '2026-05-13' }
+    ];
+    const commissions = [
+      { id: 1, commission_type: 'direct', percentage: 10, amount: 180000, status: 'approved', referred_full_name: 'Maria Rodriguez', created_at: '2026-05-08' },
+      { id: 2, commission_type: 'direct', percentage: 10, amount: 120000, status: 'pending', referred_full_name: 'Carlos Perez', created_at: '2026-05-04' },
+      { id: 3, commission_type: 'direct', percentage: 10, amount: 320000, status: 'paid', referred_full_name: 'Empresa Andina', created_at: '2026-04-29' },
+      { id: 4, commission_type: 'direct', percentage: 10, amount: 240000, status: 'approved', referred_full_name: 'Laura Mendez', created_at: '2026-05-12' },
+      { id: 5, commission_type: 'indirect_level_1', percentage: 3, amount: 90000, status: 'pending', referred_full_name: 'Juliana M.', source_ally_name: 'Camila Red Aliada', created_at: '2026-05-11' },
+      { id: 6, commission_type: 'indirect_level_1', percentage: 3, amount: 135000, status: 'approved', referred_full_name: 'Inmobiliaria Norte', source_ally_name: 'Camila Red Aliada', created_at: '2026-05-09' },
+      { id: 7, commission_type: 'indirect_level_1', percentage: 3, amount: 60000, status: 'paid', referred_full_name: 'Daniel Rojas', source_ally_name: 'Andres Red Aliado', created_at: '2026-04-25' },
+      { id: 8, commission_type: 'indirect_level_1', percentage: 3, amount: 45000, status: 'pending', referred_full_name: 'Sofia Parra', source_ally_name: 'Camila Red Aliada', created_at: '2026-05-13' }
+    ];
     return {
       partner: { referral_code: 'ORJUELAQA', invite_link: invite },
-      summary: { total_referrals: 12, in_review: 4, converted: 3, pending_commission: 180000, approved_commission: 220000, paid_commission: 320000, active_team_members: 2 },
+      summary: { total_referrals: directReferrals.length, in_review: 2, converted: 2, pending_commission: 255000, approved_commission: 555000, paid_commission: 380000, active_team_members: 2 },
       settings: { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 },
       team: [
-        { full_name: 'Camila Red Aliada', city: 'Medellin', status: 'active', referrals_count: 4, generated_commissions: 90000 },
-        { full_name: 'Andres Red Aliado', city: 'Cali', status: 'pending', referrals_count: 1, generated_commissions: 0 }
+        { full_name: 'Camila Red Aliada', city: 'Medellin', status: 'active', referrals_count: 3, generated_commissions: 270000 },
+        { full_name: 'Andres Red Aliado', city: 'Cali', status: 'active', referrals_count: 1, generated_commissions: 60000 }
       ],
-      direct_referrals: this.referrals.map((item, index) => ({ id: index + 1, referred_full_name: item.client, legal_area: item.caseType, created_at: item.date, status: item.status, commission_amount: Number(item.commission.replace(/\D/g, '')) })),
-      network_referrals: [
-        { masked_name: 'Juliana M.', legal_area: 'Familia', source_ally_name: 'Camila Red Aliada', status: 'En revision', commission_amount: 90000, created_at: '2026-05-11' }
-      ],
-      commissions: [
-        { id: 1, commission_type: 'direct', percentage: 10, amount: 180000, status: 'approved', referred_full_name: 'Maria Rodriguez', created_at: '2026-05-08' },
-        { id: 2, commission_type: 'indirect_level_1', percentage: 3, amount: 90000, status: 'pending', referred_full_name: 'Juliana M.', source_ally_name: 'Camila Red Aliada', created_at: '2026-05-11' },
-        { id: 3, commission_type: 'direct', percentage: 10, amount: 320000, status: 'paid', referred_full_name: 'Empresa Andina', created_at: '2026-04-29' }
-      ],
+      direct_referrals: directReferrals,
+      network_referrals: networkReferrals,
+      commissions,
       share: {
         client_message: `Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoria juridica personalizada. Puedes dejar tus datos aqui: ${invite}`,
         ally_message: `Hola, quiero invitarte al programa de aliados de Orjuela Abogados. Puedes referir personas que necesiten servicios legales y recibir comisiones por casos efectivos. Registrate aqui: ${invite}`
       }
+    };
+  }
+
+  private applyDemoPartnerDataIfNeeded(response: PartnerNetwork): PartnerNetwork {
+    const hasReferralData = Boolean(response?.direct_referrals?.length || response?.network_referrals?.length || response?.commissions?.length);
+    if (!this.environment.enableDemoData || hasReferralData) return response;
+    const demo = this.demoPartnerNetwork();
+    return {
+      ...demo,
+      partner: {
+        ...demo.partner,
+        ...(response.partner || {}),
+        referral_code: response.partner?.referral_code || demo.partner?.referral_code,
+        invite_link: response.partner?.invite_link || demo.partner?.invite_link
+      },
+      settings: response.settings || demo.settings
     };
   }
 
@@ -648,18 +1029,14 @@ export class AuthPortalComponent implements OnInit {
       goals: { referral_goal: 8, converted_goal: 2, commission_goal: 700000, referral_progress: 62, converted_progress: 50, commission_progress: 46, message: 'Vas avanzando bien: prioriza referidos con información completa.' },
       notifications: [
         { id: 1, title: 'Comisión aprobada', description: 'Tu comisión por Maria Rodriguez fue aprobada.', notification_type: 'Comisión aprobada', is_read: 0, created_at: '2026-05-13' },
-        { id: 2, title: 'Documento pendiente', description: 'Actualiza tu verificación KYC para solicitar pagos.', notification_type: 'Documento pendiente', is_read: 0, created_at: '2026-05-12' }
+        { id: 2, title: 'Perfil pendiente', description: 'Completa tus datos de contacto para mantener activo el seguimiento de pagos.', notification_type: 'Perfil', is_read: 0, created_at: '2026-05-12' }
       ],
       profile: { ...(this.partnerNetwork.partner || {}), document_id: '900111222', phone: '300 111 2233', city: 'Bogotá', occupation: 'Asesor comercial', status: 'Activo', joined_at: '2026-05-01', bank_name: 'Dato sensible protegido', account_type: 'Dato sensible protegido', account_number: '****' },
-      legal_documents: [{ document_type: 'Contrato de aliado', version: 'v1.0', status: 'pending' }, { document_type: 'Habeas data', version: 'v1.0', status: 'accepted', accepted_at: '2026-05-12' }],
-      charts: { commissions_by_month: [{ label: '2026-04', value: 120000 }, { label: '2026-05', value: 390000 }], referrals_by_month: [{ label: '2026-04', value: 4 }, { label: '2026-05', value: 8 }], conversion_rate: 25, network_growth: [{ label: '2026-05', value: 2 }], direct_vs_indirect: [{ label: 'Directas', value: 500000 }, { label: 'Indirectas', value: 90000 }], pending_vs_paid: [{ label: 'Pendientes', value: 180000 }, { label: 'Pagadas', value: 320000 }] },
-      network_tree: { name: 'Aliado Demo Orjuela', level: 'Principal', status: 'Activo', referrals_count: 12, commissions: 500000, children: [{ name: 'Camila Red Aliada', level: 'Nivel 1', status: 'Activo', referrals_count: 4, commissions: 90000 }] },
+      charts: { commissions_by_month: [{ label: '2026-04', value: 380000 }, { label: '2026-05', value: 810000 }], referrals_by_month: [{ label: '2026-04', value: 2 }, { label: '2026-05', value: 7 }], network_growth: [{ label: '2026-05', value: 2 }], direct_vs_indirect: [{ label: 'Directas', value: 860000 }, { label: 'Indirectas', value: 330000 }], pending_vs_paid: [{ label: 'Pendientes', value: 255000 }, { label: 'Pagadas', value: 380000 }] },
       academy: [
         { title: 'Cómo funciona el programa', description: 'Reglas, estados y comisiones.', progress: 80, progress_status: 'completado' },
         { title: 'Protección de datos personales', description: 'Buenas prácticas de habeas data.', progress: 40, progress_status: 'pendiente' }
-      ],
-      kyc: { status: 'En revisión', phone_validated: 1, email_validated: 1 },
-      calculator: { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 }
+      ]
     };
   }
 
@@ -679,3 +1056,4 @@ export class AuthPortalComponent implements OnInit {
     };
   }
 }
+

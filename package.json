@@ -28,6 +28,8 @@
     "@angular/router": "^19.2.0",
     "@angular/ssr": "^19.2.8",
     "@emailjs/browser": "^4.4.1",
+    "@supabase/ssr": "^0.10.3",
+    "@supabase/supabase-js": "^2.105.4",
     "bootstrap": "^5.3.5",
     "bootstrap-icons": "^1.11.3",
     "cors": "^2.8.5",

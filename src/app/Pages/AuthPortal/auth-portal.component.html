@@ -1,4 +1,4 @@
-<main class="auth-platform" [class.admin-mode]="mode === 'admin-login' || mode === 'admin-dashboard'">
+﻿<main class="auth-platform" [class.admin-mode]="mode === 'admin-login' || mode === 'admin-dashboard'">
   <div class="environment-badge" *ngIf="environment.showEnvironmentBadge">
     Ambiente {{ environment.name | uppercase }}
   </div>
@@ -187,25 +187,31 @@
         <button [class.active]="partnerSection === 'new-referral'" (click)="setPartnerSection('new-referral')">Añadir referido</button>
         <button [class.active]="partnerSection === 'network'" (click)="setPartnerSection('network')">Mi red de aliados</button>
         <button [class.active]="partnerSection === 'network-referrals'" (click)="setPartnerSection('network-referrals')">Referidos de mi red</button>
-        <button [class.active]="partnerSection === 'commissions'" (click)="setPartnerSection('commissions')">Comisiones</button>
         <button [class.active]="partnerSection === 'crm'" (click)="setPartnerSection('crm')">Mis referidos</button>
         <button [class.active]="partnerSection === 'activity'" (click)="setPartnerSection('activity')">Actividad reciente</button>
         <button [class.active]="partnerSection === 'level'" (click)="setPartnerSection('level')">Mi nivel</button>
         <button [class.active]="partnerSection === 'goals'" (click)="setPartnerSection('goals')">Metas del mes</button>
-        <button [class.active]="partnerSection === 'calculator'" (click)="setPartnerSection('calculator')">Calculadora</button>
         <button [class.active]="partnerSection === 'notifications'" (click)="setPartnerSection('notifications')">Notificaciones</button>
         <button [class.active]="partnerSection === 'finance'" (click)="setPartnerSection('finance')">Finanzas</button>
         <button [class.active]="partnerSection === 'tree'" (click)="setPartnerSection('tree')">Mi red</button>
         <button [class.active]="partnerSection === 'academy'" (click)="setPartnerSection('academy')">Academia</button>
-        <button [class.active]="partnerSection === 'kyc'" (click)="setPartnerSection('kyc')">Verificación KYC</button>
-        <button [class.active]="partnerSection === 'legal'" (click)="setPartnerSection('legal')">Documentos legales</button>
         <button [class.active]="partnerSection === 'resources'" (click)="setPartnerSection('resources')">Material para compartir</button>
         <button [class.active]="partnerSection === 'ally-profile'" (click)="setPartnerSection('ally-profile')">Mi perfil</button>
         <button [class.active]="partnerSection === 'profile'" (click)="setPartnerSection('profile')">Cómo funciona</button>
         <button (click)="logout()">Cerrar sesión</button>
       </nav>
       <nav *ngIf="kind === 'client'">
-        <a>Inicio</a><a>Mis casos</a><a>Documentos</a><a>Pagos</a><a>Citas</a><a>Mensajes</a><a>Perfil</a><button (click)="logout()">Cerrar sesión</button>
+        <button [class.active]="clientSection === 'dashboard'" (click)="setClientSection('dashboard')">Inicio</button>
+        <button [class.active]="clientSection === 'cases'" (click)="setClientSection('cases')">Mis procesos</button>
+        <button [class.active]="clientSection === 'documents'" (click)="setClientSection('documents')">Documentos</button>
+        <button [class.active]="clientSection === 'payments'" (click)="setClientSection('payments')">Pagos</button>
+        <button [class.active]="clientSection === 'appointments'" (click)="setClientSection('appointments')">Citas</button>
+        <button [class.active]="clientSection === 'messages'" (click)="setClientSection('messages')">Mensajes</button>
+        <button [class.active]="clientSection === 'new-service'" (click)="setClientSection('new-service')">Nuevo servicio</button>
+        <button [class.active]="clientSection === 'notifications'" (click)="setClientSection('notifications')">Notificaciones</button>
+        <button [class.active]="clientSection === 'profile'" (click)="setClientSection('profile')">Mi información</button>
+        <button [class.active]="clientSection === 'support'" (click)="setClientSection('support')">Ayuda</button>
+        <button (click)="logout()">Cerrar sesión</button>
       </nav>
       <nav *ngIf="kind === 'admin'">
         <button [class.active]="adminSection === 'dashboard'" (click)="setAdminSection('dashboard')">Dashboard</button>
@@ -223,8 +229,8 @@
         <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
       </header>
 
-      <div class="metric-grid" *ngIf="kind !== 'partner' || partnerSection === 'overview'">
-        <article class="metric-card" *ngFor="let metric of kind === 'partner' ? partnerNetworkMetrics : kind === 'client' ? clientMetrics : adminMetrics">
+      <div class="metric-grid" *ngIf="(kind === 'partner' && partnerSection === 'overview') || kind === 'admin' || (kind === 'client' && clientSection === 'dashboard')">
+        <article class="metric-card" *ngFor="let metric of kind === 'partner' ? partnerNetworkMetrics : kind === 'client' ? clientDashboardMetrics : adminMetrics">
           <span>{{ metric.label }}</span><strong>{{ metric.value }}</strong>
         </article>
       </div>
@@ -306,18 +312,6 @@
           <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Tipo de caso</th><th>Aliado</th><th>Estado</th><th>Comisión estimada</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let item of partnerNetwork.network_referrals || []"><td>{{ item.masked_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.source_ally_name }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td>{{ item.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
         </section>
 
-        <section class="data-card wide" *ngIf="partnerSection === 'commissions'">
-          <h2>Comisiones</h2>
-          <div class="commission-summary-grid">
-            <article><span>Directa</span><strong>{{ formatCurrency(commissionSummary.direct) }}</strong><small>{{ partnerNetwork.settings?.direct_percentage || 10 }}% por mis referidos</small></article>
-            <article><span>Indirecta</span><strong>{{ formatCurrency(commissionSummary.indirect) }}</strong><small>{{ partnerNetwork.settings?.level_1_percentage || 3 }}% red nivel 1 · {{ partnerNetwork.settings?.level_2_percentage || 1 }}% nivel 2</small></article>
-            <article><span>Total acumulado</span><strong>{{ formatCurrency(commissionSummary.total) }}</strong></article>
-            <article><span>Total pendiente</span><strong>{{ formatCurrency(commissionSummary.pending) }}</strong></article>
-            <article><span>Total pagado</span><strong>{{ formatCurrency(commissionSummary.paid) }}</strong></article>
-          </div>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Tipo</th><th>Porcentaje</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let item of partnerNetwork.commissions || []"><td>{{ item.referred_full_name }}</td><td>{{ item.commission_type }}</td><td>{{ item.percentage }}%</td><td>{{ formatCurrency(item.amount) }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ item.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
-        </section>
-
         <section class="data-card wide" *ngIf="partnerSection === 'resources'">
           <h2>Material para compartir</h2>
           <div class="share-grid">
@@ -338,7 +332,7 @@
         <section class="data-card wide" *ngIf="partnerSection === 'crm'">
           <h2>Mis referidos</h2>
           <div class="pipeline-grid">
-            <article *ngFor="let status of ['Nuevo','Contactado','Documentos solicitados','Consulta agendada','Caso en análisis','Cliente activo','Caso cerrado','Rechazado']">
+            <article *ngFor="let status of ['Nuevo','Contactado','Cliente activo','Caso cerrado','Rechazado']">
               <span>{{ status }}</span>
               <strong>{{ pipelineCount(status) }}</strong>
             </article>
@@ -366,17 +360,6 @@
           <div class="legal-notice">{{ partnerAdvanced.goals?.message }}</div>
         </section>
 
-        <section class="data-card wide" *ngIf="partnerSection === 'calculator'">
-          <h2>Calculadora de ganancias</h2>
-          <form class="settings-form" [formGroup]="calculatorForm">
-            <label>Valor estimado del contrato legal<input class="form-control" type="number" formControlName="contract_value"></label>
-            <label>Tipo de comisión<select class="form-select" formControlName="commission_type"><option *ngFor="let type of commissionTypes" [value]="type.value">{{ type.label }}</option></select></label>
-            <article class="result-card"><span>Porcentaje aplicable</span><strong>{{ calculatorPercentage }}%</strong></article>
-            <article class="result-card"><span>Resultado estimado</span><strong>{{ formatCurrency(calculatorResult) }}</strong></article>
-          </form>
-          <div class="legal-notice">Este cálculo es únicamente estimado. Las comisiones reales están sujetas a validación, pago efectivo del cliente y políticas internas del programa.</div>
-        </section>
-
         <section class="data-card wide" *ngIf="partnerSection === 'notifications'">
           <div class="panel-header"><h2>Centro de notificaciones</h2><button class="btn btn-outline-dark" (click)="markAllNotificationsRead()">Marcar todas como leídas</button></div>
           <p>{{ unreadNotifications }} notificaciones no leídas</p>
@@ -393,33 +376,99 @@
           <button class="btn btn-primary">Editar datos no sensibles</button>
         </section>
 
-        <section class="data-card wide" *ngIf="partnerSection === 'legal'">
-          <h2>Documentos legales y firma electrónica</h2>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Documento</th><th>Versión</th><th>Estado</th><th>Fecha</th><th>PDF</th></tr></thead><tbody><tr *ngFor="let doc of partnerAdvanced.legal_documents || []"><td>{{ doc.document_type }}</td><td>{{ doc.version }}</td><td><span class="status-badge">{{ doc.status }}</span></td><td>{{ doc.accepted_at | date:'medium' }}</td><td><button class="btn btn-outline-dark btn-sm">Descargar copia</button></td></tr></tbody></table></div>
-          <form class="settings-form" [formGroup]="legalAcceptanceForm" (ngSubmit)="acceptLegalDocument()"><label>Documento<select class="form-select" formControlName="document_type"><option>Contrato de aliado</option><option>Política de comisiones</option><option>Habeas data</option><option>Autorización de tratamiento de datos</option></select></label><label class="check-row"><input type="checkbox" formControlName="accepted"> Acepto el documento seleccionado</label><button class="btn btn-primary">Aceptar políticas</button></form>
-          <form class="network-form" [formGroup]="signatureForm" (ngSubmit)="submitSignature()"><label>Documento a firmar<select class="form-select" formControlName="document_type"><option>Contrato de aliado</option><option>Actualización de datos bancarios</option></select></label><label>Nombre completo<input class="form-control" formControlName="full_name"></label><label>Número de documento<input class="form-control" formControlName="document_number"></label><label class="check-row full"><input type="checkbox" formControlName="accepted"> Firmo electrónicamente este documento</label><button class="btn btn-primary">Registrar firma</button></form>
-        </section>
-
         <section class="data-card wide" *ngIf="partnerSection === 'finance'">
-          <h2>Dashboard financiero</h2>
-          <div class="chart-grid"><article *ngFor="let chart of [{title:'Comisiones por mes',data:partnerAdvanced.charts?.commissions_by_month},{title:'Referidos por mes',data:partnerAdvanced.charts?.referrals_by_month},{title:'Comisiones directas vs indirectas',data:partnerAdvanced.charts?.direct_vs_indirect},{title:'Pagos pendientes vs pagados',data:partnerAdvanced.charts?.pending_vs_paid}]"><h3>{{ chart.title }}</h3><div class="bar-row" *ngFor="let item of chart.data || []"><span>{{ item.label }}</span><div><b [style.width.%]="item.value > 100 ? 100 : item.value"></b></div><strong>{{ item.value }}</strong></div></article></div>
+          <div class="panel-header">
+            <div>
+              <span class="secure-pill">Finanzas del aliado</span>
+              <h2>Comisiones por recibir</h2>
+              <p>Consulta qué comisiones están pendientes, aprobadas y pagadas. Los valores finales siempre dependen de validación administrativa.</p>
+            </div>
+          </div>
+          <div class="finance-summary-grid">
+            <article><span>Total por recibir</span><strong>{{ formatCurrency(commissionSummary.receivable) }}</strong><small>Pendientes + aprobadas</small></article>
+            <article><span>Aprobadas para pago</span><strong>{{ formatCurrency(commissionSummary.approved) }}</strong><small>Listas para programación</small></article>
+            <article><span>Pendientes</span><strong>{{ formatCurrency(commissionSummary.pending) }}</strong><small>En validación interna</small></article>
+            <article><span>Pagadas</span><strong>{{ formatCurrency(commissionSummary.paid) }}</strong><small>Historial confirmado</small></article>
+            <article><span>Directas</span><strong>{{ formatCurrency(commissionSummary.direct) }}</strong><small>Por referidos propios</small></article>
+            <article><span>Red de aliados</span><strong>{{ formatCurrency(commissionSummary.indirect) }}</strong><small>Por referidos de tu equipo</small></article>
+          </div>
+
+          <div class="finance-panels">
+            <article>
+              <h3>Próximos pagos y validaciones</h3>
+              <div class="finance-list" *ngIf="payableCommissions.length; else emptyPayable">
+                <div class="finance-row" *ngFor="let item of payableCommissions">
+                  <div>
+                    <strong>{{ item.referred_full_name }}</strong>
+                    <span>{{ commissionTypeLabel(item.commission_type) }} · {{ commissionStatusLabel(item.status) }}</span>
+                  </div>
+                  <b>{{ formatCurrency(item.amount) }}</b>
+                </div>
+              </div>
+              <ng-template #emptyPayable><p class="empty-state">No tienes comisiones pendientes por validar.</p></ng-template>
+            </article>
+            <article class="payment-history-card">
+              <h3>Historial de pagos</h3>
+              <div class="finance-list payment-history-list" *ngIf="paidCommissions.length; else emptyPaid">
+                <div class="finance-row payment-row" *ngFor="let item of paidCommissions">
+                  <div>
+                    <strong>{{ item.referred_full_name }}</strong>
+                    <span>{{ commissionTypeLabel(item.commission_type) }}</span>
+                    <small>{{ item.created_at | date:'mediumDate' }}</small>
+                  </div>
+                  <b>{{ formatCurrency(item.amount) }}</b>
+                </div>
+              </div>
+              <ng-template #emptyPaid><p class="empty-state">Aún no tienes pagos registrados.</p></ng-template>
+            </article>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table finance-detail-table">
+              <thead>
+                <tr><th>Referido</th><th>Tipo</th><th>Porcentaje</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr>
+              </thead>
+              <tbody>
+                <tr *ngFor="let item of partnerNetwork.commissions || []">
+                  <td><strong>{{ item.referred_full_name }}</strong></td>
+                  <td>{{ commissionTypeLabel(item.commission_type) }}</td>
+                  <td>{{ item.percentage }}%</td>
+                  <td><strong>{{ formatCurrency(item.amount) }}</strong></td>
+                  <td><span class="status-badge">{{ commissionStatusLabel(item.status) }}</span></td>
+                  <td>{{ item.created_at | date:'mediumDate' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="chart-grid finance-charts">
+            <article *ngFor="let chart of [{title:'Comisiones por mes',data:partnerAdvanced.charts?.commissions_by_month},{title:'Referidos por mes',data:partnerAdvanced.charts?.referrals_by_month},{title:'Comisiones directas vs red',data:partnerAdvanced.charts?.direct_vs_indirect},{title:'Pendientes vs pagadas',data:partnerAdvanced.charts?.pending_vs_paid}]"><h3>{{ chart.title }}</h3><div class="bar-row" *ngFor="let item of chart.data || []"><span>{{ item.label }}</span><div><b [style.width.%]="item.value > 100 ? 100 : item.value"></b></div><strong>{{ item.value }}</strong></div></article>
+          </div>
+          <div class="legal-notice">Las comisiones están sujetas a validación interna, pago efectivo del cliente y políticas del programa. El aliado no puede editar ni aprobar comisiones desde esta vista.</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'tree'">
           <h2>Árbol visual de red</h2>
-          <div class="tree-root"><article><strong>{{ partnerAdvanced.network_tree?.name }}</strong><span>{{ partnerAdvanced.network_tree?.level }} · {{ partnerAdvanced.network_tree?.status }}</span><small>{{ partnerAdvanced.network_tree?.referrals_count }} referidos · {{ formatCurrency(partnerAdvanced.network_tree?.commissions) }}</small></article><div class="tree-children"><article *ngFor="let node of partnerAdvanced.network_tree?.children || []"><strong>{{ node.name }}</strong><span>{{ node.level }} · {{ node.status }}</span><small>{{ node.referrals_count }} referidos · {{ formatCurrency(node.commissions) }}</small></article></div></div>
+          <div class="tree-root">
+            <article>
+              <strong>{{ partnerDynamicTree.name }}</strong>
+              <span>{{ partnerDynamicTree.level }} · {{ partnerDynamicTree.status }}</span>
+              <small>{{ partnerDynamicTree.referrals_count }} referidos directos · {{ formatCurrency(partnerDynamicTree.commissions) }} en comisiones</small>
+            </article>
+            <div class="tree-children" *ngIf="partnerDynamicTree.children.length; else emptyTree">
+              <article *ngFor="let node of partnerDynamicTree.children">
+                <strong>{{ node.name }}</strong>
+                <span>{{ node.level }} · {{ node.status }} · {{ node.city }}</span>
+                <small>{{ node.referrals_count }} referidos de red · {{ formatCurrency(node.commissions) }} generados</small>
+              </article>
+            </div>
+            <ng-template #emptyTree><p class="empty-state">Aún no tienes aliados registrados en tu red.</p></ng-template>
+          </div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'academy'">
           <h2>Academia de Aliados</h2>
           <div class="academy-grid"><article *ngFor="let module of partnerAdvanced.academy || []"><span class="status-badge">{{ module.progress_status }}</span><h3>{{ module.title }}</h3><p>{{ module.description }}</p><div class="progress"><div class="progress-bar" [style.width.%]="module.progress || 0"></div></div><small>{{ module.progress || 0 }}% completado</small><button class="btn btn-outline-dark">Ver contenido</button></article></div>
-        </section>
-
-        <section class="data-card wide" *ngIf="partnerSection === 'kyc'">
-          <h2>Verificación / KYC</h2>
-          <p>Estado actual: <span class="status-badge">{{ partnerAdvanced.kyc?.status || 'Sin verificar' }}</span></p>
-          <form class="network-form" [formGroup]="kycForm" (ngSubmit)="submitKyc()"><label>Cédula frontal URL<input class="form-control" formControlName="front_document_url"></label><label>Cédula posterior URL<input class="form-control" formControlName="back_document_url"></label><label>Selfie o foto de perfil URL<input class="form-control" formControlName="selfie_url"></label><label>Banco<input class="form-control" formControlName="bank_name"></label><label>Tipo de cuenta<input class="form-control" formControlName="account_type"></label><label>Número de cuenta<input class="form-control" formControlName="account_number"></label><button class="btn btn-primary">Enviar a revisión</button></form>
-          <div class="legal-notice">Solo aliados verificados pueden solicitar pagos. Los datos bancarios quedan sujetos a validación administrativa.</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'profile'">
@@ -435,16 +484,95 @@
         </section>
       </div>
 
-      <div class="content-grid" *ngIf="kind === 'client'">
-        <section class="data-card wide">
-          <h2>Mis casos</h2>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Tipo de caso</th><th>Estado</th><th>Última actualización</th><th>Abogado asignado</th><th>Próxima acción</th></tr></thead><tbody><tr *ngFor="let item of clientCases"><td>{{ item.caseType }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ item.updatedAt }}</td><td>{{ item.lawyer }}</td><td>{{ item.nextAction }}</td></tr></tbody></table></div>
+      <div class="client-page" *ngIf="kind === 'client'">
+        <section class="client-hero-card" *ngIf="clientSection === 'dashboard'">
+          <div>
+            <span class="secure-pill">Portal privado del cliente</span>
+            <h2>Hola, {{ currentUser?.full_name || clientProfile.full_name }}</h2>
+            <p>Consulta tus procesos, documentos, pagos, citas y comunicaciones con la firma desde un solo lugar.</p>
+          </div>
+          <div class="hero-actions-inline">
+            <button class="btn btn-primary" (click)="setClientSection('new-service')">Nuevo servicio</button>
+            <button class="btn btn-outline-dark" (click)="setClientSection('documents')">Subir documento</button>
+            <button class="btn btn-outline-dark" (click)="setClientSection('appointments')">Agendar cita</button>
+            <button class="btn btn-secondary-contrast" (click)="setClientSection('messages')">Contactar abogado</button>
+          </div>
         </section>
-        <section class="data-card"><h2>Timeline</h2><ol class="timeline"><li>Recibido</li><li>En revisión</li><li>Documentos solicitados</li><li>En trámite</li></ol></section>
-        <section class="data-card"><h2>Documentos</h2><button class="btn btn-outline-dark w-100">Subir documento</button><button class="btn btn-outline-dark w-100 mt-2">Descargar archivos</button></section>
-        <section class="data-card"><h2>Mensajes</h2><textarea class="form-control" rows="4" placeholder="Escribe una solicitud"></textarea><button class="btn btn-primary mt-2">Enviar mensaje</button></section>
-      </div>
 
+        <div class="client-dashboard-grid" *ngIf="clientSection === 'dashboard'">
+          <section class="data-card client-status-card">
+            <span class="secure-pill">Estado general</span>
+            <h2>{{ selectedClientCase.status }}</h2>
+            <p>{{ selectedClientCase.nextAction }}</p>
+            <button class="btn btn-outline-dark" (click)="selectClientCase(selectedClientCase.id)">Ver detalle del proceso</button>
+          </section>
+          <section class="data-card">
+            <h2>Próxima cita</h2>
+            <article class="compact-info" *ngIf="nextClientAppointment; else noAppointment"><strong>{{ nextClientAppointment.title }}</strong><span>{{ nextClientAppointment.date }} · {{ nextClientAppointment.type }}</span><small>{{ nextClientAppointment.location }}</small></article>
+            <ng-template #noAppointment><p class="empty-state">No tienes citas próximas.</p></ng-template>
+          </section>
+          <section class="data-card">
+            <h2>Pago pendiente</h2>
+            <article class="compact-info" *ngIf="pendingClientPayment; else noPayment"><strong>{{ formatCurrency(pendingClientPayment.amount) }}</strong><span>{{ pendingClientPayment.concept }}</span><small>Vence: {{ pendingClientPayment.dueDate }}</small></article>
+            <ng-template #noPayment><p class="empty-state">No tienes pagos pendientes.</p></ng-template>
+          </section>
+          <section class="data-card wide">
+            <h2>Últimos documentos</h2>
+            <div class="document-list"><article *ngFor="let doc of latestClientDocuments"><i class="bi bi-file-earmark-text"></i><div><strong>{{ doc.name }}</strong><span>{{ doc.caseTitle }} · {{ doc.uploadedAt }}</span><small>{{ doc.observations }}</small></div><span class="status-badge">{{ doc.status }}</span></article></div>
+          </section>
+        </div>
+
+        <section class="data-card wide" *ngIf="clientSection === 'cases'">
+          <div class="data-toolbar client-toolbar"><h2>Mis procesos legales</h2><input class="form-control" placeholder="Buscar por caso o abogado"><select class="form-select"><option>Todos los estados</option><option>En revisión</option><option>Activo</option><option>Pendiente de documentos</option><option>Finalizado</option></select></div>
+          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Proceso</th><th>Tipo</th><th>Estado</th><th>Abogado</th><th>Inicio</th><th>Última actualización</th><th>Acción</th></tr></thead><tbody><tr *ngFor="let legalCase of clientPortalCases"><td><strong>{{ legalCase.title }}</strong><span>{{ legalCase.nextAction }}</span></td><td>{{ legalCase.type }}</td><td><span class="status-badge">{{ legalCase.status }}</span></td><td>{{ legalCase.lawyer }}</td><td>{{ legalCase.startDate }}</td><td>{{ legalCase.updatedAt }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="selectClientCase(legalCase.id)">Ver detalle</button></td></tr></tbody></table></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'case-detail'">
+          <button class="btn btn-outline-dark btn-sm mb-3" (click)="setClientSection('cases')">Volver a mis procesos</button>
+          <div class="case-detail-header"><div><span class="secure-pill">{{ selectedClientCase.type }}</span><h2>{{ selectedClientCase.title }}</h2><p>{{ selectedClientCase.description }}</p></div><span class="status-badge">{{ selectedClientCase.status }}</span></div>
+          <div class="case-detail-grid"><div><h3>Línea de tiempo</h3><ol class="timeline rich"><li *ngFor="let event of selectedClientCase.timeline"><strong>{{ event.title }}</strong><span>{{ event.date }} · {{ event.status }}</span><p>{{ event.description }}</p></li></ol></div><div><h3>Próximas tareas</h3><div class="task-list"><article *ngFor="let task of selectedClientCase.tasks"><i class="bi bi-check2-circle"></i><span>{{ task }}</span></article></div></div></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'documents'">
+          <div class="section-split">
+            <div><h2>Documentos</h2><div class="document-list"><article *ngFor="let doc of clientDocuments"><i class="bi bi-file-earmark-text"></i><div><strong>{{ doc.name }}</strong><span>{{ doc.caseTitle }} · {{ doc.uploadedBy }} · {{ doc.size }}</span><small>{{ doc.observations }}</small></div><span class="status-badge">{{ doc.status }}</span><button class="btn btn-outline-dark btn-sm">Descargar</button></article></div></div>
+            <form class="client-form" [formGroup]="clientDocumentForm" (ngSubmit)="submitClientDocument()"><h2>Subir documento</h2><label>Caso<select class="form-select" formControlName="caseTitle"><option *ngFor="let legalCase of clientPortalCases">{{ legalCase.title }}</option></select></label><label>Nombre del archivo<input class="form-control" formControlName="fileName" placeholder="certificado.pdf"></label><label>Tipo de archivo<select class="form-select" formControlName="fileType"><option value="">Selecciona</option><option>pdf</option><option>jpg</option><option>png</option><option>docx</option></select></label><label>Tamaño aproximado MB<input class="form-control" type="number" formControlName="fileSizeMb"></label><label>Observaciones<textarea class="form-control" rows="3" formControlName="observations"></textarea></label><button class="btn btn-primary">Registrar documento</button></form>
+          </div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'payments'">
+          <div class="data-toolbar client-toolbar"><h2>Pagos y facturación</h2><select class="form-select"><option>Todos</option><option>Pendiente</option><option>Pagado</option></select></div>
+          <div class="payment-grid"><article *ngFor="let payment of clientPayments"><span class="status-badge">{{ payment.status }}</span><h3>{{ payment.concept }}</h3><strong>{{ formatCurrency(payment.amount) }}</strong><p>{{ payment.caseTitle }}</p><small>Fecha: {{ payment.dueDate }} · {{ payment.receipt }}</small><div class="payment-actions"><button class="btn btn-outline-dark btn-sm">Descargar comprobante</button><button class="btn btn-primary btn-sm">Registrar soporte</button></div></article></div>
+          <div class="legal-notice">Flujo preparado para futura integración con pasarela de pagos. Los soportes quedan sujetos a validación administrativa.</div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'appointments'">
+          <div class="section-split"><div><h2>Citas y reuniones</h2><div class="appointment-list client-list"><article *ngFor="let appointment of clientAppointments"><span>{{ appointment.date }} · {{ appointment.type }}</span><strong>{{ appointment.title }}</strong><small>{{ appointment.caseTitle }} · {{ appointment.location }}</small><span class="status-badge">{{ appointment.status }}</span><div><button class="btn btn-outline-dark btn-sm">Reprogramar</button><button class="btn btn-outline-dark btn-sm">Cancelar</button></div></article></div></div><form class="client-form" [formGroup]="clientAppointmentForm" (ngSubmit)="submitClientAppointment()"><h2>Agendar nueva cita</h2><label>Caso<select class="form-select" formControlName="caseTitle"><option *ngFor="let legalCase of clientPortalCases">{{ legalCase.title }}</option></select></label><label>Tipo<select class="form-select" formControlName="type"><option>Virtual</option><option>Presencial</option><option>Llamada</option></select></label><label>Fecha solicitada<input class="form-control" type="datetime-local" formControlName="requestedDate"></label><label>Motivo<textarea class="form-control" rows="3" formControlName="reason"></textarea></label><button class="btn btn-primary">Solicitar cita</button></form></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'messages'">
+          <div class="section-split"><div><h2>Mensajes</h2><div class="activity-list"><article *ngFor="let msg of clientMessages" [class.unread]="msg.unread"><i class="bi bi-chat-left-text"></i><div><strong>{{ msg.from }}</strong><span>{{ msg.caseTitle }} · {{ msg.date }}</span><small>{{ msg.text }}</small><small class="attachment-chip" *ngIf="msg.attachmentName"><i class="bi bi-paperclip"></i> {{ msg.attachmentName }}</small></div><span class="status-badge" *ngIf="msg.unread">Nuevo</span></article></div></div><form class="client-form" [formGroup]="clientMessageForm" (ngSubmit)="submitClientMessage()"><h2>Enviar mensaje</h2><label>Caso<select class="form-select" formControlName="caseTitle"><option *ngFor="let legalCase of clientPortalCases">{{ legalCase.title }}</option></select></label><label>Mensaje<textarea class="form-control" rows="5" formControlName="message"></textarea></label><label>Adjuntar documento o imagen<input class="form-control" type="file" accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp" (change)="onClientMessageAttachmentChange($event)"></label><small class="form-hint">Formatos permitidos: PDF, DOC, DOCX, JPG, PNG o WEBP. Tamaño máximo: 10 MB.</small><span class="attachment-chip" *ngIf="clientMessageAttachmentName"><i class="bi bi-paperclip"></i> {{ clientMessageAttachmentName }}</span><button class="btn btn-primary">Enviar mensaje</button></form></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'new-service'">
+          <div class="section-split"><form class="client-form" [formGroup]="clientServiceForm" (ngSubmit)="submitClientServiceRequest()"><h2>Solicitar nuevo servicio legal</h2><label>Tipo de servicio<select class="form-select" formControlName="service_type"><option value="">Selecciona</option><option>Civil</option><option>Familia</option><option>Laboral</option><option>Comercial</option><option>Sucesiones</option><option>Contratos</option><option>Otro</option></select></label><label>Urgencia<select class="form-select" formControlName="urgency"><option>Baja</option><option>Media</option><option>Alta</option></select></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Correo electrónico<input class="form-control" type="email" formControlName="email"></label><label>Celular / WhatsApp<input class="form-control" formControlName="phone"></label><label>Documentos o imágenes iniciales<input class="form-control" type="file" accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp" (change)="onClientServiceDocumentChange($event)"></label><small class="form-hint">Puedes adjuntar PDF, DOC, DOCX o imágenes JPG, PNG, WEBP. Tamaño máximo: 10 MB.</small><span class="attachment-chip" *ngIf="clientServiceAttachmentName"><i class="bi bi-paperclip"></i> {{ clientServiceAttachmentName }}</span><label>Descripción<textarea class="form-control" rows="5" formControlName="description"></textarea></label><button class="btn btn-primary">Enviar solicitud</button></form><div><h2>Solicitudes recientes</h2><div class="document-list"><article *ngFor="let request of clientServiceRequests"><i class="bi bi-briefcase"></i><div><strong>{{ request.service_type }}</strong><span>{{ request.createdAt }} · {{ request.city }} · {{ request.email }} · {{ request.phone }}</span><small>{{ request.description }}</small><small class="attachment-chip" *ngIf="request.documents"><i class="bi bi-paperclip"></i> {{ request.documents }}</small></div><span class="status-badge">{{ request.status }}</span></article></div></div></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'profile'">
+          <div class="section-split"><div><h2>Mi información</h2><div class="profile-grid client-profile"><div class="profile-avatar">{{ (currentUser?.full_name || clientProfile.full_name).charAt(0) }}</div><p><strong>Nombre:</strong> {{ clientProfile.full_name }}</p><p><strong>Cédula:</strong> {{ clientProfile.document_id }}</p><p><strong>Correo:</strong> {{ currentUser?.email || clientProfile.email }}</p><p><strong>Teléfono:</strong> {{ clientProfile.phone }}</p><p><strong>Ciudad:</strong> {{ clientProfile.city }}</p><p><strong>Dirección:</strong> {{ clientProfile.address }}</p><p><strong>Registro:</strong> {{ clientProfile.created_at }}</p><p><strong>Verificación:</strong> {{ clientProfile.verified ? 'Verificado' : 'Pendiente de verificación' }}</p></div></div><form class="client-form" [formGroup]="clientProfileForm" (ngSubmit)="saveClientProfile()"><h2>Editar datos básicos</h2><label>Nombre<input class="form-control" formControlName="full_name"></label><label>Teléfono<input class="form-control" formControlName="phone"></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Dirección<input class="form-control" formControlName="address"></label><button class="btn btn-primary">Guardar cambios</button><small>La cédula y el correo principal requieren validación administrativa.</small></form></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'notifications'">
+          <div class="data-toolbar client-toolbar"><h2>Notificaciones</h2><button class="btn btn-outline-dark" (click)="markClientNotificationsRead()">Marcar todas como leídas</button></div><div class="activity-list"><article *ngFor="let item of clientNotifications" [class.unread]="item.unread"><i class="bi bi-bell"></i><div><strong>{{ item.title }}</strong><span>{{ item.type }} · {{ item.date }}</span><small>{{ item.description }}</small></div><span class="status-badge" *ngIf="item.unread">No leída</span></article></div>
+        </section>
+
+        <section class="data-card wide" *ngIf="clientSection === 'support'">
+          <h2>Ayuda y soporte</h2><div class="support-grid"><article><h3>¿Cómo veo el estado de mi caso?</h3><p>En Mis procesos puedes abrir el detalle y revisar línea de tiempo, actuaciones y tareas pendientes.</p></article><article><h3>¿Puedo cargar documentos?</h3><p>Sí, desde Documentos. El equipo revisará si están completos o requieren corrección.</p></article><article><h3>¿Cómo contacto a mi abogado?</h3><p>Usa Mensajes para mantener comunicación organizada por caso.</p></article><article><h3>Horarios de atención</h3><p>Lunes a viernes de 8:00 a. m. a 6:00 p. m. Canal urgente por WhatsApp.</p></article></div><div class="legal-notice">La plataforma facilita seguimiento y comunicación, pero no reemplaza la asesoría legal personalizada de tu abogado asignado.</div><button class="btn btn-primary mt-3" (click)="setClientSection('messages')">Solicitar ayuda</button>
+        </section>
+
+        <div *ngIf="clientFormError" class="alert alert-danger">{{ clientFormError }}</div>
+        <div *ngIf="clientFormMessage" class="alert alert-success">{{ clientFormMessage }}</div>
+      </div>
       <div class="content-grid" *ngIf="kind === 'admin' && adminSection === 'dashboard'">
         <section class="data-card wide">
           <h2>Casos recientes</h2>
@@ -592,7 +720,6 @@
             <article><span>Metas activas</span><strong>{{ adminNetwork.goals?.length || 0 }}</strong><p>Metas mensuales por aliado o generales.</p></article>
             <article><span>Recursos de marketing</span><strong>{{ adminNetwork.resources?.length || 0 }}</strong><p>Mensajes, flyers, PDFs, logos y tarjetas digitales autorizadas.</p></article>
             <article><span>Academia</span><strong>{{ adminNetwork.academy?.length || 0 }}</strong><p>Módulos de formación y progreso de aliados.</p></article>
-            <article><span>Verificaciones KYC</span><strong>{{ adminNetwork.kyc?.length || 0 }}</strong><p>Documentos, selfie, validaciones y datos bancarios.</p></article>
             <article><span>Alertas antifraude</span><strong>{{ adminNetwork.fraudAlerts?.length || 0 }}</strong><p>Riesgos por duplicados, autoreferidos o actividad sospechosa.</p></article>
           </div>
         </section>
@@ -600,4 +727,6 @@
     </div>
   </section>
 </ng-template>
+
+
 
