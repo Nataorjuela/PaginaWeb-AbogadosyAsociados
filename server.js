@@ -660,7 +660,8 @@ function progressPercent(value, target) {
 }
 
 function getBaseUrl(req) {
-  return `${req.protocol}://${req.get('host')}`;
+  const frontendUrl = cleanText(process.env.FRONTEND_URL || '', 250).replace(/\/+$/, '');
+  return frontendUrl || `${req.protocol}://${req.get('host')}`;
 }
 
 function createCommissionRows(referralId, sourceAllyId, callback) {
