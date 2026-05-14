@@ -255,17 +255,13 @@ export class AuthPortalComponent implements OnInit {
       full_name: ['', Validators.required],
       document_id: ['', Validators.required],
       phone: ['', [Validators.required, Validators.minLength(7)]],
-      email: ['', [Validators.required, Validators.email]],
+      email: ['', [Validators.required, Validators.email, Validators.pattern(this.googleEmailPattern)]],
       city: ['', Validators.required],
-      password: ['', [Validators.required, Validators.minLength(8)]],
-      confirm_password: ['', [Validators.required, Validators.minLength(8)]],
+      password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
+      confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       terms: [false, Validators.requiredTrue],
       data_auth: [false, Validators.requiredTrue]
     });
-
-    this.partnerRegisterForm.get('email')?.addValidators(Validators.pattern(this.googleEmailPattern));
-    this.partnerRegisterForm.get('password')?.addValidators(Validators.pattern(this.strongPasswordPattern));
-    this.partnerRegisterForm.get('confirm_password')?.addValidators(Validators.pattern(this.strongPasswordPattern));
 
     this.accountRegisterForm = this.fb.group({
       full_name: ['', Validators.required],
@@ -279,6 +275,7 @@ export class AuthPortalComponent implements OnInit {
       terms: [false, Validators.requiredTrue],
       data_auth: [true]
     });
+    this.configureAccountRegisterValidators();
 
     this.recoveryForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]]
@@ -412,7 +409,7 @@ export class AuthPortalComponent implements OnInit {
     this.message = '';
     if (this.partnerRegisterForm.invalid) {
       this.partnerRegisterForm.markAllAsTouched();
-      this.error = 'Completa los campos obligatorios antes de crear tu cuenta.';
+      this.error = this.getPartnerRegisterError();
       return;
     }
     if (this.partnerRegisterForm.value.password !== this.partnerRegisterForm.value.confirm_password) {
@@ -444,12 +441,30 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  private getPartnerRegisterError(): string {
+    const email = this.partnerRegisterForm.get('email');
+    const password = this.partnerRegisterForm.get('password');
+    const confirmPassword = this.partnerRegisterForm.get('confirm_password');
+
+    if (email?.hasError('email') || email?.hasError('pattern')) {
+      return 'Debes registrarte con un correo de Google válido (@gmail.com).';
+    }
+    if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
+      return 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+    }
+    if (this.partnerRegisterForm.get('terms')?.invalid || this.partnerRegisterForm.get('data_auth')?.invalid) {
+      return 'Acepta las políticas del programa y autoriza el tratamiento de datos.';
+    }
+    return 'Completa todos los campos obligatorios para crear tu cuenta de aliado.';
+  }
+
   registerAccount(role: 'client' | 'admin'): void {
     this.error = '';
     this.message = '';
+    this.configureAccountRegisterValidators(role);
     if (this.accountRegisterForm.invalid) {
       this.accountRegisterForm.markAllAsTouched();
-      this.error = 'Completa los datos obligatorios y usa un correo de Google.';
+      this.error = this.getAccountRegisterError(role);
       return;
     }
     if (this.accountRegisterForm.value.password !== this.accountRegisterForm.value.confirm_password) {
@@ -480,6 +495,47 @@ export class AuthPortalComponent implements OnInit {
         this.error = err?.error?.error || 'No fue posible crear la cuenta.';
       }
     });
+  }
+
+  private configureAccountRegisterValidators(role: 'client' | 'admin' = this.mode === 'admin-register' ? 'admin' : 'client'): void {
+    const phone = this.accountRegisterForm.get('phone');
+    const city = this.accountRegisterForm.get('city');
+    const dataAuth = this.accountRegisterForm.get('data_auth');
+    const adminCode = this.accountRegisterForm.get('admin_registration_code');
+
+    if (role === 'client') {
+      phone?.setValidators([Validators.required, Validators.minLength(7)]);
+      city?.setValidators(Validators.required);
+      dataAuth?.setValidators(Validators.requiredTrue);
+      adminCode?.clearValidators();
+    } else {
+      phone?.clearValidators();
+      city?.clearValidators();
+      dataAuth?.clearValidators();
+      adminCode?.setValidators(Validators.required);
+    }
+
+    [phone, city, dataAuth, adminCode].forEach((control) => control?.updateValueAndValidity({ emitEvent: false }));
+  }
+
+  private getAccountRegisterError(role: 'client' | 'admin'): string {
+    const email = this.accountRegisterForm.get('email');
+    const password = this.accountRegisterForm.get('password');
+    const confirmPassword = this.accountRegisterForm.get('confirm_password');
+
+    if (email?.hasError('email') || email?.hasError('pattern')) {
+      return 'Debes registrarte con un correo de Google válido (@gmail.com).';
+    }
+    if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
+      return 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+    }
+    if (role === 'admin' && this.accountRegisterForm.get('admin_registration_code')?.invalid) {
+      return 'Ingresa el código interno para crear una cuenta administrativa.';
+    }
+    if (role === 'client' && this.accountRegisterForm.get('data_auth')?.invalid) {
+      return 'Autoriza el tratamiento de datos personales para crear tu cuenta.';
+    }
+    return 'Completa todos los campos obligatorios para crear tu cuenta.';
   }
 
   recoverPassword(): void {
