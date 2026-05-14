@@ -1,6 +1,7 @@
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
+import { environment } from '../../../../environments/environment';
 
 export interface AllyRegistration {
   full_name: string;
@@ -61,7 +62,7 @@ export interface ReferralRecord {
 
 @Injectable({ providedIn: 'root' })
 export class AlliesService {
-  private readonly apiBase = '/api';
+  private readonly apiBase = `${environment.apiBaseUrl || ''}/api`;
 
   constructor(private http: HttpClient) {}
 

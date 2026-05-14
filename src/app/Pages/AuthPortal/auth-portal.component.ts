@@ -362,7 +362,7 @@ export class AuthPortalComponent implements OnInit {
     }
 
     this.loading = true;
-    this.http.post<any>('/api/auth/login', {
+    this.http.post<any>(this.apiUrl('/api/auth/login'), {
       email: this.loginForm.value.email,
       password: this.loginForm.value.password,
       role
@@ -395,7 +395,7 @@ export class AuthPortalComponent implements OnInit {
     }
 
     this.loading = true;
-    this.http.post<any>('/api/auth/register-partner', this.partnerRegisterForm.value).subscribe({
+    this.http.post<any>(this.apiUrl('/api/auth/register-partner'), this.partnerRegisterForm.value).subscribe({
       next: (response) => {
         localStorage.setItem('orjuelaToken', response.token);
         localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
@@ -417,7 +417,7 @@ export class AuthPortalComponent implements OnInit {
       this.recoveryForm.markAllAsTouched();
       return;
     }
-    this.http.post<any>('/api/auth/recovery/request', this.recoveryForm.value).subscribe({
+    this.http.post<any>(this.apiUrl('/api/auth/recovery/request'), this.recoveryForm.value).subscribe({
       next: (response) => this.message = response.message || 'Te enviamos instrucciones para recuperar el acceso.',
       error: (err) => this.error = err?.error?.error || 'No fue posible procesar la solicitud.'
     });
@@ -592,7 +592,7 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     this.loading = true;
-    this.http.post<any>('/api/partner/network/referrals', this.networkReferralForm.value, { headers: this.authHeaders() }).subscribe({
+    this.http.post<any>(this.apiUrl('/api/partner/network/referrals'), this.networkReferralForm.value, { headers: this.authHeaders() }).subscribe({
       next: (response) => {
         this.loading = false;
         this.formMessage = response.message || 'Referido enviado correctamente.';
@@ -615,7 +615,7 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     this.loading = true;
-    this.http.post<any>('/api/partner/network/invitations', this.invitationForm.value, { headers: this.authHeaders() }).subscribe({
+    this.http.post<any>(this.apiUrl('/api/partner/network/invitations'), this.invitationForm.value, { headers: this.authHeaders() }).subscribe({
       next: (response) => {
         this.loading = false;
         this.formMessage = response.message || 'Invitacion enviada correctamente.';
@@ -632,7 +632,7 @@ export class AuthPortalComponent implements OnInit {
   loadPartnerNetwork(): void {
     const token = this.getToken();
     if (!token) return;
-    this.http.get<PartnerNetwork>('/api/partner/network', { headers: this.authHeaders() }).subscribe({
+    this.http.get<PartnerNetwork>(this.apiUrl('/api/partner/network'), { headers: this.authHeaders() }).subscribe({
       next: (response) => this.partnerNetwork = this.applyDemoPartnerDataIfNeeded(response),
       error: () => {
         if (this.environment.enableDemoData) this.partnerNetwork = this.demoPartnerNetwork();
@@ -643,7 +643,7 @@ export class AuthPortalComponent implements OnInit {
   loadPartnerAdvanced(): void {
     const token = this.getToken();
     if (!token) return;
-    this.http.get<any>('/api/partner/advanced', { headers: this.authHeaders() }).subscribe({
+    this.http.get<any>(this.apiUrl('/api/partner/advanced'), { headers: this.authHeaders() }).subscribe({
       next: (response) => this.partnerAdvanced = response,
       error: () => {
         if (this.environment.enableDemoData) this.partnerAdvanced = this.demoPartnerAdvanced();
@@ -654,7 +654,7 @@ export class AuthPortalComponent implements OnInit {
   loadAdminNetwork(): void {
     const token = this.getToken();
     if (!token) return;
-    this.http.get<any>('/api/admin/partner-network', { headers: this.authHeaders() }).subscribe({
+    this.http.get<any>(this.apiUrl('/api/admin/partner-network'), { headers: this.authHeaders() }).subscribe({
       next: (response) => {
         this.adminNetwork = response;
         this.commissionSettingsForm.patchValue(response.settings || {});
@@ -669,20 +669,20 @@ export class AuthPortalComponent implements OnInit {
   }
 
   updateNetworkReferralStatus(id: number, status: string): void {
-    this.http.patch(`/api/admin/network-referrals/${id}/status`, { status }, { headers: this.authHeaders() }).subscribe({
+    this.http.patch(this.apiUrl(`/api/admin/network-referrals/${id}/status`), { status }, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadAdminNetwork()
     });
   }
 
   updateCommissionStatus(id: number, status: string, amount?: string): void {
-    this.http.patch(`/api/admin/commissions/${id}/status`, { status, amount: amount ? Number(amount) : undefined }, { headers: this.authHeaders() }).subscribe({
+    this.http.patch(this.apiUrl(`/api/admin/commissions/${id}/status`), { status, amount: amount ? Number(amount) : undefined }, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadAdminNetwork()
     });
   }
 
   saveCommissionSettings(): void {
     if (this.commissionSettingsForm.invalid) return;
-    this.http.patch('/api/admin/commission-settings', this.commissionSettingsForm.value, { headers: this.authHeaders() }).subscribe({
+    this.http.patch(this.apiUrl('/api/admin/commission-settings'), this.commissionSettingsForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadAdminNetwork()
     });
   }
@@ -695,13 +695,13 @@ export class AuthPortalComponent implements OnInit {
   }
 
   markNotificationRead(id: number): void {
-    this.http.post(`/api/partner/notifications/${id}/read`, {}, { headers: this.authHeaders() }).subscribe({
+    this.http.post(this.apiUrl(`/api/partner/notifications/${id}/read`), {}, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadPartnerAdvanced()
     });
   }
 
   markAllNotificationsRead(): void {
-    this.http.post('/api/partner/notifications/read-all', {}, { headers: this.authHeaders() }).subscribe({
+    this.http.post(this.apiUrl('/api/partner/notifications/read-all'), {}, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadPartnerAdvanced()
     });
   }
@@ -898,6 +898,10 @@ export class AuthPortalComponent implements OnInit {
 
   private getToken(): string {
     return localStorage.getItem('orjuelaToken') || '';
+  }
+
+  private apiUrl(path: string): string {
+    return `${this.environment.apiBaseUrl || ''}${path}`;
   }
 
   private authHeaders(): HttpHeaders {
