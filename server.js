@@ -573,7 +573,7 @@ function seedProductionAccessUsers() {
 
       if (user.role === 'ally') {
         db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
-          VALUES (?, ?, '3000000000', 'Bogota', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba', 'Usuario de prueba', 'ORJUELAPRUEBA', 0, ?, ?)
+          VALUES (?, ?, '3001234567', 'Bogotá', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba para producción', 'Asesor comercial aliado', 'ORJUELAPRUEBA', 1190000, ?, ?)
           ON CONFLICT(user_id) DO UPDATE SET
             document_id = excluded.document_id,
             phone = excluded.phone,
@@ -586,13 +586,118 @@ function seedProductionAccessUsers() {
             updated_at = excluded.updated_at`, [userId, user.documentId, now, now], (partnerErr) => {
           if (partnerErr) {
             console.error('[seed] Error creating partner access profile:', partnerErr);
+            return;
           }
+          seedProductionAllyDemoData(userId);
         });
       }
     });
   });
 
   console.log('[seed] Production access users enabled. Users: cliente@orjuela.com, aliado@orjuela.com, admin@orjuela.com');
+}
+
+function seedProductionAllyDemoData(allyUserId) {
+  const now = getTimestamp();
+  const month = currentMonthKey();
+  const networkUsers = [
+    { fullName: 'Camila Red Aliada', documentId: '900333111', email: 'camila.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003331111', city: 'Medellín', code: 'CAMILAQA', referrals: 3, commissions: 270000 },
+    { fullName: 'Andrés Red Aliado', documentId: '900333222', email: 'andres.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003332222', city: 'Cali', code: 'ANDRESQA', referrals: 1, commissions: 60000 }
+  ];
+
+  const networkIds = {};
+  let pendingUsers = networkUsers.length;
+  const finishNetworkUsers = () => {
+    pendingUsers -= 1;
+    if (pendingUsers > 0) return;
+
+    const directReferrals = [
+      [3001, allyUserId, 'María Rodríguez', '1020304051', '3014447788', 'maria.rodriguez@example.com', 'Bogotá', 'Inmobiliario', 'Revisión de promesa de compraventa y documentos del inmueble.', 'WhatsApp', 'Media', 'Contactado', '2026-05-08T09:00:00.000Z'],
+      [3002, allyUserId, 'Carlos Pérez', '1020304052', '3124568899', 'carlos.perez@example.com', 'Medellín', 'Civil', 'Asesoría para cobro de obligación civil documentada.', 'Llamada', 'Alta', 'Nuevo', '2026-05-04T10:15:00.000Z'],
+      [3003, allyUserId, 'Empresa Andina SAS', '900123456', '3109876543', 'legal@andina.test', 'Cali', 'Contratos', 'Revisión de contrato de suministro y cláusulas de incumplimiento.', 'Correo', 'Baja', 'Cliente activo', '2026-04-29T14:20:00.000Z'],
+      [3004, allyUserId, 'Laura Méndez', '1020304054', '3004567890', 'laura@example.com', 'Bogotá', 'Familia', 'Consulta sobre acuerdo de alimentos y custodia.', 'Referido directo', 'Media', 'En revision', '2026-05-12T08:40:00.000Z'],
+      [3005, allyUserId, 'Jorge Salinas', '1020304055', '3159871122', 'jorge@example.com', 'Ibagué', 'Cobro de cartera', 'Revisión de pagaré y estrategia de cobro prejurídico.', 'WhatsApp', 'Alta', 'Caso cerrado', '2026-05-10T11:10:00.000Z']
+    ];
+
+    const networkReferrals = [
+      [3006, networkIds['camila.red@orjuela.com'], 'Juliana Martínez', '1020304056', '3015551199', 'juliana@example.com', 'Medellín', 'Familia', 'Asesoría para proceso de divorcio de mutuo acuerdo.', 'Red de aliado', 'Media', 'En revision', '2026-05-11T15:00:00.000Z'],
+      [3007, networkIds['camila.red@orjuela.com'], 'Inmobiliaria Norte SAS', '900777111', '3112223344', 'contacto@inmobiliaria.test', 'Bogotá', 'Contratos', 'Revisión de contratos de corretaje inmobiliario.', 'Red de aliado', 'Media', 'Cliente activo', '2026-05-09T16:25:00.000Z'],
+      [3008, networkIds['andres.red@orjuela.com'], 'Daniel Rojas', '1020304058', '3029998877', 'daniel@example.com', 'Cali', 'Laboral', 'Consulta por terminación de contrato laboral.', 'Red de aliado', 'Alta', 'Comision pagada', '2026-04-25T13:30:00.000Z'],
+      [3009, networkIds['camila.red@orjuela.com'], 'Sofía Parra', '1020304059', '3002221144', 'sofia@example.com', 'Barranquilla', 'Comercial', 'Acompañamiento en constitución y contratos comerciales.', 'Red de aliado', 'Baja', 'Nuevo referido', '2026-05-13T09:45:00.000Z']
+    ];
+
+    const referralStmt = db.prepare(`INSERT OR REPLACE INTO referrals
+      (id, ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, urgency, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    [...directReferrals, ...networkReferrals].forEach((item) => referralStmt.run(...item, item[12]));
+    referralStmt.finalize();
+
+    const commissionRows = [
+      [4001, allyUserId, 3001, allyUserId, 'direct', 10, 180000, 'approved', '2026-05-08T09:05:00.000Z', null],
+      [4002, allyUserId, 3002, allyUserId, 'direct', 10, 120000, 'pending', '2026-05-04T10:20:00.000Z', null],
+      [4003, allyUserId, 3003, allyUserId, 'direct', 10, 320000, 'paid', '2026-04-29T14:30:00.000Z', '2026-05-06T10:00:00.000Z'],
+      [4004, allyUserId, 3004, allyUserId, 'direct', 10, 240000, 'approved', '2026-05-12T08:45:00.000Z', null],
+      [4005, allyUserId, 3006, networkIds['camila.red@orjuela.com'], 'indirect_level_1', 3, 90000, 'pending', '2026-05-11T15:05:00.000Z', null],
+      [4006, allyUserId, 3007, networkIds['camila.red@orjuela.com'], 'indirect_level_1', 3, 135000, 'approved', '2026-05-09T16:30:00.000Z', null],
+      [4007, allyUserId, 3008, networkIds['andres.red@orjuela.com'], 'indirect_level_1', 3, 60000, 'paid', '2026-04-25T13:35:00.000Z', '2026-05-02T10:00:00.000Z'],
+      [4008, allyUserId, 3009, networkIds['camila.red@orjuela.com'], 'indirect_level_1', 3, 45000, 'pending', '2026-05-13T09:50:00.000Z', null]
+    ];
+    const commissionStmt = db.prepare(`INSERT OR REPLACE INTO commissions
+      (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at, paid_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    commissionRows.forEach((item) => commissionStmt.run(...item));
+    commissionStmt.finalize();
+
+    db.run(`INSERT OR REPLACE INTO ally_goals (id, ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
+      VALUES (2001, ?, ?, 8, 2, 700000, 1, ?)`, [allyUserId, month, now]);
+
+    db.run(`DELETE FROM ally_notifications WHERE ally_id = ?`, [allyUserId], () => {
+      const notificationStmt = db.prepare(`INSERT INTO ally_notifications (ally_id, notification_type, title, description, is_read, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)`);
+      [
+        ['Comision aprobada', 'Comisión aprobada', 'Tu comisión por María Rodríguez fue aprobada para pago.', 0, '2026-05-13T08:00:00.000Z'],
+        ['Nuevo aliado registrado', 'Nuevo aliado en tu red', 'Camila Red Aliada ya aparece activa dentro de tu red.', 0, '2026-05-12T12:00:00.000Z'],
+        ['Cambio de estado', 'Referido actualizado', 'Empresa Andina SAS pasó a Cliente activo.', 1, '2026-05-10T09:00:00.000Z']
+      ].forEach((item) => notificationStmt.run(allyUserId, ...item));
+      notificationStmt.finalize();
+    });
+
+    db.all(`SELECT id, title FROM ally_academy_modules ORDER BY sort_order LIMIT 4`, (moduleErr, modules) => {
+      if (moduleErr) return;
+      const progressStmt = db.prepare(`INSERT OR REPLACE INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
+        VALUES (?, ?, ?, ?, ?)`);
+      modules.forEach((module, index) => {
+        const progress = index < 2 ? 100 : index === 2 ? 65 : 25;
+        progressStmt.run(allyUserId, module.id, progress === 100 ? 'completado' : 'pendiente', progress, now);
+      });
+      progressStmt.finalize();
+    });
+  };
+
+  networkUsers.forEach((user) => {
+    upsertSeedUser(user, (userErr, userId) => {
+      if (userErr || !userId) {
+        console.error('[seed] Error creating production network ally:', user.email, userErr);
+        finishNetworkUsers();
+        return;
+      }
+      networkIds[user.email] = userId;
+      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'Independiente', 'Red de aliados Orjuela', 'Invitado por usuario de prueba', 'Referidor aliado', ?, ?, ?, ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET
+          document_id = excluded.document_id,
+          phone = excluded.phone,
+          city = excluded.city,
+          referral_code = excluded.referral_code,
+          invited_by_partner_id = excluded.invited_by_partner_id,
+          commission_balance = excluded.commission_balance,
+          updated_at = excluded.updated_at`,
+        [userId, user.documentId, user.phone, user.city, user.code, allyUserId, user.commissions, now, now], (partnerErr) => {
+          if (partnerErr) console.error('[seed] Error creating production network partner:', user.email, partnerErr);
+          finishNetworkUsers();
+        });
+    });
+  });
 }
 
 function generateReferralCode(fullName = 'ALIADO') {
