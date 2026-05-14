@@ -50,6 +50,7 @@
       <h1>Portal clientes</h1>
       <p>Consulta el estado de tu caso y tus próximos pasos.</p>
       <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'client', button: 'Ingresar' }"></ng-container>
+      <div class="auth-alt">¿No tienes cuenta? <a href="/clientes/registro">Crear cuenta cliente</a></div>
       <div class="auth-alt">¿Necesitas ayuda? <a href="https://wa.me/573144278339" target="_blank" rel="noopener">Contactar soporte</a></div>
     </div>
   </section>
@@ -74,6 +75,44 @@
       <h1>Ingresar al panel</h1>
       <p>CRM jurídico, leads, clientes, casos, aliados y reportes.</p>
       <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'admin', button: 'Ingresar al panel' }"></ng-container>
+      <div class="auth-alt">Crear acceso interno <a href="/admin/registro">Registrar administrador</a></div>
+    </div>
+  </section>
+
+  <section class="register-page" *ngIf="mode === 'client-register' || mode === 'admin-register'">
+    <div class="container register-layout">
+      <div class="register-copy">
+        <a class="back-link" [href]="mode === 'client-register' ? '/clientes/login' : '/admin/login'">Ya tengo cuenta</a>
+        <span class="secure-pill">{{ mode === 'client-register' ? 'Registro cliente' : 'Registro administrativo' }}</span>
+        <h1>{{ mode === 'client-register' ? 'Crea tu cuenta de cliente' : 'Crea una cuenta administrativa' }}</h1>
+        <p>Usa un correo de Google y una contraseña segura para proteger el acceso a la plataforma.</p>
+      </div>
+      <div class="register-card">
+        <form [formGroup]="accountRegisterForm" (ngSubmit)="registerAccount(mode === 'client-register' ? 'client' : 'admin')" novalidate>
+          <div class="form-grid">
+            <label>Nombre completo<input class="form-control" formControlName="full_name"></label>
+            <label>Cédula<input class="form-control" formControlName="document_id"></label>
+            <label *ngIf="mode === 'client-register'">Celular<input class="form-control" formControlName="phone"></label>
+            <label *ngIf="mode === 'client-register'">Ciudad<input class="form-control" formControlName="city"></label>
+            <label class="full">Correo de Google<input class="form-control" formControlName="email" placeholder="usuario@gmail.com"></label>
+            <label>Contraseña<input class="form-control" type="password" formControlName="password"></label>
+            <label>Confirmar contraseña<input class="form-control" type="password" formControlName="confirm_password"></label>
+            <label class="full" *ngIf="mode === 'admin-register'">Código interno<input class="form-control" type="password" formControlName="admin_registration_code"></label>
+          </div>
+          <div class="password-rules">
+            <span *ngFor="let rule of passwordRules"><i class="bi bi-check2-circle"></i> {{ rule }}</span>
+          </div>
+          <label class="check-row"><input type="checkbox" formControlName="terms"> Acepto las políticas de acceso y seguridad.</label>
+          <label class="check-row" *ngIf="mode === 'client-register'"><input type="checkbox" formControlName="data_auth"> Autorizo el tratamiento de mis datos personales.</label>
+          <div *ngIf="error" class="alert alert-danger">{{ error }}</div>
+          <div *ngIf="message" class="success-state">
+            <i class="bi bi-check-circle"></i>
+            <strong>{{ message }}</strong>
+            <button class="btn btn-primary" type="button" (click)="go(mode === 'client-register' ? '/clientes/dashboard' : '/admin/dashboard')">Ir al portal</button>
+          </div>
+          <button class="btn btn-primary w-100" type="submit" *ngIf="!message" [disabled]="loading">{{ loading ? 'Creando...' : 'Crear cuenta' }}</button>
+        </form>
+      </div>
     </div>
   </section>
 
@@ -94,7 +133,7 @@
               <label>Nombre completo<input class="form-control" formControlName="full_name"></label>
               <label>Cédula<input class="form-control" formControlName="document_id"></label>
               <label>Celular<input class="form-control" formControlName="phone"></label>
-              <label>Correo<input class="form-control" formControlName="email"></label>
+              <label>Correo de Google<input class="form-control" formControlName="email" placeholder="usuario@gmail.com"></label>
               <label>Ciudad<input class="form-control" formControlName="city"></label>
             </div>
           </div>
@@ -111,6 +150,9 @@
             <div class="form-grid">
               <label>Crear contraseña<input class="form-control" type="password" formControlName="password"></label>
               <label>Confirmar contraseña<input class="form-control" type="password" formControlName="confirm_password"></label>
+            </div>
+            <div class="password-rules">
+              <span *ngFor="let rule of passwordRules"><i class="bi bi-check2-circle"></i> {{ rule }}</span>
             </div>
           </div>
           <div *ngIf="registerStep === 4" class="step-pane">
@@ -370,7 +412,7 @@
           <h2>Mi perfil profesional</h2>
           <div class="profile-grid">
             <div class="profile-avatar">{{ (partnerAdvanced.profile?.full_name || currentUser?.full_name || 'A').charAt(0) }}</div>
-            <p><strong>Nombre:</strong> {{ partnerAdvanced.profile?.full_name || currentUser?.full_name }}</p><p><strong>Cédula:</strong> {{ partnerAdvanced.profile?.document_id }}</p><p><strong>Teléfono:</strong> {{ partnerAdvanced.profile?.phone }}</p><p><strong>Correo:</strong> {{ partnerAdvanced.profile?.email || currentUser?.email }}</p><p><strong>Ciudad:</strong> {{ partnerAdvanced.profile?.city }}</p><p><strong>Ocupación:</strong> {{ partnerAdvanced.profile?.occupation }}</p><p><strong>Código:</strong> {{ partnerAdvanced.profile?.referral_code }}</p><p><strong>Estado:</strong> {{ partnerAdvanced.profile?.status }}</p><p><strong>Fecha de ingreso:</strong> {{ partnerAdvanced.profile?.joined_at | date:'mediumDate' }}</p><p><strong>Banco:</strong> {{ partnerAdvanced.profile?.bank_name }}</p>
+            <p><strong>Nombre:</strong> {{ partnerAdvanced.profile?.full_name || currentUser?.full_name }}</p><p><strong>Cédula:</strong> {{ partnerAdvanced.profile?.document_id }}</p><p><strong>Teléfono:</strong> {{ partnerAdvanced.profile?.phone }}</p><p><strong>Correo:</strong> {{ partnerAdvanced.profile?.email || currentUser?.email }}</p><p><strong>Ciudad:</strong> {{ partnerAdvanced.profile?.city }}</p><p><strong>Tipo de aliado:</strong> {{ partnerAdvanced.profile?.partner_type }}</p><p><strong>Empresa:</strong> {{ partnerAdvanced.profile?.company }}</p><p><strong>Ocupación:</strong> {{ partnerAdvanced.profile?.occupation }}</p><p><strong>Código:</strong> {{ partnerAdvanced.profile?.referral_code }}</p><p><strong>Estado:</strong> {{ partnerAdvanced.profile?.status }}</p><p><strong>Fecha de ingreso:</strong> {{ partnerAdvanced.profile?.joined_at | date:'mediumDate' }}</p><p><strong>Banco:</strong> {{ partnerAdvanced.profile?.bank_name }}</p><p><strong>Tipo de cuenta:</strong> {{ partnerAdvanced.profile?.account_type }}</p><p><strong>Número de cuenta:</strong> {{ partnerAdvanced.profile?.account_number }}</p><p><strong>Balance de comisiones:</strong> {{ formatCurrency(partnerAdvanced.profile?.commission_balance) }}</p><p><strong>Link:</strong> <code>{{ partnerAdvanced.profile?.invite_link }}</code></p>
           </div>
           <div class="legal-notice">Los datos sensibles como cédula, correo principal y cuenta bancaria requieren aprobación administrativa para ser modificados.</div>
           <button class="btn btn-primary">Editar datos no sensibles</button>

@@ -381,6 +381,29 @@ h2 {
   font-size: 2rem;
 }
 
+.password-rules {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.4rem;
+  margin: 1rem 0;
+  padding: 0.85rem;
+}
+
+.password-rules span {
+  align-items: center;
+  color: #667085;
+  display: flex;
+  font-size: 0.9rem;
+  font-weight: 800;
+  gap: 0.45rem;
+}
+
+.password-rules i {
+  color: #1abc9c;
+}
+
 .dashboard-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
@@ -890,6 +913,16 @@ h2 {
   gap: 1rem;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 1rem 0;
+}
+
+.profile-grid code {
+  background: #eefcf8;
+  border-radius: 10px;
+  color: #0f766e;
+  display: block;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+  padding: 0.35rem 0.5rem;
 }
 
 .admin-config-grid {

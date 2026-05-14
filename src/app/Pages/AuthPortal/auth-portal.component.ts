@@ -62,6 +62,7 @@ export class AuthPortalComponent implements OnInit {
   path = typeof window !== 'undefined' ? window.location.pathname : '/ingresar';
   loginForm!: FormGroup;
   partnerRegisterForm!: FormGroup;
+  accountRegisterForm!: FormGroup;
   recoveryForm!: FormGroup;
   networkReferralForm!: FormGroup;
   invitationForm!: FormGroup;
@@ -91,6 +92,15 @@ export class AuthPortalComponent implements OnInit {
   clientServiceAttachmentName = '';
   selectedClientCaseId = 1;
   readonly environment = this.resolveEnvironment();
+  readonly googleEmailPattern = /^[A-Za-z0-9._%+-]+@(gmail\.com|googlemail\.com)$/i;
+  readonly strongPasswordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+  readonly passwordRules = [
+    'Mínimo 8 caracteres',
+    'Una letra mayúscula',
+    'Una letra minúscula',
+    'Un número',
+    'Un símbolo'
+  ];
 
   accessCards: AccessCard[] = [
     { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Gestiona tus referidos y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
@@ -256,6 +266,23 @@ export class AuthPortalComponent implements OnInit {
       data_auth: [false, Validators.requiredTrue]
     });
 
+    this.partnerRegisterForm.get('email')?.addValidators(Validators.pattern(this.googleEmailPattern));
+    this.partnerRegisterForm.get('password')?.addValidators(Validators.pattern(this.strongPasswordPattern));
+    this.partnerRegisterForm.get('confirm_password')?.addValidators(Validators.pattern(this.strongPasswordPattern));
+
+    this.accountRegisterForm = this.fb.group({
+      full_name: ['', Validators.required],
+      document_id: ['', Validators.required],
+      phone: [''],
+      city: [''],
+      email: ['', [Validators.required, Validators.email, Validators.pattern(this.googleEmailPattern)]],
+      password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
+      confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
+      admin_registration_code: [''],
+      terms: [false, Validators.requiredTrue],
+      data_auth: [true]
+    });
+
     this.recoveryForm = this.fb.group({
       email: ['', [Validators.required, Validators.email]]
     });
@@ -341,8 +368,10 @@ export class AuthPortalComponent implements OnInit {
     if (this.path === '/aliados/registro') return 'partner-register';
     if (this.path === '/aliados/dashboard') return 'partner-dashboard';
     if (this.path === '/clientes/login') return 'client-login';
+    if (this.path === '/clientes/registro') return 'client-register';
     if (this.path === '/clientes/dashboard') return 'client-dashboard';
     if (this.path === '/admin/login') return 'admin-login';
+    if (this.path === '/admin/registro') return 'admin-register';
     if (this.path === '/admin/dashboard') return 'admin-dashboard';
     if (this.path.includes('recuperar')) return 'recovery';
     return 'access';
@@ -393,6 +422,14 @@ export class AuthPortalComponent implements OnInit {
       this.error = 'Las contraseñas no coinciden.';
       return;
     }
+    if (!this.googleEmailPattern.test(this.partnerRegisterForm.value.email || '')) {
+      this.error = 'Debes registrarte con un correo de Google válido (@gmail.com).';
+      return;
+    }
+    if (!this.strongPasswordPattern.test(this.partnerRegisterForm.value.password || '')) {
+      this.error = 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+      return;
+    }
 
     this.loading = true;
     this.http.post<any>(this.apiUrl('/api/auth/register-partner'), this.partnerRegisterForm.value).subscribe({
@@ -401,6 +438,44 @@ export class AuthPortalComponent implements OnInit {
         localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
         this.currentUser = response.user;
         this.message = 'Tu cuenta de aliado fue creada exitosamente.';
+        this.loading = false;
+      },
+      error: (err) => {
+        this.loading = false;
+        this.error = err?.error?.error || 'No fue posible crear la cuenta.';
+      }
+    });
+  }
+
+  registerAccount(role: 'client' | 'admin'): void {
+    this.error = '';
+    this.message = '';
+    if (this.accountRegisterForm.invalid) {
+      this.accountRegisterForm.markAllAsTouched();
+      this.error = 'Completa los datos obligatorios y usa un correo de Google.';
+      return;
+    }
+    if (this.accountRegisterForm.value.password !== this.accountRegisterForm.value.confirm_password) {
+      this.error = 'Las contraseñas no coinciden.';
+      return;
+    }
+    if (!this.strongPasswordPattern.test(this.accountRegisterForm.value.password || '')) {
+      this.error = 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+      return;
+    }
+    if (role === 'admin' && !this.accountRegisterForm.value.admin_registration_code) {
+      this.error = 'Ingresa el código interno para crear una cuenta administrativa.';
+      return;
+    }
+
+    this.loading = true;
+    const endpoint = role === 'client' ? '/api/auth/register-client' : '/api/auth/register-admin';
+    this.http.post<any>(this.apiUrl(endpoint), this.accountRegisterForm.value).subscribe({
+      next: (response) => {
+        localStorage.setItem('orjuelaToken', response.token);
+        localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
+        this.currentUser = response.user;
+        this.message = role === 'client' ? 'Tu cuenta de cliente fue creada correctamente.' : 'Tu cuenta administrativa fue creada correctamente.';
         this.loading = false;
       },
       error: (err) => {
