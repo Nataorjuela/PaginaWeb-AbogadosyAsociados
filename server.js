@@ -802,7 +802,7 @@ if (QA_DEMO_DATA) {
   seedQaData();
 }
 
-if (SEED_ACCESS_USERS) {
+if (SEED_ACCESS_USERS || APP_ENV === 'production') {
   seedProductionAccessUsers();
 }
 
