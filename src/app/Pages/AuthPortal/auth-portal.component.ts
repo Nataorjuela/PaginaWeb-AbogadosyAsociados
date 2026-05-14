@@ -257,9 +257,6 @@ export class AuthPortalComponent implements OnInit {
       phone: ['', [Validators.required, Validators.minLength(7)]],
       email: ['', [Validators.required, Validators.email]],
       city: ['', Validators.required],
-      partner_type: ['', Validators.required],
-      company: [''],
-      how_known: ['', Validators.required],
       password: ['', [Validators.required, Validators.minLength(8)]],
       confirm_password: ['', [Validators.required, Validators.minLength(8)]],
       terms: [false, Validators.requiredTrue],
@@ -378,7 +375,7 @@ export class AuthPortalComponent implements OnInit {
   }
 
   get registerProgress(): number {
-    return (this.registerStep / 4) * 100;
+    return (this.registerStep / 3) * 100;
   }
 
   login(role: 'ally' | 'client' | 'admin'): void {
@@ -501,14 +498,13 @@ export class AuthPortalComponent implements OnInit {
   nextRegisterStep(): void {
     const controls: Record<number, string[]> = {
       1: ['full_name', 'document_id', 'phone', 'email', 'city'],
-      2: ['partner_type', 'how_known'],
-      3: ['password', 'confirm_password'],
-      4: ['terms', 'data_auth']
+      2: ['password', 'confirm_password'],
+      3: ['terms', 'data_auth']
     };
     const names = controls[this.registerStep];
     names.forEach((name) => this.partnerRegisterForm.get(name)?.markAsTouched());
     if (names.every((name) => this.partnerRegisterForm.get(name)?.valid)) {
-      this.registerStep = Math.min(4, this.registerStep + 1);
+      this.registerStep = Math.min(3, this.registerStep + 1);
     }
   }
 

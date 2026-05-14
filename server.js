@@ -1045,17 +1045,17 @@ app.post('/api/auth/register-partner', (req, res) => {
     phone: cleanText(req.body.phone, 60),
     email: normalizeEmail(req.body.email),
     city: cleanText(req.body.city, 100),
-    partner_type: cleanText(req.body.partner_type, 60),
+    partner_type: cleanText(req.body.partner_type, 60) || 'Independiente',
     company: cleanText(req.body.company, 120),
-    how_known: cleanText(req.body.how_known, 180),
-    occupation: cleanText(req.body.occupation, 120),
+    how_known: cleanText(req.body.how_known, 180) || 'Registro web',
+    occupation: cleanText(req.body.occupation, 120) || 'Aliado referidor',
     ref: cleanText(req.query.ref || req.body.ref || req.body.referral_code, 40).toUpperCase(),
     password: String(req.body.password || ''),
     terms: req.body.terms,
     data_auth: req.body.data_auth
   };
 
-  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.partner_type || !payload.password || payload.terms !== true || payload.data_auth !== true) {
+  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.password || payload.terms !== true || payload.data_auth !== true) {
     return res.status(400).json({ error: 'Completa los campos obligatorios y acepta las políticas.' });
   }
   if (!isValidEmail(payload.email) || !isGoogleEmail(payload.email)) {

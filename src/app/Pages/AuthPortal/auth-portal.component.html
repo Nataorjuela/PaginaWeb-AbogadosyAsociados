@@ -138,14 +138,6 @@
             </div>
           </div>
           <div *ngIf="registerStep === 2" class="step-pane">
-            <h2>Perfil del aliado</h2>
-            <div class="form-grid">
-              <label>Tipo de aliado<select class="form-select" formControlName="partner_type"><option value="">Selecciona</option><option *ngFor="let type of partnerTypes">{{ type }}</option></select></label>
-              <label>Empresa opcional<input class="form-control" formControlName="company"></label>
-              <label class="full">Cómo conoció la firma<input class="form-control" formControlName="how_known"></label>
-            </div>
-          </div>
-          <div *ngIf="registerStep === 3" class="step-pane">
             <h2>Seguridad</h2>
             <div class="form-grid">
               <label>Crear contraseña<input class="form-control" type="password" formControlName="password"></label>
@@ -155,7 +147,7 @@
               <span *ngFor="let rule of passwordRules"><i class="bi bi-check2-circle"></i> {{ rule }}</span>
             </div>
           </div>
-          <div *ngIf="registerStep === 4" class="step-pane">
+          <div *ngIf="registerStep === 3" class="step-pane">
             <h2>Términos</h2>
             <label class="check-row"><input type="checkbox" formControlName="terms"> Acepto las políticas del programa de aliados.</label>
             <label class="check-row"><input type="checkbox" formControlName="data_auth"> Autorizo el tratamiento de mis datos personales.</label>
@@ -168,8 +160,8 @@
           </div>
           <div class="step-actions" *ngIf="!message">
             <button class="btn btn-outline-dark" type="button" *ngIf="registerStep > 1" (click)="previousRegisterStep()">Atrás</button>
-            <button class="btn btn-primary" type="button" *ngIf="registerStep < 4" (click)="nextRegisterStep()">Continuar</button>
-            <button class="btn btn-primary" type="submit" *ngIf="registerStep === 4" [disabled]="loading">Crear cuenta</button>
+            <button class="btn btn-primary" type="button" *ngIf="registerStep < 3" (click)="nextRegisterStep()">Continuar</button>
+            <button class="btn btn-primary" type="submit" *ngIf="registerStep === 3" [disabled]="loading">Crear cuenta</button>
           </div>
         </form>
       </div>
