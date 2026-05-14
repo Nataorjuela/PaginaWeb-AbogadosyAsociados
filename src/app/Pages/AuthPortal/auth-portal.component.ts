@@ -4,6 +4,8 @@ import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angula
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 
+declare const google: any;
+
 type AccessCard = { icon: string; title: string; text: string; button: string; href: string };
 type PortalMetric = { label: string; value: string };
 type ReferralRow = { client: string; caseType: string; date: string; status: string; commission: string; action: string };
@@ -75,6 +77,7 @@ export class AuthPortalComponent implements OnInit {
   registerStep = 1;
   showPassword = false;
   loading = false;
+  googleLoadingRole: 'ally' | 'client' | 'admin' | null = null;
   message = '';
   error = '';
   currentUser: any = null;
@@ -91,8 +94,8 @@ export class AuthPortalComponent implements OnInit {
   clientMessageAttachmentName = '';
   clientServiceAttachmentName = '';
   selectedClientCaseId = 1;
+  private googleScriptPromise?: Promise<void>;
   readonly environment = this.resolveEnvironment();
-  readonly googleEmailPattern = /^[A-Za-z0-9._%+-]+@(gmail\.com|googlemail\.com)$/i;
   readonly strongPasswordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
   readonly passwordRules = [
     'Mínimo 8 caracteres',
@@ -253,10 +256,10 @@ export class AuthPortalComponent implements OnInit {
 
     this.partnerRegisterForm = this.fb.group({
       full_name: ['', Validators.required],
-      document_id: ['', Validators.required],
-      phone: ['', [Validators.required, Validators.minLength(7)]],
-      email: ['', [Validators.required, Validators.email, Validators.pattern(this.googleEmailPattern)]],
-      city: ['', Validators.required],
+      document_id: [''],
+      phone: [''],
+      email: ['', [Validators.required, Validators.email]],
+      city: [''],
       password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       terms: [false, Validators.requiredTrue],
@@ -265,10 +268,10 @@ export class AuthPortalComponent implements OnInit {
 
     this.accountRegisterForm = this.fb.group({
       full_name: ['', Validators.required],
-      document_id: ['', Validators.required],
+      document_id: [''],
       phone: [''],
       city: [''],
-      email: ['', [Validators.required, Validators.email, Validators.pattern(this.googleEmailPattern)]],
+      email: ['', [Validators.required, Validators.email]],
       password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       admin_registration_code: [''],
@@ -404,6 +407,71 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  continueWithGoogle(role: 'ally' | 'client' | 'admin'): void {
+    this.error = '';
+    this.message = '';
+    const clientId = this.environment.googleClientId;
+    if (!clientId) {
+      this.error = 'Configura GOOGLE_CLIENT_ID para activar el acceso con Google.';
+      return;
+    }
+
+    this.googleLoadingRole = role;
+    this.loadGoogleScript()
+      .then(() => {
+        const tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'openid email profile',
+          callback: (response: { access_token?: string; error?: string }) => {
+            if (response?.error || !response?.access_token) {
+              this.googleLoadingRole = null;
+              this.error = 'No recibimos la autorización de Google. Intenta de nuevo.';
+              return;
+            }
+            this.completeGoogleAuth(role, response.access_token);
+          }
+        });
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
+      })
+      .catch(() => {
+        this.googleLoadingRole = null;
+        this.error = 'No fue posible cargar Google Sign-In.';
+      });
+  }
+
+  private completeGoogleAuth(role: 'ally' | 'client' | 'admin', access_token: string): void {
+    this.http.post<any>(this.apiUrl('/api/auth/google'), { role, access_token }).subscribe({
+      next: (response) => {
+        localStorage.setItem('orjuelaToken', response.token);
+        localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
+        this.currentUser = response.user;
+        this.googleLoadingRole = null;
+        this.go(role === 'ally' ? '/aliados/dashboard' : role === 'client' ? '/clientes/dashboard' : '/admin/dashboard');
+      },
+      error: (err) => {
+        this.googleLoadingRole = null;
+        this.error = err?.error?.error || 'No fue posible continuar con Google.';
+      }
+    });
+  }
+
+  private loadGoogleScript(): Promise<void> {
+    if (typeof window === 'undefined') return Promise.reject();
+    if ((window as any).google?.accounts?.id) return Promise.resolve();
+    if (!this.googleScriptPromise) {
+      this.googleScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject();
+        document.head.appendChild(script);
+      });
+    }
+    return this.googleScriptPromise;
+  }
+
   registerPartner(): void {
     this.error = '';
     this.message = '';
@@ -416,8 +484,8 @@ export class AuthPortalComponent implements OnInit {
       this.error = 'Las contraseñas no coinciden.';
       return;
     }
-    if (!this.googleEmailPattern.test(this.partnerRegisterForm.value.email || '')) {
-      this.error = 'Debes registrarte con un correo de Google válido (@gmail.com).';
+    if (this.partnerRegisterForm.get('email')?.invalid) {
+      this.error = 'Ingresa un correo electrónico válido.';
       return;
     }
     if (!this.strongPasswordPattern.test(this.partnerRegisterForm.value.password || '')) {
@@ -446,8 +514,8 @@ export class AuthPortalComponent implements OnInit {
     const password = this.partnerRegisterForm.get('password');
     const confirmPassword = this.partnerRegisterForm.get('confirm_password');
 
-    if (email?.hasError('email') || email?.hasError('pattern')) {
-      return 'Debes registrarte con un correo de Google válido (@gmail.com).';
+    if (email?.hasError('email')) {
+      return 'Ingresa un correo electrónico válido.';
     }
     if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
       return 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
@@ -504,9 +572,9 @@ export class AuthPortalComponent implements OnInit {
     const adminCode = this.accountRegisterForm.get('admin_registration_code');
 
     if (role === 'client') {
-      phone?.setValidators([Validators.required, Validators.minLength(7)]);
-      city?.setValidators(Validators.required);
-      dataAuth?.setValidators(Validators.requiredTrue);
+      phone?.clearValidators();
+      city?.clearValidators();
+      dataAuth?.clearValidators();
       adminCode?.clearValidators();
     } else {
       phone?.clearValidators();
@@ -523,17 +591,14 @@ export class AuthPortalComponent implements OnInit {
     const password = this.accountRegisterForm.get('password');
     const confirmPassword = this.accountRegisterForm.get('confirm_password');
 
-    if (email?.hasError('email') || email?.hasError('pattern')) {
-      return 'Debes registrarte con un correo de Google válido (@gmail.com).';
+    if (email?.hasError('email')) {
+      return 'Ingresa un correo electrónico válido.';
     }
     if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
       return 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
     }
     if (role === 'admin' && this.accountRegisterForm.get('admin_registration_code')?.invalid) {
       return 'Ingresa el código interno para crear una cuenta administrativa.';
-    }
-    if (role === 'client' && this.accountRegisterForm.get('data_auth')?.invalid) {
-      return 'Autoriza el tratamiento de datos personales para crear tu cuenta.';
     }
     return 'Completa todos los campos obligatorios para crear tu cuenta.';
   }
@@ -553,7 +618,7 @@ export class AuthPortalComponent implements OnInit {
 
   nextRegisterStep(): void {
     const controls: Record<number, string[]> = {
-      1: ['full_name', 'document_id', 'phone', 'email', 'city'],
+      1: ['full_name', 'email'],
       2: ['password', 'confirm_password'],
       3: ['terms', 'data_auth']
     };

@@ -3,6 +3,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const https = require('https');
 const sqlite3 = require('sqlite3').verbose();
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
@@ -18,6 +19,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const APP_ENV = process.env.APP_ENV || 'development';
 const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
 const SEED_ACCESS_USERS = process.env.SEED_ACCESS_USERS === 'true';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 
 const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
@@ -140,6 +142,9 @@ function createDatabase() {
       document_id TEXT,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      auth_provider TEXT DEFAULT 'password',
+      google_sub TEXT,
+      avatar_url TEXT,
       role TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       reset_token_hash TEXT,
@@ -349,6 +354,9 @@ function createDatabase() {
       `ALTER TABLE partners ADD COLUMN created_at TEXT`,
       `ALTER TABLE partners ADD COLUMN updated_at TEXT`,
       `ALTER TABLE users ADD COLUMN document_id TEXT`,
+      `ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'password'`,
+      `ALTER TABLE users ADD COLUMN google_sub TEXT`,
+      `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -456,8 +464,91 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
-function isGoogleEmail(value) {
-  return /@(gmail\.com|googlemail\.com)$/i.test(String(value || '').trim());
+function getJsonFromUrl(url, headers, callback) {
+  https.get(url, { headers }, (response) => {
+    let raw = '';
+    response.on('data', (chunk) => raw += chunk);
+    response.on('end', () => {
+      try {
+        callback(null, { statusCode: response.statusCode, body: JSON.parse(raw || '{}') });
+      } catch (err) {
+        callback(err);
+      }
+    });
+  }).on('error', callback);
+}
+
+function generatedDocumentId(prefix, email) {
+  const hash = crypto.createHash('sha1').update(String(email || '').toLowerCase()).digest('hex').slice(0, 12).toUpperCase();
+  return `${prefix}-${hash}`;
+}
+
+function ensureClientProfile(user, callback) {
+  const documentId = normalizeDocument(user.document_id) || generatedDocumentId('CLIENTE', user.email);
+  db.run(`INSERT OR IGNORE INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES (?, ?, 'Equipo Orjuela')`, [user.id, documentId], (authErr) => {
+    if (authErr) return callback(authErr);
+    db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [user.email, documentId], (clientErr, client) => {
+      if (clientErr) return callback(clientErr);
+      if (client) return callback();
+      db.run(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES (?, ?, '', ?, ?)`, [user.full_name, documentId, user.email, getTimestamp()], callback);
+    });
+  });
+}
+
+function ensurePartnerProfile(user, callback) {
+  const documentId = normalizeDocument(user.document_id) || generatedDocumentId('ALIADO', user.email);
+  const referralCode = generateReferralCode(user.full_name || user.email, documentId);
+  db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
+    VALUES (?, ?, '', '', 'Independiente', '', 'Registro web', 'Aliado referidor', ?, 0, ?, ?)`,
+    [user.id, documentId, referralCode, getTimestamp(), getTimestamp()], callback);
+}
+
+function ensureRoleProfile(user, callback = () => {}) {
+  if (user.role === 'client') return ensureClientProfile(user, callback);
+  if (user.role === 'ally') return ensurePartnerProfile(user, callback);
+  return callback();
+}
+
+function verifyGoogleCredential(credential, callback) {
+  if (!credential) return callback(new Error('missing_credential'));
+  if (!credential.includes('.')) return verifyGoogleAccessToken(credential, callback);
+  const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`;
+  getJsonFromUrl(url, {}, (err, result) => {
+    if (err) return callback(err);
+    const profile = result.body;
+    if (result.statusCode !== 200 || profile.error) return callback(new Error('invalid_credential'));
+    if (GOOGLE_CLIENT_ID && profile.aud !== GOOGLE_CLIENT_ID) return callback(new Error('invalid_audience'));
+    if (profile.email_verified !== true && profile.email_verified !== 'true') return callback(new Error('email_not_verified'));
+    callback(null, {
+      google_sub: cleanText(profile.sub, 120),
+      email: normalizeEmail(profile.email),
+      full_name: cleanText(profile.name || profile.email, 140),
+      avatar_url: cleanText(profile.picture, 500)
+    });
+  });
+}
+
+function verifyGoogleAccessToken(accessToken, callback) {
+  const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`;
+  getJsonFromUrl(tokenInfoUrl, {}, (tokenErr, tokenResult) => {
+    if (tokenErr) return callback(tokenErr);
+    const tokenInfo = tokenResult.body;
+    if (tokenResult.statusCode !== 200 || tokenInfo.error) return callback(new Error('invalid_credential'));
+    if (GOOGLE_CLIENT_ID && tokenInfo.aud !== GOOGLE_CLIENT_ID) return callback(new Error('invalid_audience'));
+
+    getJsonFromUrl('https://www.googleapis.com/oauth2/v3/userinfo', { Authorization: `Bearer ${accessToken}` }, (profileErr, profileResult) => {
+      if (profileErr) return callback(profileErr);
+      const profile = profileResult.body;
+      if (profileResult.statusCode !== 200 || profile.error) return callback(new Error('invalid_credential'));
+      if (profile.email_verified !== true && profile.email_verified !== 'true') return callback(new Error('email_not_verified'));
+      callback(null, {
+        google_sub: cleanText(profile.sub || tokenInfo.sub || tokenInfo.user_id, 120),
+        email: normalizeEmail(profile.email || tokenInfo.email),
+        full_name: cleanText(profile.name || profile.email || tokenInfo.email, 140),
+        avatar_url: cleanText(profile.picture, 500)
+      });
+    });
+  });
 }
 
 function validatePasswordStrength(password) {
@@ -533,6 +624,8 @@ function publicUser(row) {
     full_name: row.full_name,
     document_id: row.document_id,
     email: row.email,
+    avatar_url: row.avatar_url,
+    auth_provider: row.auth_provider,
     role: row.role,
     status: row.status
   };
@@ -971,30 +1064,31 @@ app.post('/api/auth/register-client', (req, res) => {
     data_auth: req.body.data_auth === true
   };
 
-  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.password || !payload.terms || !payload.data_auth) {
+  if (!payload.full_name || !payload.email || !payload.password || !payload.terms) {
     return res.status(400).json({ error: 'Completa todos los campos obligatorios.' });
   }
-  if (!isValidEmail(payload.email) || !isGoogleEmail(payload.email)) {
-    return res.status(400).json({ error: 'Debes registrarte con un correo de Google válido (@gmail.com).' });
+  if (!isValidEmail(payload.email)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
-  if (!normalizeDocument(payload.document_id)) {
+  if (payload.document_id && !normalizeDocument(payload.document_id)) {
     return res.status(400).json({ error: 'Ingresa una cédula válida.' });
   }
+  const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('CLIENTE', payload.email);
 
-  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, payload.document_id], (existingErr, existing) => {
+  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, documentId], (existingErr, existing) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
     if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
 
     db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'client', 'active', ?, ?)`,
-      [payload.full_name, normalizeDocument(payload.document_id), payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
+      [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
         if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta de cliente.' });
         const userId = this.lastID;
-        db.run(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES (?, ?, 'Equipo Orjuela')`, [userId, normalizeDocument(payload.document_id)]);
-        db.run(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES (?, ?, ?, ?, ?)`, [payload.full_name, normalizeDocument(payload.document_id), payload.phone, payload.email, createdAt]);
-        res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: normalizeDocument(payload.document_id), email: payload.email, role: 'client', status: 'active' }));
+        db.run(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES (?, ?, 'Equipo Orjuela')`, [userId, documentId]);
+        db.run(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES (?, ?, ?, ?, ?)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
+        res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
       });
   });
 });
@@ -1010,30 +1104,31 @@ app.post('/api/auth/register-admin', (req, res) => {
     terms: req.body.terms === true
   };
 
-  if (!payload.full_name || !payload.document_id || !payload.email || !payload.password || !payload.admin_registration_code || !payload.terms) {
+  if (!payload.full_name || !payload.email || !payload.password || !payload.admin_registration_code || !payload.terms) {
     return res.status(400).json({ error: 'Completa todos los campos obligatorios.' });
   }
   if (payload.admin_registration_code !== ADMIN_REGISTRATION_CODE) {
     return res.status(403).json({ error: 'Código interno no válido para crear administradores.' });
   }
-  if (!isValidEmail(payload.email) || !isGoogleEmail(payload.email)) {
-    return res.status(400).json({ error: 'Debes registrarte con un correo de Google válido (@gmail.com).' });
+  if (!isValidEmail(payload.email)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
-  if (!normalizeDocument(payload.document_id)) {
+  if (payload.document_id && !normalizeDocument(payload.document_id)) {
     return res.status(400).json({ error: 'Ingresa una cédula válida.' });
   }
+  const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('ADMIN', payload.email);
 
-  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, payload.document_id], (existingErr, existing) => {
+  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, documentId], (existingErr, existing) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
     if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
 
     db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, 'admin', 'active', ?, ?)`,
-      [payload.full_name, normalizeDocument(payload.document_id), payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
+      [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
         if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta administrativa.' });
-        res.status(201).json(createAuthResponse({ id: this.lastID, full_name: payload.full_name, document_id: normalizeDocument(payload.document_id), email: payload.email, role: 'admin', status: 'active' }));
+        res.status(201).json(createAuthResponse({ id: this.lastID, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'admin', status: 'active', auth_provider: 'password' }));
       });
   });
 });
@@ -1055,14 +1150,15 @@ app.post('/api/auth/register-partner', (req, res) => {
     data_auth: req.body.data_auth
   };
 
-  if (!payload.full_name || !payload.document_id || !payload.phone || !payload.email || !payload.city || !payload.password || payload.terms !== true || payload.data_auth !== true) {
+  if (!payload.full_name || !payload.email || !payload.password || payload.terms !== true || payload.data_auth !== true) {
     return res.status(400).json({ error: 'Completa los campos obligatorios y acepta las políticas.' });
   }
-  if (!isValidEmail(payload.email) || !isGoogleEmail(payload.email)) {
-    return res.status(400).json({ error: 'Debes registrarte con un correo de Google válido (@gmail.com).' });
+  if (!isValidEmail(payload.email)) {
+    return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
+  payload.document_id = payload.document_id || generatedDocumentId('ALIADO', payload.email);
 
   const createdAt = getTimestamp();
   db.get(`SELECT user_id FROM partners WHERE referral_code = ?`, [payload.ref], (refErr, referrer) => {
@@ -1072,7 +1168,7 @@ app.post('/api/auth/register-partner', (req, res) => {
     }
     db.get(`SELECT u.id FROM users u
       LEFT JOIN partners p ON p.user_id = u.id
-      WHERE u.email = ? OR p.document_id = ? OR p.phone = ?`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
+      WHERE u.email = ? OR p.document_id = ? OR (? <> '' AND p.phone = ?)`, [payload.email, payload.document_id, payload.phone, payload.phone], (dupErr, duplicate) => {
       if (dupErr) {
         console.error(dupErr);
         return res.status(500).json({ error: 'Error al validar duplicados.' });
@@ -1110,6 +1206,80 @@ app.post('/api/auth/register-partner', (req, res) => {
   });
 });
 
+app.post('/api/auth/google', (req, res) => {
+  const requestedRole = cleanText(req.body.role, 20);
+  if (!['ally', 'client', 'admin'].includes(requestedRole)) {
+    return res.status(400).json({ error: 'Selecciona un tipo de acceso válido.' });
+  }
+
+  verifyGoogleCredential(String(req.body.credential || req.body.access_token || ''), (verifyErr, googleProfile) => {
+    if (verifyErr || !googleProfile?.email) {
+      return res.status(401).json({ error: 'No fue posible validar tu cuenta de Google.' });
+    }
+
+    db.get(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = ?`, [googleProfile.email], (selectErr, existingUser) => {
+      if (selectErr) return res.status(500).json({ error: 'Error validando usuario.' });
+
+      if (existingUser) {
+        if (existingUser.status !== 'active') return res.status(403).json({ error: 'Esta cuenta no está activa.' });
+        if (requestedRole === 'admin' && !['admin', 'abogado', 'asistente'].includes(existingUser.role)) {
+          return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
+        }
+        if (requestedRole === 'ally' && existingUser.role !== 'ally') {
+          return res.status(403).json({ error: 'Esta cuenta no pertenece al portal de aliados.' });
+        }
+        if (requestedRole === 'client' && existingUser.role !== 'client') {
+          return res.status(403).json({ error: 'Esta cuenta no pertenece al portal de clientes.' });
+        }
+
+        const updatedUser = {
+          ...existingUser,
+          full_name: existingUser.full_name || googleProfile.full_name,
+          google_sub: existingUser.google_sub || googleProfile.google_sub,
+          avatar_url: googleProfile.avatar_url || existingUser.avatar_url,
+          auth_provider: existingUser.auth_provider === 'password' ? 'password,google' : (existingUser.auth_provider || 'google')
+        };
+        db.run(`UPDATE users SET full_name = ?, google_sub = COALESCE(google_sub, ?), avatar_url = ?, auth_provider = ?, updated_at = ? WHERE id = ?`,
+          [updatedUser.full_name, googleProfile.google_sub, updatedUser.avatar_url, updatedUser.auth_provider, getTimestamp(), existingUser.id], (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la cuenta.' });
+            ensureRoleProfile(updatedUser, (profileErr) => {
+              if (profileErr) return res.status(500).json({ error: 'No fue posible preparar tu perfil.' });
+              res.json(createAuthResponse(updatedUser));
+            });
+          });
+        return;
+      }
+
+      if (requestedRole === 'admin') {
+        return res.status(403).json({ error: 'El acceso con Google al panel interno requiere una cuenta previamente autorizada.' });
+      }
+
+      const now = getTimestamp();
+      const documentId = generatedDocumentId(requestedRole === 'ally' ? 'ALIADO' : 'CLIENTE', googleProfile.email);
+      const passwordHash = hashPassword(crypto.randomBytes(24).toString('hex'));
+      db.run(`INSERT INTO users (full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'google', ?, ?, ?, 'active', ?, ?)`,
+        [googleProfile.full_name, documentId, googleProfile.email, passwordHash, googleProfile.google_sub, googleProfile.avatar_url, requestedRole, now, now], function insertGoogleUser(insertErr) {
+          if (insertErr) return res.status(500).json({ error: 'No fue posible crear la cuenta con Google.' });
+          const user = {
+            id: this.lastID,
+            full_name: googleProfile.full_name,
+            document_id: documentId,
+            email: googleProfile.email,
+            avatar_url: googleProfile.avatar_url,
+            auth_provider: 'google',
+            role: requestedRole,
+            status: 'active'
+          };
+          ensureRoleProfile(user, (profileErr) => {
+            if (profileErr) return res.status(500).json({ error: 'No fue posible preparar tu perfil.' });
+            res.status(201).json(createAuthResponse(user));
+          });
+        });
+    });
+  });
+});
+
 app.post('/api/auth/login', (req, res) => {
   const email = normalizeEmail(req.body.email);
   const password = String(req.body.password || '');
@@ -1119,7 +1289,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
   }
 
-  db.get(`SELECT id, full_name, document_id, email, password_hash, role, status FROM users WHERE email = ?`, [email], (err, user) => {
+  db.get(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = ?`, [email], (err, user) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al validar credenciales.' });
