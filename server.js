@@ -732,23 +732,25 @@ function seedProductionAllyDemoData(allyUserId) {
   });
 }
 
-function generateReferralCode(fullName = 'ALIADO') {
+function generateReferralCode(fullName = 'ALIADO', documentId = '') {
   const prefix = cleanText(fullName, 40)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^A-Za-z0-9]/g, '')
-    .slice(0, 4)
+    .slice(0, 3)
     .toUpperCase() || 'OA';
-  return `${prefix}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+  const documentPart = normalizeDocument(documentId).slice(-4) || crypto.randomInt(1000, 9999).toString();
+  const specialNumber = crypto.randomInt(10, 99).toString();
+  return `${prefix}${documentPart}-${specialNumber}`;
 }
 
 function ensurePartnerReferralCode(userId, fullName, callback) {
-  db.get(`SELECT referral_code FROM partners WHERE user_id = ?`, [userId], (err, partner) => {
+  db.get(`SELECT referral_code, document_id FROM partners WHERE user_id = ?`, [userId], (err, partner) => {
     if (err || !partner) return callback(err || new Error('Partner not found'));
     if (partner.referral_code) return callback(null, partner.referral_code);
 
     const attempt = () => {
-      const code = generateReferralCode(fullName);
+      const code = generateReferralCode(fullName, partner.document_id);
       db.run(`UPDATE partners SET referral_code = ? WHERE user_id = ? AND (referral_code IS NULL OR referral_code = '')`, [code, userId], (updateErr) => {
         if (updateErr) {
           if (String(updateErr.message).includes('UNIQUE')) return attempt();
@@ -1090,7 +1092,7 @@ app.post('/api/auth/register-partner', (req, res) => {
       }
 
       const userId = this.lastID;
-      const referralCode = generateReferralCode(payload.full_name);
+      const referralCode = generateReferralCode(payload.full_name, payload.document_id);
       db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
         if (partnerErr) {
@@ -1586,7 +1588,7 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
       if (userErr) return res.status(500).json({ error: 'No fue posible crear la invitacion.' });
       const invitedUserId = this.lastID;
       db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
-        VALUES (?, ?, ?, ?, 'Invitado', ?, ?, ?, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name), req.user.id], (partnerErr) => {
+        VALUES (?, ?, ?, ?, 'Invitado', ?, ?, ?, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), req.user.id], (partnerErr) => {
         if (partnerErr) return res.status(500).json({ error: 'No fue posible asociar el aliado invitado.' });
         sendNotificationEmail('Nuevo aliado invitado', `<p>${escapeHtml(req.user.full_name)} invito a ${escapeHtml(payload.full_name)} (${escapeHtml(payload.email)}).</p>`);
         res.status(201).json({ message: 'Invitacion registrada correctamente. El nuevo aliado quedo asociado a tu red.' });
