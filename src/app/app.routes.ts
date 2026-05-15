@@ -1,12 +1,11 @@
 import { Routes } from '@angular/router';
 import { HomeComponent } from './Pages/Home/home.component';
-import { AdminComponent } from './Pages/Admin/admin.component';
 import { AuthPortalComponent } from './Pages/AuthPortal/auth-portal.component';
 
 
 export const routes: Routes = [
     {path:'',component:HomeComponent},
-    {path:'admin',component:AdminComponent},
+    {path:'admin',redirectTo:'admin/dashboard',pathMatch:'full'},
     {path:'ingresar',component:AuthPortalComponent},
     {path:'aliados/login',component:AuthPortalComponent},
     {path:'aliados/registro',component:AuthPortalComponent},

@@ -397,6 +397,7 @@ function createDatabase() {
       `ALTER TABLE payments ADD COLUMN concept TEXT`,
       `ALTER TABLE payments ADD COLUMN support_url TEXT`,
       `ALTER TABLE payments ADD COLUMN updated_at TEXT`,
+      `ALTER TABLE payments ADD COLUMN payment_method TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -1668,13 +1669,15 @@ app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), 
     concept: cleanText(req.body.concept, 140),
     amount: Number(req.body.amount),
     status: cleanText(req.body.status || 'Pendiente', 40),
+    payment_method: cleanText(req.body.payment_method || 'Nequi 3144278339', 80),
     payment_date: cleanText(req.body.payment_date, 40),
     support_url: cleanText(req.body.support_url, 220)
   };
   if (!payload.related_id || Number.isNaN(payload.amount) || payload.amount < 0) return res.status(400).json({ error: 'Relacionado y monto son obligatorios.' });
+  if (!['Nequi 3144278339', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no válido.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_date, support_url, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.related_type, payload.related_id, payload.concept, payload.amount, payload.status, payload.payment_date, payload.support_url, now, now], function (err) {
+  db.run(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_method, payment_date, support_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.related_type, payload.related_id, payload.concept, payload.amount, payload.status, payload.payment_method, payload.payment_date, payload.support_url, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear pago.' });
     auditAdminAction(req, 'crear', 'pago', this.lastID, payload.concept || String(payload.amount));
     res.status(201).json({ id: this.lastID, ...payload, created_at: now, updated_at: now });
@@ -1689,6 +1692,7 @@ app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente
       concept = COALESCE(NULLIF(?, ''), concept),
       amount = COALESCE(?, amount),
       status = COALESCE(NULLIF(?, ''), status),
+      payment_method = COALESCE(NULLIF(?, ''), payment_method),
       payment_date = COALESCE(NULLIF(?, ''), payment_date),
       support_url = COALESCE(NULLIF(?, ''), support_url),
       updated_at = ?
@@ -1696,6 +1700,7 @@ app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente
     cleanText(req.body.concept, 140),
     amount !== null && !Number.isNaN(amount) ? amount : null,
     cleanText(req.body.status, 40),
+    cleanText(req.body.payment_method, 80),
     cleanText(req.body.payment_date, 40),
     cleanText(req.body.support_url, 220),
     getTimestamp(),
@@ -1935,6 +1940,76 @@ app.patch('/api/client/profile', requireAuth(['client']), (req, res) => {
           if (insertErr) return res.status(500).json({ error: 'No fue posible crear tu perfil.' });
           finish();
         });
+    });
+  });
+});
+
+app.get('/api/client/portal', requireAuth(['client']), (req, res) => {
+  db.get(`SELECT id, name FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible cargar tu expediente.' });
+    if (!client) return res.json({ cases: [], documents: [], payments: [], appointments: [], messages: [], notifications: [] });
+    db.all(`SELECT * FROM cases WHERE client_id = ? AND archived_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC`, [client.id], (caseErr, cases) => {
+      if (caseErr) return res.status(500).json({ error: 'No fue posible cargar tus casos.' });
+      const caseIds = cases.map((item) => item.id);
+      const placeholders = caseIds.map(() => '?').join(',') || 'NULL';
+      db.all(`SELECT d.*, ca.case_type
+        FROM case_documents d
+        JOIN cases ca ON ca.id = d.case_id
+        WHERE d.case_id IN (${placeholders}) AND COALESCE(d.status, 'Recibido') <> 'Archivado'
+        ORDER BY d.uploaded_at DESC`, caseIds, (docErr, documents) => {
+        if (docErr) return res.status(500).json({ error: 'No fue posible cargar documentos.' });
+        db.all(`SELECT * FROM payments
+          WHERE (related_type = 'client' AND related_id = ?) OR (related_type = 'case' AND related_id IN (${placeholders}))
+          ORDER BY created_at DESC`, [client.id, ...caseIds], (payErr, payments) => {
+          if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
+          db.all(`SELECT * FROM admin_agenda
+            WHERE (related_type = 'client' AND related_id = ?) OR (related_type = 'case' AND related_id IN (${placeholders}))
+            ORDER BY scheduled_at DESC`, [client.id, ...caseIds], (agendaErr, appointments) => {
+            if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
+            res.json({ client, cases, documents, payments, appointments, messages: [], notifications: [] });
+          });
+        });
+      });
+    });
+  });
+});
+
+app.post('/api/client/documents', requireAuth(['client']), (req, res) => {
+  const caseId = parseInt(req.body.case_id, 10);
+  const payload = {
+    file_name: cleanText(req.body.file_name, 180),
+    file_url: cleanText(req.body.file_url || '#', 220),
+    document_type: cleanText(req.body.document_type || req.body.file_type || 'Cliente', 80),
+    observations: cleanText(req.body.observations, 500)
+  };
+  if (!caseId || !payload.file_name) return res.status(400).json({ error: 'Caso y archivo son obligatorios.' });
+  db.get(`SELECT ca.id FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+    if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
+    if (!legalCase) return res.status(403).json({ error: 'No puedes cargar documentos a este caso.' });
+    db.run(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
+      VALUES (?, ?, ?, ?, 'Recibido', ?, ?)`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.observations, getTimestamp()], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible registrar documento.' });
+      res.status(201).json({ id: this.lastID, case_id: caseId, ...payload, status: 'Recibido' });
+    });
+  });
+});
+
+app.post('/api/client/appointments', requireAuth(['client']), (req, res) => {
+  const caseId = parseInt(req.body.case_id, 10);
+  const payload = {
+    title: cleanText(req.body.title || req.body.reason, 160),
+    scheduled_at: cleanText(req.body.scheduled_at || req.body.requested_date, 60),
+    notes: cleanText(req.body.notes || req.body.reason, 500)
+  };
+  if (!caseId || !payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Caso, motivo y fecha son obligatorios.' });
+  db.get(`SELECT ca.id, cl.name FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+    if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
+    if (!legalCase) return res.status(403).json({ error: 'No puedes solicitar cita para este caso.' });
+    const now = getTimestamp();
+    db.run(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
+      VALUES (?, ?, 'case', ?, 'Equipo Orjuela', ?, 'Solicitada', ?, ?, ?)`, [payload.title, legalCase.name, caseId, payload.scheduled_at, payload.notes, now, now], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible solicitar cita.' });
+      res.status(201).json({ id: this.lastID, message: 'Cita solicitada.' });
     });
   });
 });
@@ -2667,6 +2742,30 @@ app.post('/api/allies', (req, res) => {
       return res.status(500).json({ error: 'Error interno al guardar el aliado.' });
     }
 
+    const tempPassword = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
+    db.run(`INSERT OR IGNORE INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'ally', ?, ?, ?)`, [payload.full_name, payload.document_number, payload.email, tempPassword, payload.status === 'active' ? 'active' : 'pending', createdAt, createdAt], function () {
+      db.get(`SELECT id FROM users WHERE email = ?`, [payload.email], (userErr, user) => {
+        if (!userErr && user) {
+          db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, how_known, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, [
+            user.id,
+            payload.document_number,
+            payload.phone,
+            payload.city,
+            payload.ally_type,
+            payload.how_known,
+            payload.bank_name,
+            payload.account_type,
+            payload.account_number,
+            generateReferralCode(payload.full_name, payload.document_number),
+            createdAt,
+            createdAt
+          ]);
+        }
+      });
+    });
+
     sendNotificationEmail('Nuevo aliado registrado', `
       <h2>Nuevo registro de aliado</h2>
       <p><strong>Nombre:</strong> ${escapeHtml(payload.full_name)}</p>
@@ -2709,7 +2808,11 @@ app.post('/api/referrals', (req, res) => {
     return res.status(400).json({ error: 'El área legal seleccionada no es válida.' });
   }
 
-  db.get(`SELECT id, full_name, status FROM allies WHERE document_number = ? AND email = ?`, [payload.ally_document_number, payload.ally_email], (err, ally) => {
+  db.get(`SELECT id, full_name, status FROM allies WHERE document_number = ? AND email = ?
+    UNION
+    SELECT u.id, u.full_name, u.status
+    FROM partners p JOIN users u ON u.id = p.user_id
+    WHERE p.document_id = ? AND u.email = ?`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error interno al verificar el aliado.' });

@@ -457,6 +457,7 @@ export class AuthPortalComponent implements OnInit {
       concept: [''],
       amount: [0, Validators.required],
       status: ['Pendiente', Validators.required],
+      payment_method: ['Nequi 3144278339', Validators.required],
       payment_date: [''],
       support_url: ['']
     });
@@ -487,7 +488,10 @@ export class AuthPortalComponent implements OnInit {
       this.loadPartnerNetwork();
       this.loadPartnerAdvanced();
     }
-    if (this.mode === 'client-dashboard') this.loadClientProfile();
+    if (this.mode === 'client-dashboard') {
+      this.loadClientProfile();
+      this.loadClientPortal();
+    }
     if (this.mode === 'admin-dashboard') {
       this.loadAdminDashboard();
       this.loadAdminSectionData('dashboard');
@@ -1157,18 +1161,20 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Formato no permitido. Usa PDF, JPG, PNG o DOCX.';
       return;
     }
-    this.clientDocuments.unshift({
-      id: Date.now(),
-      caseTitle: this.clientDocumentForm.value.caseTitle,
-      name: fileName,
-      uploadedBy: 'Cliente',
-      uploadedAt: new Date().toISOString().slice(0, 10),
-      status: 'Recibido',
-      observations: this.clientDocumentForm.value.observations || 'Pendiente de revisión por el abogado.',
-      size: `${this.clientDocumentForm.value.fileSizeMb} MB`
+    const legalCase = this.clientPortalCases.find((item) => item.title === this.clientDocumentForm.value.caseTitle) || this.clientPortalCases[0];
+    this.http.post<any>(this.apiUrl('/api/client/documents'), {
+      case_id: legalCase?.id,
+      file_name: fileName,
+      document_type: fileType,
+      observations: this.clientDocumentForm.value.observations || 'Pendiente de revisión por el abogado.'
+    }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.clientFormMessage = 'Documento registrado correctamente. Quedó pendiente de revisión.';
+        this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
+        this.loadClientPortal();
+      },
+      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible registrar el documento.'
     });
-    this.clientFormMessage = 'Documento registrado correctamente. Quedó pendiente de revisión.';
-    this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
   }
 
   submitClientAppointment(): void {
@@ -1179,16 +1185,20 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Completa la información para solicitar la cita.';
       return;
     }
-    this.clientAppointments.unshift({
+    const legalCase = this.clientPortalCases.find((item) => item.title === this.clientAppointmentForm.value.caseTitle) || this.clientPortalCases[0];
+    this.http.post<any>(this.apiUrl('/api/client/appointments'), {
+      case_id: legalCase?.id,
       title: this.clientAppointmentForm.value.reason,
-      caseTitle: this.clientAppointmentForm.value.caseTitle,
-      date: this.clientAppointmentForm.value.requestedDate,
-      type: this.clientAppointmentForm.value.type,
-      status: 'Solicitada',
-      location: 'Pendiente de confirmación'
+      scheduled_at: this.clientAppointmentForm.value.requestedDate,
+      notes: this.clientAppointmentForm.value.type
+    }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmará disponibilidad.';
+        this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '' });
+        this.loadClientPortal();
+      },
+      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible solicitar la cita.'
     });
-    this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmará disponibilidad.';
-    this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '' });
   }
 
   submitClientMessage(): void {
@@ -1533,7 +1543,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.post(this.apiUrl('/api/admin/payments'), this.adminPaymentForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Pago registrado.';
-        this.adminPaymentForm.reset({ related_type: 'case', related_id: 1, amount: 0, status: 'Pendiente' });
+        this.adminPaymentForm.reset({ related_type: 'case', related_id: 1, amount: 0, status: 'Pendiente', payment_method: 'Nequi 3144278339' });
         this.loadAdminSectionData('payments');
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible registrar el pago.'
@@ -1598,6 +1608,56 @@ export class AuthPortalComponent implements OnInit {
       error: () => {
         this.applyStoredClientProfile();
         this.clientProfileLoading = false;
+      }
+    });
+  }
+
+  loadClientPortal(): void {
+    this.http.get<any>(this.apiUrl('/api/client/portal'), { headers: this.authHeaders() }).subscribe({
+      next: (response) => {
+        const cases = response.cases || [];
+        this.clientPortalCases = cases.map((item: any) => ({
+          id: item.id,
+          title: item.case_type,
+          type: item.case_type,
+          status: item.status,
+          lawyer: item.assigned_lawyer || 'Equipo Orjuela',
+          startDate: item.created_at,
+          updatedAt: item.updated_at || item.created_at,
+          nextAction: item.next_action || 'Pendiente de actualización',
+          description: item.description || '',
+          timeline: [
+            { date: item.created_at, title: 'Caso recibido', description: 'El expediente fue registrado por la firma.', status: 'Completado' },
+            { date: item.updated_at || item.created_at, title: item.status, description: item.next_action || 'Seguimiento en curso.', status: item.status }
+          ],
+          tasks: item.next_action ? [item.next_action] : []
+        }));
+        this.clientDocuments = (response.documents || []).map((doc: any) => ({
+          id: doc.id,
+          caseTitle: doc.case_type || 'Caso',
+          name: doc.file_name,
+          uploadedBy: 'Cliente/Firma',
+          uploadedAt: doc.uploaded_at,
+          status: doc.status || 'Recibido',
+          observations: doc.observations || '',
+          size: doc.document_type || 'Documento'
+        }));
+        this.clientPayments = (response.payments || []).map((payment: any) => ({
+          concept: payment.concept || `Pago ${payment.related_type} #${payment.related_id}`,
+          caseTitle: payment.related_type === 'case' ? `Caso #${payment.related_id}` : 'Cliente',
+          amount: payment.amount,
+          dueDate: payment.payment_date || payment.created_at,
+          status: payment.status,
+          receipt: payment.support_url || payment.payment_method || 'Pendiente de soporte'
+        }));
+        this.clientAppointments = (response.appointments || []).map((item: any) => ({
+          title: item.title,
+          caseTitle: item.related_type === 'case' ? `Caso #${item.related_id}` : 'Cliente',
+          date: item.date || item.scheduled_at,
+          type: 'Agenda',
+          status: item.status,
+          location: item.notes || 'Pendiente de confirmación'
+        }));
       }
     });
   }

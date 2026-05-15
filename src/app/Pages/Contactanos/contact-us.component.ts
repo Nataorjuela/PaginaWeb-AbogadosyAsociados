@@ -1,12 +1,13 @@
 import { CommonModule } from '@angular/common';
+import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import emailjs from '@emailjs/browser';
+import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-contactUs',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, HttpClientModule],
   templateUrl: './contact-us.component.html',
   styleUrls: ['./contact-us.component.scss']
 })
@@ -27,7 +28,7 @@ export class ContactUsComponent implements OnInit {
     'Otro'
   ];
 
-  constructor(private fb: FormBuilder) {}
+  constructor(private fb: FormBuilder, private http: HttpClient) {}
 
   ngOnInit(): void {
     this.form = this.fb.group({
@@ -50,37 +51,23 @@ export class ContactUsComponent implements OnInit {
       return;
     }
 
-    const formValues = this.form.value;
-    const templateParams = {
-      from_name: formValues.nombre,
-      reply_to: formValues.correo,
-      celular: formValues.celular,
-      case_type: formValues.case_type,
-      source: formValues.source,
-      notes: formValues.notes,
-      fecha_envio: new Date().toLocaleString('es-CO', {
-        timeZone: 'America/Bogota',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      })
-    };
-
-    emailjs.send(
-      'service_s0s3k19',
-      'template_5nnggub',
-      templateParams,
-      'bXZOYmlHdQTKmeclq'
-    ).then(
-      () => {
+    const values = this.form.value;
+    this.http.post(`${environment.apiBaseUrl || ''}/api/leads`, {
+      name: values.nombre,
+      phone: values.celular,
+      email: values.correo,
+      case_type: values.case_type,
+      source: values.source || 'Web',
+      assigned_to: 'Comercial',
+      notes: values.notes
+    }).subscribe({
+      next: () => {
         this.successMessage = 'Tu solicitud fue recibida. Un abogado del equipo te contactará pronto.';
         this.form.reset({ source: 'Web', aceptaDatos: false });
       },
-      () => {
-        this.errorMessage = 'Ocurrió un error al enviar el mensaje. También puedes escribirnos por WhatsApp.';
+      error: () => {
+        this.errorMessage = 'Ocurrió un error al registrar el caso. También puedes escribirnos por WhatsApp.';
       }
-    );
+    });
   }
 }
