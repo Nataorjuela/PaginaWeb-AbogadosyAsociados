@@ -607,8 +607,57 @@
           <div class="section-split"><form class="client-form" [formGroup]="clientServiceForm" (ngSubmit)="submitClientServiceRequest()"><h2>Solicitar nuevo servicio legal</h2><label>Tipo de servicio<select class="form-select" formControlName="service_type"><option value="">Selecciona</option><option>Civil</option><option>Familia</option><option>Laboral</option><option>Comercial</option><option>Sucesiones</option><option>Contratos</option><option>Otro</option></select></label><label>Urgencia<select class="form-select" formControlName="urgency"><option>Baja</option><option>Media</option><option>Alta</option></select></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Correo electrónico<input class="form-control" type="email" formControlName="email"></label><label>Celular / WhatsApp<input class="form-control" formControlName="phone"></label><label>Documentos o imágenes iniciales<input class="form-control" type="file" accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp" (change)="onClientServiceDocumentChange($event)"></label><small class="form-hint">Puedes adjuntar PDF, DOC, DOCX o imágenes JPG, PNG, WEBP. Tamaño máximo: 10 MB.</small><span class="attachment-chip" *ngIf="clientServiceAttachmentName"><i class="bi bi-paperclip"></i> {{ clientServiceAttachmentName }}</span><label>Descripción<textarea class="form-control" rows="5" formControlName="description"></textarea></label><button class="btn btn-primary">Enviar solicitud</button></form><div><h2>Solicitudes recientes</h2><div class="document-list"><article *ngFor="let request of clientServiceRequests"><i class="bi bi-briefcase"></i><div><strong>{{ request.service_type }}</strong><span>{{ request.createdAt }} · {{ request.city }} · {{ request.email }} · {{ request.phone }}</span><small>{{ request.description }}</small><small class="attachment-chip" *ngIf="request.documents"><i class="bi bi-paperclip"></i> {{ request.documents }}</small></div><span class="status-badge">{{ request.status }}</span></article></div></div></div>
         </section>
 
-        <section class="data-card wide" *ngIf="clientSection === 'profile'">
-          <div class="section-split"><div><h2>Mi información</h2><div class="profile-grid client-profile"><div class="profile-avatar">{{ (currentUser?.full_name || clientProfile.full_name).charAt(0) }}</div><p><strong>Nombre:</strong> {{ clientProfile.full_name }}</p><p><strong>Cédula:</strong> {{ clientProfile.document_id }}</p><p><strong>Correo:</strong> {{ currentUser?.email || clientProfile.email }}</p><p><strong>Teléfono:</strong> {{ clientProfile.phone }}</p><p><strong>Ciudad:</strong> {{ clientProfile.city }}</p><p><strong>Dirección:</strong> {{ clientProfile.address }}</p><p><strong>Registro:</strong> {{ clientProfile.created_at }}</p><p><strong>Verificación:</strong> {{ clientProfile.verified ? 'Verificado' : 'Pendiente de verificación' }}</p></div></div><form class="client-form" [formGroup]="clientProfileForm" (ngSubmit)="saveClientProfile()"><h2>Editar datos básicos</h2><label>Nombre<input class="form-control" formControlName="full_name"></label><label>Teléfono<input class="form-control" formControlName="phone"></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Dirección<input class="form-control" formControlName="address"></label><button class="btn btn-primary">Guardar cambios</button><small>La cédula y el correo principal requieren validación administrativa.</small></form></div>
+        <section class="data-card wide client-profile-section" *ngIf="clientSection === 'profile'">
+          <div class="client-profile-header">
+            <div>
+              <span class="secure-pill"><i class="bi bi-shield-lock"></i> Identidad protegida</span>
+              <h2>Mi información</h2>
+              <p>Estos datos se usan para comunicaciones del proceso, validación de identidad y seguimiento de tus servicios legales.</p>
+            </div>
+            <div class="profile-completion">
+              <span>Perfil completo</span>
+              <strong>{{ clientProfileCompletion }}%</strong>
+              <div class="progress"><div class="progress-bar" [style.width.%]="clientProfileCompletion"></div></div>
+            </div>
+          </div>
+          <div class="section-split">
+            <div>
+              <div class="profile-summary-card" [class.loading]="clientProfileLoading">
+                <div class="profile-summary-top">
+                  <div class="profile-avatar">{{ (currentUser?.full_name || clientProfile.full_name).charAt(0) }}</div>
+                  <div>
+                    <h3>{{ clientProfile.full_name }}</h3>
+                    <span class="status-badge">{{ clientProfile.verified ? 'Verificado' : 'Pendiente de verificación' }}</span>
+                    <small>Última actualización: {{ clientProfileUpdatedAt }}</small>
+                  </div>
+                </div>
+                <div class="profile-info-list">
+                  <article><i class="bi bi-person-vcard"></i><div><span>Documento</span><strong>{{ maskedClientDocument }}</strong></div><button class="btn btn-outline-dark btn-sm" type="button" (click)="showClientDocument = !showClientDocument">{{ showClientDocument ? 'Ocultar' : 'Ver' }}</button></article>
+                  <article><i class="bi bi-envelope"></i><div><span>Correo principal</span><strong>{{ currentUser?.email || clientProfile.email }}</strong></div><span class="locked-chip">Validación administrativa</span></article>
+                  <article><i class="bi bi-telephone"></i><div><span>Celular / WhatsApp</span><strong>{{ clientProfile.phone || 'Pendiente' }}</strong></div></article>
+                  <article><i class="bi bi-geo-alt"></i><div><span>Ciudad</span><strong>{{ clientProfile.city || 'Pendiente' }}</strong></div></article>
+                  <article><i class="bi bi-house"></i><div><span>Dirección</span><strong>{{ clientProfile.address || 'Pendiente' }}</strong></div></article>
+                  <article><i class="bi bi-briefcase"></i><div><span>Abogado asignado</span><strong>{{ clientProfile.assigned_lawyer || 'Equipo Orjuela' }}</strong></div></article>
+                  <article><i class="bi bi-calendar-check"></i><div><span>Registro</span><strong>{{ clientProfile.created_at }}</strong></div></article>
+                </div>
+                <div class="profile-actions">
+                  <button class="btn btn-outline-dark btn-sm" type="button" (click)="go('/recuperar-contrasena')">Cambiar contraseña</button>
+                  <button class="btn btn-outline-dark btn-sm" type="button" (click)="setClientSection('messages')">Solicitar cambio de correo</button>
+                  <a class="btn btn-outline-dark btn-sm" href="/#politicas">Tratamiento de datos</a>
+                  <a class="btn btn-primary btn-sm" href="https://wa.me/573144278339" target="_blank" rel="noopener">Contactar soporte</a>
+                </div>
+              </div>
+            </div>
+            <form class="client-form client-profile-form" [formGroup]="clientProfileForm" (ngSubmit)="saveClientProfile()" novalidate>
+              <h2>Editar datos básicos</h2>
+              <label>Nombre<input class="form-control" formControlName="full_name" autocomplete="name"><small class="field-error" *ngIf="clientProfileFieldInvalid('full_name')">{{ clientProfileFieldError('full_name') }}</small></label>
+              <label>Teléfono<input class="form-control" formControlName="phone" autocomplete="tel" placeholder="3001234567"><small class="field-error" *ngIf="clientProfileFieldInvalid('phone')">{{ clientProfileFieldError('phone') }}</small></label>
+              <label>Ciudad<input class="form-control" formControlName="city" autocomplete="address-level2"><small class="field-error" *ngIf="clientProfileFieldInvalid('city')">{{ clientProfileFieldError('city') }}</small></label>
+              <label>Dirección<input class="form-control" formControlName="address" autocomplete="street-address"><small class="field-error" *ngIf="clientProfileFieldInvalid('address')">{{ clientProfileFieldError('address') }}</small></label>
+              <button class="btn btn-primary" [disabled]="clientProfileSaving">{{ clientProfileSaving ? 'Guardando...' : 'Guardar cambios' }}</button>
+              <small>La cédula y el correo principal no se editan directamente para proteger tu expediente. Puedes solicitar el cambio por soporte.</small>
+            </form>
+          </div>
         </section>
 
         <section class="data-card wide" *ngIf="clientSection === 'notifications'">

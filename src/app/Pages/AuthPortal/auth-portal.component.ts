@@ -29,6 +29,18 @@ type ClientAppointment = { title: string; caseTitle: string; date: string; type:
 type ClientMessage = { caseTitle: string; from: string; date: string; unread: boolean; text: string; attachmentName?: string };
 type ClientNotification = { title: string; description: string; date: string; type: string; unread: boolean };
 type LegalServiceRequest = { service_type: string; description: string; urgency: string; documents: string; city: string; email: string; phone: string };
+type ClientProfile = {
+  full_name: string;
+  document_id: string;
+  email: string;
+  phone: string;
+  city: string;
+  address: string;
+  created_at: string;
+  updated_at: string;
+  verified: boolean;
+  assigned_lawyer?: string;
+};
 type PartnerNetworkSummary = Record<string, number>;
 type AdminLead = {
   name: string;
@@ -93,6 +105,9 @@ export class AuthPortalComponent implements OnInit {
   clientFormError = '';
   clientMessageAttachmentName = '';
   clientServiceAttachmentName = '';
+  clientProfileLoading = false;
+  clientProfileSaving = false;
+  showClientDocument = false;
   selectedClientCaseId = 1;
   private googleScriptPromise?: Promise<void>;
   readonly environment = this.resolveEnvironment();
@@ -222,7 +237,7 @@ export class AuthPortalComponent implements OnInit {
     { service_type: 'Contratos', description: 'Revisión de contrato de arrendamiento comercial.', urgency: 'Media', documents: 'contrato-preliminar.pdf', city: 'Bogotá', email: 'cliente@orjuela.com', phone: '3000000000', status: 'En análisis', createdAt: '2026-05-10' }
   ];
 
-  clientProfile = {
+  clientProfile: ClientProfile = {
     full_name: 'Usuario Prueba',
     document_id: '12345678',
     email: 'cliente@orjuela.com',
@@ -230,6 +245,7 @@ export class AuthPortalComponent implements OnInit {
     city: 'Bogotá',
     address: 'Dirección por actualizar',
     created_at: '2026-05-01',
+    updated_at: '2026-05-01',
     verified: false
   };
 
@@ -344,10 +360,10 @@ export class AuthPortalComponent implements OnInit {
     });
 
     this.clientProfileForm = this.fb.group({
-      full_name: [this.clientProfile.full_name, Validators.required],
-      phone: [this.clientProfile.phone, Validators.required],
-      city: [this.clientProfile.city, Validators.required],
-      address: [this.clientProfile.address]
+      full_name: [this.clientProfile.full_name, [Validators.required, Validators.minLength(3), Validators.maxLength(140)]],
+      phone: [this.clientProfile.phone, [Validators.required, Validators.pattern(/^3\d{9}$|^\+57\s?3\d{9}$/)]],
+      city: [this.clientProfile.city, [Validators.required, Validators.minLength(2), Validators.maxLength(80)]],
+      address: [this.clientProfile.address, Validators.maxLength(160)]
     });
 
     this.restoreSession();
@@ -356,6 +372,7 @@ export class AuthPortalComponent implements OnInit {
       this.loadPartnerNetwork();
       this.loadPartnerAdvanced();
     }
+    if (this.mode === 'client-dashboard') this.loadClientProfile();
     if (this.mode === 'admin-dashboard') this.loadAdminNetwork();
   }
 
@@ -775,6 +792,22 @@ export class AuthPortalComponent implements OnInit {
     return this.clientPayments.find((item) => item.status !== 'Pagado');
   }
 
+  get maskedClientDocument(): string {
+    const documentId = String(this.clientProfile.document_id || '');
+    if (this.showClientDocument || documentId.length <= 4) return documentId || 'Pendiente';
+    return `${'*'.repeat(Math.max(documentId.length - 4, 0))}${documentId.slice(-4)}`;
+  }
+
+  get clientProfileUpdatedAt(): string {
+    return this.clientProfile.updated_at || this.clientProfile.created_at || 'Pendiente';
+  }
+
+  get clientProfileCompletion(): number {
+    const fields = ['full_name', 'document_id', 'email', 'phone', 'city', 'address'];
+    const completed = fields.filter((field) => Boolean((this.clientProfile as any)[field])).length;
+    return Math.round((completed / fields.length) * 100);
+  }
+
   submitNetworkReferral(): void {
     this.formError = '';
     this.formMessage = '';
@@ -1063,6 +1096,20 @@ export class AuthPortalComponent implements OnInit {
     this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone });
   }
 
+  loadClientProfile(): void {
+    this.clientProfileLoading = true;
+    this.http.get<ClientProfile>(this.apiUrl('/api/client/profile'), { headers: this.authHeaders() }).subscribe({
+      next: (profile) => {
+        this.applyClientProfile(profile);
+        this.clientProfileLoading = false;
+      },
+      error: () => {
+        this.applyStoredClientProfile();
+        this.clientProfileLoading = false;
+      }
+    });
+  }
+
   saveClientProfile(): void {
     this.clientFormError = '';
     this.clientFormMessage = '';
@@ -1071,8 +1118,43 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Revisa los datos básicos antes de guardar.';
       return;
     }
-    this.clientProfile = { ...this.clientProfile, ...this.clientProfileForm.value };
-    this.clientFormMessage = 'Datos actualizados correctamente.';
+    this.clientProfileSaving = true;
+    this.http.patch<ClientProfile>(this.apiUrl('/api/client/profile'), this.clientProfileForm.value, { headers: this.authHeaders() }).subscribe({
+      next: (profile) => {
+        this.applyClientProfile(profile);
+        this.clientProfileSaving = false;
+        this.clientFormMessage = 'Datos actualizados correctamente.';
+      },
+      error: (err) => {
+        if (err?.status && err.status !== 404) {
+          this.clientProfileSaving = false;
+          this.clientFormError = err.error?.error || 'No fue posible guardar los datos. Inténtalo nuevamente.';
+          return;
+        }
+        this.applyClientProfile({
+          ...this.clientProfile,
+          ...this.clientProfileForm.value,
+          updated_at: new Date().toISOString().slice(0, 10)
+        });
+        this.clientProfileSaving = false;
+        this.clientFormMessage = 'Datos actualizados localmente. Se sincronizarán cuando el API esté disponible.';
+      }
+    });
+  }
+
+  clientProfileFieldInvalid(field: string): boolean {
+    const control = this.clientProfileForm.get(field);
+    return Boolean(control?.invalid && (control.dirty || control.touched));
+  }
+
+  clientProfileFieldError(field: string): string {
+    const control = this.clientProfileForm.get(field);
+    if (!control) return '';
+    if (control.hasError('required')) return 'Este campo es obligatorio.';
+    if (control.hasError('minlength')) return 'Ingresa un dato más completo.';
+    if (control.hasError('maxlength')) return 'El texto supera el tamaño permitido.';
+    if (control.hasError('pattern')) return 'Ingresa un celular colombiano válido.';
+    return 'Revisa este campo.';
   }
 
   markClientNotificationsRead(): void {
@@ -1109,6 +1191,41 @@ export class AuthPortalComponent implements OnInit {
   private restoreSession(): void {
     const raw = localStorage.getItem('orjuelaUser');
     this.currentUser = raw ? JSON.parse(raw) : null;
+  }
+
+  private applyClientProfile(profile: Partial<ClientProfile>): void {
+    this.clientProfile = {
+      ...this.clientProfile,
+      ...profile,
+      full_name: profile.full_name || this.currentUser?.full_name || this.clientProfile.full_name,
+      email: profile.email || this.currentUser?.email || this.clientProfile.email,
+      document_id: profile.document_id || this.currentUser?.document_id || this.clientProfile.document_id
+    };
+    this.clientProfileForm.patchValue({
+      full_name: this.clientProfile.full_name,
+      phone: this.clientProfile.phone,
+      city: this.clientProfile.city,
+      address: this.clientProfile.address
+    }, { emitEvent: false });
+    this.clientServiceForm.patchValue({
+      email: this.clientProfile.email,
+      phone: this.clientProfile.phone,
+      city: this.clientProfile.city
+    }, { emitEvent: false });
+    localStorage.setItem('orjuelaClientProfile', JSON.stringify(this.clientProfile));
+  }
+
+  private applyStoredClientProfile(): void {
+    const raw = localStorage.getItem('orjuelaClientProfile');
+    if (raw) {
+      this.applyClientProfile(JSON.parse(raw));
+      return;
+    }
+    this.applyClientProfile({
+      full_name: this.currentUser?.full_name,
+      email: this.currentUser?.email,
+      document_id: this.currentUser?.document_id
+    });
   }
 
   private enforceDashboardAccess(): void {

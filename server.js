@@ -357,6 +357,10 @@ function createDatabase() {
       `ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'password'`,
       `ALTER TABLE users ADD COLUMN google_sub TEXT`,
       `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
+      `ALTER TABLE clients ADD COLUMN city TEXT`,
+      `ALTER TABLE clients ADD COLUMN address TEXT`,
+      `ALTER TABLE clients ADD COLUMN updated_at TEXT`,
+      `ALTER TABLE clients ADD COLUMN verified INTEGER DEFAULT 0`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -1320,6 +1324,94 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
   res.json({ user: req.user });
+});
+
+app.get('/api/client/profile', requireAuth(['client']), (req, res) => {
+  db.get(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
+      c.phone, c.city, c.address, c.created_at, c.updated_at, c.verified,
+      ac.assigned_lawyer
+    FROM users u
+    LEFT JOIN clients c ON c.email = u.email OR c.document_id = u.document_id
+    LEFT JOIN auth_clients ac ON ac.user_id = u.id
+    WHERE u.id = ?`, [req.user.id], (err, row) => {
+    if (err) return res.status(500).json({ error: 'No fue posible cargar tu perfil.' });
+    if (!row) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
+    res.json({
+      full_name: row.full_name,
+      document_id: row.document_id || '',
+      email: row.email,
+      phone: row.phone || '',
+      city: row.city || '',
+      address: row.address || '',
+      created_at: row.created_at || row.user_created_at,
+      updated_at: row.updated_at || row.created_at || row.user_created_at,
+      verified: Boolean(row.verified),
+      assigned_lawyer: row.assigned_lawyer || 'Equipo Orjuela'
+    });
+  });
+});
+
+app.patch('/api/client/profile', requireAuth(['client']), (req, res) => {
+  const payload = {
+    full_name: cleanText(req.body.full_name, 140),
+    phone: cleanText(req.body.phone, 30),
+    city: cleanText(req.body.city, 80),
+    address: cleanText(req.body.address, 160)
+  };
+
+  if (!payload.full_name || payload.full_name.length < 3 || !payload.phone || !payload.city) {
+    return res.status(400).json({ error: 'Nombre, teléfono y ciudad son obligatorios.' });
+  }
+  if (!/^3\d{9}$|^\+57\s?3\d{9}$/.test(payload.phone)) {
+    return res.status(400).json({ error: 'Ingresa un celular colombiano válido.' });
+  }
+
+  const updatedAt = getTimestamp();
+  db.serialize(() => {
+    db.run(`UPDATE users SET full_name = ?, updated_at = ? WHERE id = ?`, [payload.full_name, updatedAt, req.user.id]);
+    db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (selectErr, client) => {
+      if (selectErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
+
+      const finish = () => {
+        db.get(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
+            c.phone, c.city, c.address, c.created_at, c.updated_at, c.verified,
+            ac.assigned_lawyer
+          FROM users u
+          LEFT JOIN clients c ON c.email = u.email OR c.document_id = u.document_id
+          LEFT JOIN auth_clients ac ON ac.user_id = u.id
+          WHERE u.id = ?`, [req.user.id], (profileErr, row) => {
+          if (profileErr || !row) return res.status(500).json({ error: 'Perfil actualizado, pero no fue posible recargarlo.' });
+          res.json({
+            full_name: row.full_name,
+            document_id: row.document_id || '',
+            email: row.email,
+            phone: row.phone || '',
+            city: row.city || '',
+            address: row.address || '',
+            created_at: row.created_at || row.user_created_at,
+            updated_at: row.updated_at || updatedAt,
+            verified: Boolean(row.verified),
+            assigned_lawyer: row.assigned_lawyer || 'Equipo Orjuela'
+          });
+        });
+      };
+
+      if (client) {
+        return db.run(`UPDATE clients SET name = ?, phone = ?, city = ?, address = ?, updated_at = ? WHERE id = ?`,
+          [payload.full_name, payload.phone, payload.city, payload.address, updatedAt, client.id], (updateErr) => {
+            if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
+            finish();
+          });
+      }
+
+      db.run(`INSERT INTO clients (name, document_id, phone, email, city, address, created_at, updated_at, verified)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+        [payload.full_name, req.user.document_id || '', payload.phone, req.user.email, payload.city, payload.address, updatedAt, updatedAt], (insertErr) => {
+          if (insertErr) return res.status(500).json({ error: 'No fue posible crear tu perfil.' });
+          finish();
+        });
+    });
+  });
 });
 
 app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {

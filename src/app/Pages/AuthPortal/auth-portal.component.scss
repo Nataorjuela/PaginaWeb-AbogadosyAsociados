@@ -1488,6 +1488,11 @@ h2 {
   grid-template-columns: 160px repeat(2, minmax(0, 1fr));
 }
 
+.field-error {
+  color: #b42318;
+  font-weight: 800;
+}
+
 .recovery-page {
   display: grid;
   place-items: center;
@@ -1639,7 +1644,6 @@ h2 {
     align-items: start;
     flex-direction: column;
   }
-
   .environment-badge {
     right: 0.75rem;
     top: 0.75rem;
