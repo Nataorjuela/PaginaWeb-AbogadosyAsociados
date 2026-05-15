@@ -136,6 +136,31 @@ function createDatabase() {
       created_at TEXT NOT NULL
     )`);
 
+    db.run(`CREATE TABLE IF NOT EXISTS admin_agenda (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      client_name TEXT,
+      related_type TEXT,
+      related_id INTEGER,
+      assigned_to TEXT,
+      scheduled_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'Programada',
+      notes TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_id INTEGER,
+      actor_name TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER,
+      summary TEXT,
+      created_at TEXT NOT NULL
+    )`);
+
     db.run(`CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       full_name TEXT NOT NULL,
@@ -361,9 +386,17 @@ function createDatabase() {
       `ALTER TABLE clients ADD COLUMN address TEXT`,
       `ALTER TABLE clients ADD COLUMN updated_at TEXT`,
       `ALTER TABLE clients ADD COLUMN verified INTEGER DEFAULT 0`,
+      `ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'Activo'`,
       `ALTER TABLE leads ADD COLUMN priority TEXT DEFAULT 'Media'`,
       `ALTER TABLE leads ADD COLUMN next_action TEXT`,
       `ALTER TABLE cases ADD COLUMN updated_at TEXT`,
+      `ALTER TABLE cases ADD COLUMN archived_at TEXT`,
+      `ALTER TABLE case_documents ADD COLUMN document_type TEXT`,
+      `ALTER TABLE case_documents ADD COLUMN status TEXT DEFAULT 'Recibido'`,
+      `ALTER TABLE case_documents ADD COLUMN observations TEXT`,
+      `ALTER TABLE payments ADD COLUMN concept TEXT`,
+      `ALTER TABLE payments ADD COLUMN support_url TEXT`,
+      `ALTER TABLE payments ADD COLUMN updated_at TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -1078,6 +1111,20 @@ function authorizeAdmin(req, res, next) {
   next();
 }
 
+function auditAdminAction(req, action, entityType, entityId, summary = '') {
+  const actor = req.user || {};
+  db.run(`INSERT INTO audit_logs (actor_id, actor_name, action, entity_type, entity_id, summary, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+    actor.id || null,
+    actor.full_name || actor.email || 'Administrador',
+    action,
+    entityType,
+    entityId || null,
+    cleanText(summary, 500),
+    getTimestamp()
+  ], () => {});
+}
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', environment: APP_ENV, demoData: QA_DEMO_DATA });
 });
@@ -1476,12 +1523,76 @@ app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asist
 });
 
 app.get('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT * FROM clients ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
+  db.all(`SELECT * FROM clients WHERE COALESCE(status, 'Activo') <> 'Archivado' ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
+});
+
+app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const payload = {
+    name: cleanText(req.body.name, 140),
+    document_id: cleanText(req.body.document_id, 40),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 80),
+    address: cleanText(req.body.address, 160),
+    verified: req.body.verified ? 1 : 0
+  };
+  if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  const now = getTimestamp();
+  db.run(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?)`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.verified, now, now], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear cliente.' });
+    auditAdminAction(req, 'crear', 'cliente', this.lastID, payload.name);
+    res.status(201).json({ id: this.lastID, ...payload, status: 'Activo', created_at: now, updated_at: now });
+  });
+});
+
+app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const payload = {
+    name: cleanText(req.body.name, 140),
+    document_id: cleanText(req.body.document_id, 40),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 80),
+    address: cleanText(req.body.address, 160),
+    status: cleanText(req.body.status, 30),
+    verified: req.body.verified === undefined ? null : req.body.verified ? 1 : 0
+  };
+  if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
+  db.run(`UPDATE clients SET
+      name = COALESCE(NULLIF(?, ''), name),
+      document_id = COALESCE(NULLIF(?, ''), document_id),
+      phone = COALESCE(NULLIF(?, ''), phone),
+      email = COALESCE(NULLIF(?, ''), email),
+      city = COALESCE(NULLIF(?, ''), city),
+      address = COALESCE(NULLIF(?, ''), address),
+      status = COALESCE(NULLIF(?, ''), status),
+      verified = COALESCE(?, verified),
+      updated_at = ?
+    WHERE id = ?`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.status, payload.verified, getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar cliente.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'cliente', id, payload.name || 'Cliente actualizado');
+    res.json({ message: 'Cliente actualizado.' });
+  });
+});
+
+app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
+  db.run(`UPDATE clients SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar cliente.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
+    auditAdminAction(req, 'archivar', 'cliente', id, 'Cliente archivado');
+    res.json({ message: 'Cliente archivado.' });
+  });
 });
 
 app.get('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   db.all(`SELECT ca.*, cl.name AS client_name, cl.email AS client_email, cl.phone AS client_phone
     FROM cases ca JOIN clients cl ON cl.id = ca.client_id
+    WHERE ca.archived_at IS NULL
     ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar casos.' }) : res.json(rows));
 });
 
@@ -1512,16 +1623,99 @@ app.post('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (re
 
 app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const status = cleanText(req.body.status, 40);
-  if (!id || !status) return res.status(400).json({ error: 'Caso o estado inválido.' });
-  db.run(`UPDATE cases SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
+  const payload = {
+    case_type: cleanText(req.body.case_type, 80),
+    description: cleanText(req.body.description, 1000),
+    status: cleanText(req.body.status, 40),
+    assigned_lawyer: cleanText(req.body.assigned_lawyer, 100),
+    next_action: cleanText(req.body.next_action, 180)
+  };
+  if (!id) return res.status(400).json({ error: 'Caso inválido.' });
+  db.run(`UPDATE cases SET
+      case_type = COALESCE(NULLIF(?, ''), case_type),
+      description = COALESCE(NULLIF(?, ''), description),
+      status = COALESCE(NULLIF(?, ''), status),
+      assigned_lawyer = COALESCE(NULLIF(?, ''), assigned_lawyer),
+      next_action = COALESCE(NULLIF(?, ''), next_action),
+      updated_at = ?
+    WHERE id = ?`, [payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar caso.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'caso', id, payload.case_type || payload.status || 'Caso actualizado');
     res.json({ message: 'Caso actualizado.' });
+  });
+});
+
+app.delete('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Caso inválido.' });
+  db.run(`UPDATE cases SET archived_at = ?, status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar caso.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
+    auditAdminAction(req, 'archivar', 'caso', id, 'Caso archivado');
+    res.json({ message: 'Caso archivado.' });
   });
 });
 
 app.get('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   db.all(`SELECT * FROM payments ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar pagos.' }) : res.json(rows));
+});
+
+app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const payload = {
+    related_type: cleanText(req.body.related_type || 'case', 40),
+    related_id: parseInt(req.body.related_id, 10),
+    concept: cleanText(req.body.concept, 140),
+    amount: Number(req.body.amount),
+    status: cleanText(req.body.status || 'Pendiente', 40),
+    payment_date: cleanText(req.body.payment_date, 40),
+    support_url: cleanText(req.body.support_url, 220)
+  };
+  if (!payload.related_id || Number.isNaN(payload.amount) || payload.amount < 0) return res.status(400).json({ error: 'Relacionado y monto son obligatorios.' });
+  const now = getTimestamp();
+  db.run(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_date, support_url, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.related_type, payload.related_id, payload.concept, payload.amount, payload.status, payload.payment_date, payload.support_url, now, now], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear pago.' });
+    auditAdminAction(req, 'crear', 'pago', this.lastID, payload.concept || String(payload.amount));
+    res.status(201).json({ id: this.lastID, ...payload, created_at: now, updated_at: now });
+  });
+});
+
+app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const amount = req.body.amount === undefined ? null : Number(req.body.amount);
+  if (!id) return res.status(400).json({ error: 'Pago inválido.' });
+  db.run(`UPDATE payments SET
+      concept = COALESCE(NULLIF(?, ''), concept),
+      amount = COALESCE(?, amount),
+      status = COALESCE(NULLIF(?, ''), status),
+      payment_date = COALESCE(NULLIF(?, ''), payment_date),
+      support_url = COALESCE(NULLIF(?, ''), support_url),
+      updated_at = ?
+    WHERE id = ?`, [
+    cleanText(req.body.concept, 140),
+    amount !== null && !Number.isNaN(amount) ? amount : null,
+    cleanText(req.body.status, 40),
+    cleanText(req.body.payment_date, 40),
+    cleanText(req.body.support_url, 220),
+    getTimestamp(),
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar pago.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Pago no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'pago', id, 'Pago actualizado');
+    res.json({ message: 'Pago actualizado.' });
+  });
+});
+
+app.delete('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Pago inválido.' });
+  db.run(`UPDATE payments SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar pago.' });
+    auditAdminAction(req, 'archivar', 'pago', id, 'Pago archivado');
+    res.json({ message: 'Pago archivado.' });
+  });
 });
 
 app.get('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -1532,11 +1726,111 @@ app.get('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']), 
     ORDER BY d.uploaded_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar documentos.' }) : res.json(rows));
 });
 
+app.post('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const caseId = parseInt(req.body.case_id, 10);
+  const payload = {
+    file_name: cleanText(req.body.file_name, 180),
+    file_url: cleanText(req.body.file_url || '#', 220),
+    document_type: cleanText(req.body.document_type || 'General', 80),
+    status: cleanText(req.body.status || 'Recibido', 40),
+    observations: cleanText(req.body.observations, 500)
+  };
+  if (!caseId || !payload.file_name) return res.status(400).json({ error: 'Caso y nombre de documento son obligatorios.' });
+  db.run(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.status, payload.observations, getTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear documento.' });
+    auditAdminAction(req, 'crear', 'documento', this.lastID, payload.file_name);
+    res.status(201).json({ id: this.lastID, case_id: caseId, ...payload });
+  });
+});
+
+app.patch('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Documento inválido.' });
+  db.run(`UPDATE case_documents SET
+      file_name = COALESCE(NULLIF(?, ''), file_name),
+      document_type = COALESCE(NULLIF(?, ''), document_type),
+      status = COALESCE(NULLIF(?, ''), status),
+      observations = COALESCE(NULLIF(?, ''), observations)
+    WHERE id = ?`, [cleanText(req.body.file_name, 180), cleanText(req.body.document_type, 80), cleanText(req.body.status, 40), cleanText(req.body.observations, 500), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar documento.' });
+    auditAdminAction(req, 'actualizar', 'documento', id, 'Documento actualizado');
+    res.json({ message: 'Documento actualizado.' });
+  });
+});
+
+app.delete('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Documento inválido.' });
+  db.run(`UPDATE case_documents SET status = 'Archivado' WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar documento.' });
+    auditAdminAction(req, 'archivar', 'documento', id, 'Documento archivado');
+    res.json({ message: 'Documento archivado.' });
+  });
+});
+
 app.get('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, ca.status, COALESCE(ca.updated_at, ca.created_at) AS date
-    FROM cases ca JOIN clients cl ON cl.id = ca.client_id
-    WHERE ca.status <> 'Finalizado'
-    ORDER BY date DESC LIMIT 20`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar agenda.' }) : res.json(rows));
+  db.all(`SELECT id, title, client_name, related_type, related_id, assigned_to, scheduled_at AS date, status, notes
+    FROM admin_agenda
+    WHERE status <> 'Archivado'
+    ORDER BY scheduled_at DESC LIMIT 40`, (agendaErr, agendaRows) => {
+    if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
+    if (agendaRows.length) return res.json(agendaRows);
+    db.all(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, 'case' AS related_type, ca.id AS related_id,
+        ca.assigned_lawyer AS assigned_to, ca.status, COALESCE(ca.updated_at, ca.created_at) AS date
+      FROM cases ca JOIN clients cl ON cl.id = ca.client_id
+      WHERE ca.status <> 'Finalizado' AND ca.archived_at IS NULL
+      ORDER BY date DESC LIMIT 20`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar agenda.' }) : res.json(rows));
+  });
+});
+
+app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const payload = {
+    title: cleanText(req.body.title, 160),
+    client_name: cleanText(req.body.client_name, 140),
+    related_type: cleanText(req.body.related_type || 'case', 40),
+    related_id: req.body.related_id ? parseInt(req.body.related_id, 10) : null,
+    assigned_to: cleanText(req.body.assigned_to || req.user.full_name, 100),
+    scheduled_at: cleanText(req.body.scheduled_at, 60),
+    status: cleanText(req.body.status || 'Programada', 40),
+    notes: cleanText(req.body.notes, 500)
+  };
+  if (!payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Título y fecha son obligatorios.' });
+  const now = getTimestamp();
+  db.run(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.title, payload.client_name, payload.related_type, payload.related_id, payload.assigned_to, payload.scheduled_at, payload.status, payload.notes, now, now], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear agenda.' });
+    auditAdminAction(req, 'crear', 'agenda', this.lastID, payload.title);
+    res.status(201).json({ id: this.lastID, ...payload });
+  });
+});
+
+app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Agenda inválida.' });
+  db.run(`UPDATE admin_agenda SET
+      title = COALESCE(NULLIF(?, ''), title),
+      client_name = COALESCE(NULLIF(?, ''), client_name),
+      assigned_to = COALESCE(NULLIF(?, ''), assigned_to),
+      scheduled_at = COALESCE(NULLIF(?, ''), scheduled_at),
+      status = COALESCE(NULLIF(?, ''), status),
+      notes = COALESCE(NULLIF(?, ''), notes),
+      updated_at = ?
+    WHERE id = ?`, [cleanText(req.body.title, 160), cleanText(req.body.client_name, 140), cleanText(req.body.assigned_to, 100), cleanText(req.body.scheduled_at, 60), cleanText(req.body.status, 40), cleanText(req.body.notes, 500), getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar agenda.' });
+    auditAdminAction(req, 'actualizar', 'agenda', id, 'Agenda actualizada');
+    res.json({ message: 'Agenda actualizada.' });
+  });
+});
+
+app.delete('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Agenda inválida.' });
+  db.run(`UPDATE admin_agenda SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar agenda.' });
+    auditAdminAction(req, 'archivar', 'agenda', id, 'Agenda archivada');
+    res.json({ message: 'Agenda archivada.' });
+  });
 });
 
 app.get('/api/admin/reports', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -2200,6 +2494,67 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el referido.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Referido no encontrado.' });
     res.json({ message: 'Estado actualizado correctamente.' });
+  });
+});
+
+app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    full_name: cleanText(req.body.full_name, 140),
+    document_id: cleanText(req.body.document_id, 40) || generatedDocumentId('ALLY', req.body.email),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 80),
+    partner_type: cleanText(req.body.partner_type || 'Independiente', 60),
+    occupation: cleanText(req.body.occupation, 100),
+    status: cleanText(req.body.status || 'active', 20)
+  };
+  if (!payload.full_name || !payload.email || !payload.phone || !payload.city) return res.status(400).json({ error: 'Nombre, correo, teléfono y ciudad son obligatorios.' });
+  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  const now = getTimestamp();
+  const password = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
+  db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'ally', ?, ?, ?)`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
+    if (userErr) return res.status(500).json({ error: 'No fue posible crear el usuario aliado.' });
+    const userId = this.lastID;
+    db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
+      if (partnerErr) return res.status(500).json({ error: 'No fue posible crear aliado.' });
+      auditAdminAction(req, 'crear', 'aliado', userId, payload.full_name);
+      res.status(201).json({ message: 'Aliado creado.', user_id: userId });
+    });
+  });
+});
+
+app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
+  const payload = {
+    full_name: cleanText(req.body.full_name, 140),
+    phone: cleanText(req.body.phone, 60),
+    city: cleanText(req.body.city, 80),
+    partner_type: cleanText(req.body.partner_type, 60),
+    occupation: cleanText(req.body.occupation, 100),
+    status: cleanText(req.body.status, 20)
+  };
+  db.run(`UPDATE users SET full_name = COALESCE(NULLIF(?, ''), full_name), status = COALESCE(NULLIF(?, ''), status), updated_at = ? WHERE id = ? AND role = 'ally'`,
+    [payload.full_name, payload.status, getTimestamp(), id], function (userErr) {
+    if (userErr) return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
+    db.run(`UPDATE partners SET phone = COALESCE(NULLIF(?, ''), phone), city = COALESCE(NULLIF(?, ''), city), partner_type = COALESCE(NULLIF(?, ''), partner_type), occupation = COALESCE(NULLIF(?, ''), occupation), updated_at = ? WHERE user_id = ?`,
+      [payload.phone, payload.city, payload.partner_type, payload.occupation, getTimestamp(), id], (partnerErr) => {
+      if (partnerErr) return res.status(500).json({ error: 'No fue posible actualizar perfil de aliado.' });
+      auditAdminAction(req, 'actualizar', 'aliado', id, payload.full_name || 'Aliado actualizado');
+      res.json({ message: 'Aliado actualizado.' });
+    });
+  });
+});
+
+app.delete('/api/admin/partner-network/allies/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
+  db.run(`UPDATE users SET status = 'archived', updated_at = ? WHERE id = ? AND role = 'ally'`, [getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar aliado.' });
+    auditAdminAction(req, 'archivar', 'aliado', id, 'Aliado archivado');
+    res.json({ message: 'Aliado archivado.' });
   });
 });
 

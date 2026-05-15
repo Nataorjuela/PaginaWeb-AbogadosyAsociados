@@ -89,6 +89,11 @@ export class AuthPortalComponent implements OnInit {
   allyProfileForm!: FormGroup;
   adminLeadForm!: FormGroup;
   adminCaseForm!: FormGroup;
+  adminClientForm!: FormGroup;
+  adminAllyForm!: FormGroup;
+  adminPaymentForm!: FormGroup;
+  adminDocumentForm!: FormGroup;
+  adminAgendaForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   loading = false;
@@ -110,6 +115,14 @@ export class AuthPortalComponent implements OnInit {
   adminAgenda: any[] = [];
   adminReports: any = {};
   showAdminLeadForm = false;
+  showAdminClientForm = false;
+  showAdminAllyForm = false;
+  showAdminPaymentForm = false;
+  showAdminDocumentForm = false;
+  showAdminAgendaForm = false;
+  editingAdminClientId: number | null = null;
+  editingAdminCaseId: number | null = null;
+  editingAdminAllyId: number | null = null;
   showAllyProfileForm = false;
   selectedPartnerReferral: any = null;
   selectedAcademyModule: any = null;
@@ -414,6 +427,58 @@ export class AuthPortalComponent implements OnInit {
       status: ['Recibido', Validators.required],
       assigned_lawyer: ['Equipo Orjuela'],
       next_action: ['Revisar documentación inicial']
+    });
+
+    this.adminClientForm = this.fb.group({
+      name: ['', Validators.required],
+      document_id: [''],
+      phone: ['', Validators.required],
+      email: ['', Validators.email],
+      city: [''],
+      address: [''],
+      status: ['Activo'],
+      verified: [false]
+    });
+
+    this.adminAllyForm = this.fb.group({
+      full_name: ['', Validators.required],
+      document_id: [''],
+      phone: ['', Validators.required],
+      email: ['', [Validators.required, Validators.email]],
+      city: ['', Validators.required],
+      partner_type: ['Independiente'],
+      occupation: [''],
+      status: ['active']
+    });
+
+    this.adminPaymentForm = this.fb.group({
+      related_type: ['case', Validators.required],
+      related_id: [1, Validators.required],
+      concept: [''],
+      amount: [0, Validators.required],
+      status: ['Pendiente', Validators.required],
+      payment_date: [''],
+      support_url: ['']
+    });
+
+    this.adminDocumentForm = this.fb.group({
+      case_id: [1, Validators.required],
+      file_name: ['', Validators.required],
+      file_url: ['#'],
+      document_type: ['General'],
+      status: ['Recibido'],
+      observations: ['']
+    });
+
+    this.adminAgendaForm = this.fb.group({
+      title: ['', Validators.required],
+      client_name: [''],
+      related_type: ['case'],
+      related_id: [''],
+      assigned_to: ['Equipo Orjuela'],
+      scheduled_at: ['', Validators.required],
+      status: ['Programada'],
+      notes: ['']
     });
 
     this.restoreSession();
@@ -1350,6 +1415,177 @@ export class AuthPortalComponent implements OnInit {
     this.http.patch(this.apiUrl(`/api/admin/cases/${id}`), { status }, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadAdminSectionData('cases')
     });
+  }
+
+  saveAdminClient(): void {
+    if (this.adminClientForm.invalid) return this.adminClientForm.markAllAsTouched();
+    const request = this.editingAdminClientId
+      ? this.http.patch(this.apiUrl(`/api/admin/clients/${this.editingAdminClientId}`), this.adminClientForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl('/api/admin/clients'), this.adminClientForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminClientId ? 'Cliente actualizado.' : 'Cliente creado.';
+        this.editingAdminClientId = null;
+        this.showAdminClientForm = false;
+        this.adminClientForm.reset({ status: 'Activo', verified: false });
+        this.loadAdminSectionData('clients');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el cliente.'
+    });
+  }
+
+  editAdminClient(client: any): void {
+    this.editingAdminClientId = client.id;
+    this.showAdminClientForm = true;
+    this.adminClientForm.patchValue({ ...client, verified: Boolean(client.verified) });
+  }
+
+  archiveAdminClient(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/clients/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Cliente archivado.';
+        this.loadAdminSectionData('clients');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el cliente.'
+    });
+  }
+
+  editAdminCase(item: any): void {
+    this.editingAdminCaseId = item.id;
+    this.adminCaseForm.patchValue({
+      client_name: item.client_name,
+      client_phone: item.client_phone,
+      client_email: item.client_email,
+      case_type: item.case_type,
+      description: item.description,
+      status: item.status,
+      assigned_lawyer: item.assigned_lawyer,
+      next_action: item.next_action
+    });
+  }
+
+  saveAdminCase(): void {
+    if (this.editingAdminCaseId) {
+      this.http.patch(this.apiUrl(`/api/admin/cases/${this.editingAdminCaseId}`), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
+        next: () => {
+          this.formMessage = 'Caso actualizado.';
+          this.editingAdminCaseId = null;
+          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial' });
+          this.loadAdminSectionData('cases');
+          this.loadAdminDashboard();
+        },
+        error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el caso.'
+      });
+      return;
+    }
+    this.createAdminCase();
+  }
+
+  archiveAdminCase(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/cases/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Caso archivado.';
+        this.loadAdminSectionData('cases');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el caso.'
+    });
+  }
+
+  saveAdminAlly(): void {
+    if (this.adminAllyForm.invalid) return this.adminAllyForm.markAllAsTouched();
+    const endpoint = this.editingAdminAllyId ? `/api/admin/partner-network/allies/${this.editingAdminAllyId}` : '/api/admin/partner-network/allies';
+    const request = this.editingAdminAllyId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminAllyForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminAllyForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminAllyId ? 'Aliado actualizado.' : 'Aliado creado.';
+        this.editingAdminAllyId = null;
+        this.showAdminAllyForm = false;
+        this.adminAllyForm.reset({ partner_type: 'Independiente', status: 'active' });
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el aliado.'
+    });
+  }
+
+  editAdminAlly(ally: any): void {
+    this.editingAdminAllyId = ally.user_id;
+    this.showAdminAllyForm = true;
+    this.adminAllyForm.patchValue({ ...ally, full_name: ally.full_name, partner_type: ally.partner_type || 'Independiente' });
+  }
+
+  archiveAdminAlly(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/allies/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Aliado archivado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el aliado.'
+    });
+  }
+
+  createAdminPayment(): void {
+    if (this.adminPaymentForm.invalid) return this.adminPaymentForm.markAllAsTouched();
+    this.http.post(this.apiUrl('/api/admin/payments'), this.adminPaymentForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Pago registrado.';
+        this.adminPaymentForm.reset({ related_type: 'case', related_id: 1, amount: 0, status: 'Pendiente' });
+        this.loadAdminSectionData('payments');
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar el pago.'
+    });
+  }
+
+  updateAdminPayment(id: number, status: string): void {
+    this.http.patch(this.apiUrl(`/api/admin/payments/${id}`), { status }, { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('payments') });
+  }
+
+  archiveAdminPayment(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/payments/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('payments') });
+  }
+
+  createAdminDocument(): void {
+    if (this.adminDocumentForm.invalid) return this.adminDocumentForm.markAllAsTouched();
+    this.http.post(this.apiUrl('/api/admin/documents'), this.adminDocumentForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Documento registrado.';
+        this.adminDocumentForm.reset({ case_id: 1, file_url: '#', document_type: 'General', status: 'Recibido' });
+        this.loadAdminSectionData('documents');
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar el documento.'
+    });
+  }
+
+  updateAdminDocument(id: number, status: string): void {
+    this.http.patch(this.apiUrl(`/api/admin/documents/${id}`), { status }, { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('documents') });
+  }
+
+  archiveAdminDocument(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/documents/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('documents') });
+  }
+
+  createAdminAgenda(): void {
+    if (this.adminAgendaForm.invalid) return this.adminAgendaForm.markAllAsTouched();
+    this.http.post(this.apiUrl('/api/admin/agenda'), this.adminAgendaForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Agenda registrada.';
+        this.adminAgendaForm.reset({ related_type: 'case', assigned_to: 'Equipo Orjuela', status: 'Programada' });
+        this.loadAdminSectionData('agenda');
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar agenda.'
+    });
+  }
+
+  updateAdminAgenda(id: number, status: string): void {
+    this.http.patch(this.apiUrl(`/api/admin/agenda/${id}`), { status }, { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('agenda') });
+  }
+
+  archiveAdminAgenda(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/agenda/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('agenda') });
   }
 
   loadClientProfile(): void {
