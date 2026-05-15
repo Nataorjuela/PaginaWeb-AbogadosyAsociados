@@ -361,6 +361,9 @@ function createDatabase() {
       `ALTER TABLE clients ADD COLUMN address TEXT`,
       `ALTER TABLE clients ADD COLUMN updated_at TEXT`,
       `ALTER TABLE clients ADD COLUMN verified INTEGER DEFAULT 0`,
+      `ALTER TABLE leads ADD COLUMN priority TEXT DEFAULT 'Media'`,
+      `ALTER TABLE leads ADD COLUMN next_action TEXT`,
+      `ALTER TABLE cases ADD COLUMN updated_at TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -454,6 +457,10 @@ function cleanText(value, maxLength = 180) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, maxLength);
+}
+
+function formatMoney(value) {
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
 function normalizeDocument(value) {
@@ -1044,6 +1051,12 @@ if (SEED_ACCESS_USERS || APP_ENV === 'production') {
 }
 
 function authorizeAdmin(req, res, next) {
+  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  const payload = verifyToken(token);
+  if (payload && ['admin', 'abogado', 'asistente'].includes(payload.role)) {
+    req.user = payload;
+    return next();
+  }
   const password = (req.headers['x-admin-password'] || '').toString();
   if (!password || password !== ADMIN_PASSWORD) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -1324,6 +1337,210 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
   res.json({ user: req.user });
+});
+
+app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const reports = {};
+  db.get(`SELECT COUNT(*) AS total FROM leads`, (leadErr, leadCount) => {
+    if (leadErr) return res.status(500).json({ error: 'No fue posible cargar dashboard.' });
+    db.get(`SELECT COUNT(*) AS total FROM cases`, (caseErr, caseCount) => {
+      if (caseErr) return res.status(500).json({ error: 'No fue posible cargar casos.' });
+      db.get(`SELECT COUNT(*) AS total FROM clients`, (clientErr, clientCount) => {
+        if (clientErr) return res.status(500).json({ error: 'No fue posible cargar clientes.' });
+        db.get(`SELECT COUNT(*) AS total FROM referrals`, (refErr, refCount) => {
+          if (refErr) return res.status(500).json({ error: 'No fue posible cargar referidos.' });
+          db.get(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
+            if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
+            db.get(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
+              if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
+              db.all(`SELECT * FROM leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
+                if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
+                reports.leads = leadCount.total || 0;
+                reports.cases = caseCount.total || 0;
+                reports.clients = clientCount.total || 0;
+                reports.referrals = refCount.total || 0;
+                reports.pending_commissions = comm.total || 0;
+                reports.pending_payments = pendingPayments.total || 0;
+                reports.conversion_rate = reports.leads ? Math.round((reports.cases / reports.leads) * 100) : 0;
+                res.json({
+                  reports,
+                  recentLeads,
+                  deadlines: [],
+                  appointments: [],
+                  metrics: [
+                    { label: 'Nuevos leads', value: String(reports.leads) },
+                    { label: 'Casos activos', value: String(reports.cases) },
+                    { label: 'Referidos del mes', value: String(reports.referrals) },
+                    { label: 'Clientes activos', value: String(reports.clients) },
+                    { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
+                    { label: 'Pagos pendientes', value: formatMoney(reports.pending_payments) }
+                  ]
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+});
+
+app.get('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT * FROM leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'No fue posible cargar leads.' });
+    res.json(rows);
+  });
+});
+
+app.post('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const payload = {
+    name: cleanText(req.body.name, 140),
+    phone: cleanText(req.body.phone, 60),
+    email: normalizeEmail(req.body.email),
+    case_type: cleanText(req.body.case_type, 80),
+    source: cleanText(req.body.source || 'Web', 40),
+    assigned_to: cleanText(req.body.assigned_to || req.user.full_name, 100),
+    priority: cleanText(req.body.priority || 'Media', 20),
+    next_action: cleanText(req.body.next_action || 'Contactar al lead', 180),
+    notes: cleanText(req.body.notes, 1000)
+  };
+  if (!payload.name || !payload.phone || !payload.case_type) return res.status(400).json({ error: 'Nombre, teléfono y tipo de caso son obligatorios.' });
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  const now = getTimestamp();
+  db.run(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'Nuevo', ?, ?, ?, ?, ?, ?)`,
+    [payload.name, payload.phone, payload.email, payload.case_type, payload.source, payload.assigned_to, payload.notes, payload.priority, payload.next_action, now, now], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible crear el lead.' });
+      res.status(201).json({ id: this.lastID, ...payload, status: 'Nuevo', created_at: now, updated_at: now });
+    });
+});
+
+app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const status = cleanText(req.body.status, 40);
+  const assignedTo = cleanText(req.body.assigned_to, 100);
+  const nextAction = cleanText(req.body.next_action, 180);
+  if (!id) return res.status(400).json({ error: 'Lead inválido.' });
+  db.run(`UPDATE leads SET
+      status = COALESCE(NULLIF(?, ''), status),
+      assigned_to = COALESCE(NULLIF(?, ''), assigned_to),
+      next_action = COALESCE(NULLIF(?, ''), next_action),
+      updated_at = ?
+    WHERE id = ?`, [status, assignedTo, nextAction, getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el lead.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Lead no encontrado.' });
+    res.json({ message: 'Lead actualizado.' });
+  });
+});
+
+app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Lead inválido.' });
+  db.get(`SELECT * FROM leads WHERE id = ?`, [id], (leadErr, lead) => {
+    if (leadErr) return res.status(500).json({ error: 'No fue posible cargar el lead.' });
+    if (!lead) return res.status(404).json({ error: 'Lead no encontrado.' });
+    const now = getTimestamp();
+    db.get(`SELECT id FROM clients WHERE email = ? OR phone = ?`, [lead.email, lead.phone], (clientErr, existingClient) => {
+      if (clientErr) return res.status(500).json({ error: 'No fue posible validar cliente.' });
+      const createCase = (clientId) => {
+        db.run(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
+          VALUES (?, ?, ?, 'Recibido', ?, ?, ?, ?)`,
+          [clientId, lead.case_type, lead.notes || '', lead.assigned_to || 'Equipo Orjuela', lead.next_action || 'Revisar documentación inicial', now, now], function (caseErr) {
+            if (caseErr) return res.status(500).json({ error: 'No fue posible crear el caso.' });
+            db.run(`UPDATE leads SET status = 'Convertido en caso', updated_at = ? WHERE id = ?`, [now, id]);
+            res.status(201).json({ message: 'Lead convertido en caso.', case_id: this.lastID, client_id: clientId });
+          });
+      };
+      if (existingClient) return createCase(existingClient.id);
+      db.run(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified)
+        VALUES (?, ?, ?, '', ?, ?, 0)`, [lead.name, lead.phone, lead.email, now, now], function (insertErr) {
+        if (insertErr) return res.status(500).json({ error: 'No fue posible crear el cliente.' });
+        createCase(this.lastID);
+      });
+    });
+  });
+});
+
+app.get('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT * FROM clients ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
+});
+
+app.get('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT ca.*, cl.name AS client_name, cl.email AS client_email, cl.phone AS client_phone
+    FROM cases ca JOIN clients cl ON cl.id = ca.client_id
+    ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar casos.' }) : res.json(rows));
+});
+
+app.post('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const payload = {
+    client_name: cleanText(req.body.client_name, 140),
+    client_phone: cleanText(req.body.client_phone, 60),
+    client_email: normalizeEmail(req.body.client_email),
+    case_type: cleanText(req.body.case_type, 80),
+    description: cleanText(req.body.description, 1000),
+    status: cleanText(req.body.status || 'Recibido', 40),
+    assigned_lawyer: cleanText(req.body.assigned_lawyer || req.user.full_name, 100),
+    next_action: cleanText(req.body.next_action || 'Revisar documentación inicial', 180)
+  };
+  if (!payload.client_name || !payload.client_phone || !payload.case_type) return res.status(400).json({ error: 'Cliente, teléfono y tipo de caso son obligatorios.' });
+  const now = getTimestamp();
+  db.run(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified) VALUES (?, ?, ?, '', ?, ?, 0)`,
+    [payload.client_name, payload.client_phone, payload.client_email, now, now], function (clientErr) {
+      if (clientErr) return res.status(500).json({ error: 'No fue posible crear cliente.' });
+      db.run(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [this.lastID, payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, now, now], function (caseErr) {
+          if (caseErr) return res.status(500).json({ error: 'No fue posible crear caso.' });
+          res.status(201).json({ message: 'Caso creado.', id: this.lastID });
+        });
+    });
+});
+
+app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const status = cleanText(req.body.status, 40);
+  if (!id || !status) return res.status(400).json({ error: 'Caso o estado inválido.' });
+  db.run(`UPDATE cases SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar caso.' });
+    res.json({ message: 'Caso actualizado.' });
+  });
+});
+
+app.get('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT * FROM payments ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar pagos.' }) : res.json(rows));
+});
+
+app.get('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT d.*, ca.case_type, cl.name AS client_name
+    FROM case_documents d
+    JOIN cases ca ON ca.id = d.case_id
+    JOIN clients cl ON cl.id = ca.client_id
+    ORDER BY d.uploaded_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar documentos.' }) : res.json(rows));
+});
+
+app.get('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.all(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, ca.status, COALESCE(ca.updated_at, ca.created_at) AS date
+    FROM cases ca JOIN clients cl ON cl.id = ca.client_id
+    WHERE ca.status <> 'Finalizado'
+    ORDER BY date DESC LIMIT 20`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar agenda.' }) : res.json(rows));
+});
+
+app.get('/api/admin/reports', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  db.get(`SELECT COUNT(*) AS leads FROM leads`, (leadErr, leads) => {
+    if (leadErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
+    db.get(`SELECT COUNT(*) AS cases FROM cases`, (caseErr, casesRow) => {
+      if (caseErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
+      db.get(`SELECT COALESCE(SUM(amount), 0) AS pending_payments FROM payments WHERE status <> 'Pagado'`, (payErr, paymentsRow) => {
+        if (payErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
+        res.json({
+          leads: leads.leads || 0,
+          cases: casesRow.cases || 0,
+          pending_payments: paymentsRow.pending_payments || 0,
+          conversion_rate: leads.leads ? Math.round((casesRow.cases / leads.leads) * 100) : 0
+        });
+      });
+    });
+  });
 });
 
 app.get('/api/client/profile', requireAuth(['client']), (req, res) => {

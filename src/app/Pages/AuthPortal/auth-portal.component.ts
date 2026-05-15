@@ -86,6 +86,8 @@ export class AuthPortalComponent implements OnInit {
   clientMessageForm!: FormGroup;
   clientServiceForm!: FormGroup;
   clientProfileForm!: FormGroup;
+  adminLeadForm!: FormGroup;
+  adminCaseForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   loading = false;
@@ -99,6 +101,14 @@ export class AuthPortalComponent implements OnInit {
   partnerNetwork: PartnerNetwork = {};
   partnerAdvanced: any = {};
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
+  adminDashboard: any = { metrics: [], recentLeads: [], deadlines: [], appointments: [], reports: {} };
+  adminClients: any[] = [];
+  adminCases: any[] = [];
+  adminPayments: any[] = [];
+  adminDocuments: any[] = [];
+  adminAgenda: any[] = [];
+  adminReports: any = {};
+  showAdminLeadForm = false;
   formMessage = '';
   formError = '';
   clientFormMessage = '';
@@ -366,6 +376,29 @@ export class AuthPortalComponent implements OnInit {
       address: [this.clientProfile.address, Validators.maxLength(160)]
     });
 
+    this.adminLeadForm = this.fb.group({
+      name: ['', Validators.required],
+      phone: ['', Validators.required],
+      email: ['', Validators.email],
+      case_type: ['', Validators.required],
+      source: ['Web', Validators.required],
+      assigned_to: ['Comercial'],
+      priority: ['Media'],
+      next_action: ['Contactar al lead'],
+      notes: ['']
+    });
+
+    this.adminCaseForm = this.fb.group({
+      client_name: ['', Validators.required],
+      client_phone: ['', Validators.required],
+      client_email: ['', Validators.email],
+      case_type: ['', Validators.required],
+      description: [''],
+      status: ['Recibido', Validators.required],
+      assigned_lawyer: ['Equipo Orjuela'],
+      next_action: ['Revisar documentación inicial']
+    });
+
     this.restoreSession();
     this.enforceDashboardAccess();
     if (this.mode === 'partner-dashboard') {
@@ -373,7 +406,10 @@ export class AuthPortalComponent implements OnInit {
       this.loadPartnerAdvanced();
     }
     if (this.mode === 'client-dashboard') this.loadClientProfile();
-    if (this.mode === 'admin-dashboard') this.loadAdminNetwork();
+    if (this.mode === 'admin-dashboard') {
+      this.loadAdminDashboard();
+      this.loadAdminSectionData('dashboard');
+    }
   }
 
   get mode(): string {
@@ -653,6 +689,7 @@ export class AuthPortalComponent implements OnInit {
   setAdminSection(section: string): void {
     this.adminSection = section;
     if (section === 'partner-network') this.loadAdminNetwork();
+    this.loadAdminSectionData(section);
   }
 
   setPartnerSection(section: string): void {
@@ -1096,6 +1133,115 @@ export class AuthPortalComponent implements OnInit {
     this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone });
   }
 
+  loadAdminDashboard(): void {
+    const token = this.getToken();
+    if (!token) return;
+    this.http.get<any>(this.apiUrl('/api/admin/dashboard'), { headers: this.authHeaders() }).subscribe({
+      next: (response) => {
+        this.adminDashboard = response;
+        this.adminMetrics = response.metrics || this.adminMetrics;
+        this.adminLeads = (response.recentLeads || []).map((item: any) => this.mapAdminLead(item));
+        this.selectedLead = this.adminLeads[0] || this.selectedLead;
+      }
+    });
+  }
+
+  loadAdminSectionData(section = this.adminSection): void {
+    const token = this.getToken();
+    if (!token) return;
+    if (section === 'leads') this.loadAdminLeads();
+    if (section === 'clients') this.http.get<any[]>(this.apiUrl('/api/admin/clients'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminClients = rows });
+    if (section === 'cases') this.http.get<any[]>(this.apiUrl('/api/admin/cases'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminCases = rows });
+    if (section === 'payments') this.http.get<any[]>(this.apiUrl('/api/admin/payments'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminPayments = rows });
+    if (section === 'agenda') this.http.get<any[]>(this.apiUrl('/api/admin/agenda'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminAgenda = rows });
+    if (section === 'documents') this.http.get<any[]>(this.apiUrl('/api/admin/documents'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminDocuments = rows });
+    if (section === 'reports') this.http.get<any>(this.apiUrl('/api/admin/reports'), { headers: this.authHeaders() }).subscribe({ next: (report) => this.adminReports = report });
+  }
+
+  loadAdminLeads(): void {
+    this.http.get<any[]>(this.apiUrl('/api/admin/leads'), { headers: this.authHeaders() }).subscribe({
+      next: (rows) => {
+        this.adminLeads = rows.map((item) => this.mapAdminLead(item));
+        this.selectedLead = this.adminLeads[0] || this.selectedLead;
+        this.leadMetrics = [
+          { label: 'Leads nuevos', value: String(this.adminLeads.filter((item) => item.status === 'Nuevo').length) },
+          { label: 'Contactados', value: String(this.adminLeads.filter((item) => item.status === 'Contactado').length) },
+          { label: 'Agendados', value: String(this.adminLeads.filter((item) => item.status === 'Agendado').length) },
+          { label: 'Propuestas enviadas', value: String(this.adminLeads.filter((item) => item.status === 'Propuesta enviada').length) }
+        ];
+      }
+    });
+  }
+
+  createAdminLead(): void {
+    this.formError = '';
+    this.formMessage = '';
+    if (this.adminLeadForm.invalid) {
+      this.adminLeadForm.markAllAsTouched();
+      this.formError = 'Completa los datos obligatorios del lead.';
+      return;
+    }
+    this.http.post<any>(this.apiUrl('/api/admin/leads'), this.adminLeadForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Lead creado correctamente.';
+        this.showAdminLeadForm = false;
+        this.adminLeadForm.reset({ source: 'Web', assigned_to: 'Comercial', priority: 'Media', next_action: 'Contactar al lead' });
+        this.loadAdminLeads();
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible crear el lead.'
+    });
+  }
+
+  updateLeadStatus(status: string): void {
+    if (!(this.selectedLead as any)?.id) return;
+    this.http.patch<any>(this.apiUrl(`/api/admin/leads/${(this.selectedLead as any).id}`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Lead actualizado.';
+        this.loadAdminLeads();
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el lead.'
+    });
+  }
+
+  convertSelectedLeadToCase(): void {
+    if (!(this.selectedLead as any)?.id) return;
+    this.http.post<any>(this.apiUrl(`/api/admin/leads/${(this.selectedLead as any).id}/convert`), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Lead convertido en cliente y caso.';
+        this.setAdminSection('cases');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el lead.'
+    });
+  }
+
+  createAdminCase(): void {
+    this.formError = '';
+    this.formMessage = '';
+    if (this.adminCaseForm.invalid) {
+      this.adminCaseForm.markAllAsTouched();
+      this.formError = 'Completa los datos obligatorios del caso.';
+      return;
+    }
+    this.http.post<any>(this.apiUrl('/api/admin/cases'), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Caso creado correctamente.';
+        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial' });
+        this.loadAdminSectionData('cases');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible crear el caso.'
+    });
+  }
+
+  updateAdminCaseStatus(id: number, status: string): void {
+    this.http.patch(this.apiUrl(`/api/admin/cases/${id}`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: () => this.loadAdminSectionData('cases')
+    });
+  }
+
   loadClientProfile(): void {
     this.clientProfileLoading = true;
     this.http.get<ClientProfile>(this.apiUrl('/api/client/profile'), { headers: this.authHeaders() }).subscribe({
@@ -1226,6 +1372,22 @@ export class AuthPortalComponent implements OnInit {
       email: this.currentUser?.email,
       document_id: this.currentUser?.document_id
     });
+  }
+
+  private mapAdminLead(item: any): AdminLead {
+    return {
+      ...(item || {}),
+      name: item.name,
+      phone: item.phone,
+      email: item.email,
+      caseType: item.case_type || item.caseType,
+      source: item.source || 'Web',
+      status: item.status || 'Nuevo',
+      owner: item.assigned_to || item.owner || 'Comercial',
+      date: item.created_at || item.date,
+      nextAction: item.next_action || item.nextAction || 'Contactar y calificar necesidad legal',
+      priority: item.priority || 'Media'
+    };
   }
 
   private enforceDashboardAccess(): void {

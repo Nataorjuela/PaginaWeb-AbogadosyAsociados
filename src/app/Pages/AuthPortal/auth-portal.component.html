@@ -266,7 +266,14 @@
         <button [class.active]="adminSection === 'dashboard'" (click)="setAdminSection('dashboard')">Dashboard</button>
         <button [class.active]="adminSection === 'leads'" (click)="setAdminSection('leads')">Leads</button>
         <button [class.active]="adminSection === 'partner-network'" (click)="setAdminSection('partner-network')">Red de aliados</button>
-        <a>Clientes</a><a>Casos</a><a>Aliados</a><a>Referidos</a><a>Pagos</a><a>Agenda</a><a>Documentos</a><a>Reportes</a><a>Configuración</a><button (click)="logout()">Cerrar sesión</button>
+        <button [class.active]="adminSection === 'clients'" (click)="setAdminSection('clients')">Clientes</button>
+        <button [class.active]="adminSection === 'cases'" (click)="setAdminSection('cases')">Casos</button>
+        <button [class.active]="adminSection === 'payments'" (click)="setAdminSection('payments')">Pagos</button>
+        <button [class.active]="adminSection === 'agenda'" (click)="setAdminSection('agenda')">Agenda</button>
+        <button [class.active]="adminSection === 'documents'" (click)="setAdminSection('documents')">Documentos</button>
+        <button [class.active]="adminSection === 'reports'" (click)="setAdminSection('reports')">Reportes</button>
+        <button [class.active]="adminSection === 'settings'" (click)="setAdminSection('settings')">Configuración</button>
+        <button (click)="logout()">Cerrar sesión</button>
       </nav>
     </aside>
     <div class="dashboard-main">
@@ -673,7 +680,7 @@
       </div>
       <div class="content-grid" *ngIf="kind === 'admin' && adminSection === 'dashboard'">
         <section class="data-card wide">
-          <h2>Casos recientes</h2>
+          <h2>Leads recientes</h2>
           <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ lead.date }}</td></tr></tbody></table></div>
         </section>
         <section class="data-card">
@@ -710,6 +717,14 @@
             </article>
           </div>
         </section>
+        <section class="data-card">
+          <h2>Resumen operativo</h2>
+          <div class="deadline-list">
+            <article><strong>{{ adminDashboard.reports?.conversion_rate || 0 }}%</strong><span>Conversión de leads a casos</span></article>
+            <article><strong>{{ formatCurrency(adminDashboard.reports?.pending_payments) }}</strong><span>Pagos pendientes</span></article>
+            <article><strong>{{ adminDashboard.reports?.documents || 0 }}</strong><span>Documentos registrados</span></article>
+          </div>
+        </section>
       </div>
       <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'leads'">
         <section class="lead-hero-card">
@@ -718,7 +733,23 @@
             <h2>Gestión de leads</h2>
             <p>Centraliza nuevos contactos, asigna responsables y convierte solicitudes legales en casos activos.</p>
           </div>
-          <button class="btn btn-primary">Crear lead</button>
+          <button class="btn btn-primary" (click)="showAdminLeadForm = !showAdminLeadForm">{{ showAdminLeadForm ? 'Cerrar' : 'Crear lead' }}</button>
+        </section>
+
+        <section class="data-card wide" *ngIf="showAdminLeadForm">
+          <h2>Nuevo lead</h2>
+          <form class="network-form" [formGroup]="adminLeadForm" (ngSubmit)="createAdminLead()">
+            <label>Nombre<input class="form-control" formControlName="name"></label>
+            <label>Teléfono<input class="form-control" formControlName="phone"></label>
+            <label>Correo<input class="form-control" formControlName="email"></label>
+            <label>Tipo de caso<input class="form-control" formControlName="case_type"></label>
+            <label>Fuente<select class="form-select" formControlName="source"><option>Web</option><option>WhatsApp</option><option>Aliado</option><option>Orgánico</option></select></label>
+            <label>Responsable<input class="form-control" formControlName="assigned_to"></label>
+            <label>Prioridad<select class="form-select" formControlName="priority"><option>Alta</option><option>Media</option><option>Baja</option></select></label>
+            <label>Próxima acción<input class="form-control" formControlName="next_action"></label>
+            <label class="full">Notas<textarea class="form-control" rows="3" formControlName="notes"></textarea></label>
+            <button class="btn btn-primary">Guardar lead</button>
+          </form>
         </section>
 
         <div class="metric-grid compact">
@@ -769,12 +800,14 @@
               <strong>{{ selectedLead.nextAction }}</strong>
             </div>
             <div class="lead-actions">
-              <button class="btn btn-primary w-100">Marcar contactado</button>
-              <button class="btn btn-outline-dark w-100">Agendar cita</button>
-              <button class="btn btn-outline-dark w-100">Convertir en caso</button>
+              <button class="btn btn-primary w-100" (click)="updateLeadStatus('Contactado')">Marcar contactado</button>
+              <button class="btn btn-outline-dark w-100" (click)="updateLeadStatus('Agendado')">Agendar cita</button>
+              <button class="btn btn-outline-dark w-100" (click)="convertSelectedLeadToCase()">Convertir en caso</button>
             </div>
           </aside>
         </section>
+        <div *ngIf="formError" class="alert alert-danger">{{ formError }}</div>
+        <div *ngIf="formMessage" class="alert alert-success">{{ formMessage }}</div>
       </div>
       <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'partner-network'">
         <section class="lead-hero-card">
@@ -821,6 +854,29 @@
             <article><span>Alertas antifraude</span><strong>{{ adminNetwork.fraudAlerts?.length || 0 }}</strong><p>Riesgos por duplicados, autoreferidos o actividad sospechosa.</p></article>
           </div>
         </section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'clients'">
+        <section class="data-card wide"><h2>Clientes</h2><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Cliente</th><th>Documento</th><th>Teléfono</th><th>Correo</th><th>Ciudad</th><th>Registro</th></tr></thead><tbody><tr *ngFor="let client of adminClients"><td><strong>{{ client.name }}</strong></td><td>{{ client.document_id }}</td><td>{{ client.phone }}</td><td>{{ client.email }}</td><td>{{ client.city }}</td><td>{{ client.created_at | date:'mediumDate' }}</td></tr></tbody></table></div></section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'cases'">
+        <section class="data-card wide"><h2>Crear caso</h2><form class="network-form" [formGroup]="adminCaseForm" (ngSubmit)="createAdminCase()"><label>Cliente<input class="form-control" formControlName="client_name"></label><label>Teléfono<input class="form-control" formControlName="client_phone"></label><label>Correo<input class="form-control" formControlName="client_email"></label><label>Tipo de caso<input class="form-control" formControlName="case_type"></label><label>Estado<select class="form-select" formControlName="status"><option>Recibido</option><option>En revisión</option><option>Activo</option><option>Finalizado</option></select></label><label>Abogado<input class="form-control" formControlName="assigned_lawyer"></label><label class="full">Descripción<textarea class="form-control" rows="3" formControlName="description"></textarea></label><label class="full">Próxima acción<input class="form-control" formControlName="next_action"></label><button class="btn btn-primary">Guardar caso</button></form></section>
+        <section class="data-card wide"><h2>Casos</h2><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Cliente</th><th>Tipo</th><th>Estado</th><th>Abogado</th><th>Próxima acción</th><th>Acción</th></tr></thead><tbody><tr *ngFor="let c of adminCases"><td><strong>{{ c.client_name }}</strong><span>{{ c.client_email }}</span></td><td>{{ c.case_type }}</td><td><span class="status-badge">{{ c.status }}</span></td><td>{{ c.assigned_lawyer }}</td><td>{{ c.next_action }}</td><td><select class="form-select table-select" [value]="c.status" (change)="updateAdminCaseStatus(c.id, $any($event.target).value)"><option>Recibido</option><option>En revisión</option><option>Activo</option><option>Finalizado</option></select></td></tr></tbody></table></div></section>
+        <div *ngIf="formError" class="alert alert-danger">{{ formError }}</div><div *ngIf="formMessage" class="alert alert-success">{{ formMessage }}</div>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'payments'">
+        <section class="data-card wide"><h2>Pagos</h2><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Relacionado</th><th>Monto</th><th>Estado</th><th>Fecha pago</th><th>Registro</th></tr></thead><tbody><tr *ngFor="let payment of adminPayments"><td>{{ payment.related_type }} #{{ payment.related_id }}</td><td>{{ formatCurrency(payment.amount) }}</td><td><span class="status-badge">{{ payment.status }}</span></td><td>{{ payment.payment_date || 'Pendiente' }}</td><td>{{ payment.created_at | date:'mediumDate' }}</td></tr></tbody></table></div></section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'agenda'">
+        <section class="data-card wide"><h2>Agenda</h2><div class="appointment-list"><article *ngFor="let item of adminAgenda"><span>{{ item.date }}</span><strong>{{ item.title }}</strong><small>{{ item.client_name }} · {{ item.status }}</small></article></div></section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'documents'">
+        <section class="data-card wide"><h2>Documentos</h2><div class="document-list"><article *ngFor="let doc of adminDocuments"><i class="bi bi-file-earmark-text"></i><div><strong>{{ doc.file_name }}</strong><span>{{ doc.client_name }} · {{ doc.case_type }}</span><small>{{ doc.uploaded_at | date:'medium' }}</small></div><a class="btn btn-outline-dark btn-sm" [href]="doc.file_url" target="_blank" rel="noopener">Abrir</a></article></div></section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'reports'">
+        <section class="data-card wide"><h2>Reportes</h2><div class="admin-config-grid"><article><span>Leads</span><strong>{{ adminReports.leads || 0 }}</strong><p>Total registrados.</p></article><article><span>Casos</span><strong>{{ adminReports.cases || 0 }}</strong><p>Total abiertos.</p></article><article><span>Conversión</span><strong>{{ adminReports.conversion_rate || 0 }}%</strong><p>Leads convertidos en casos.</p></article><article><span>Pagos pendientes</span><strong>{{ formatCurrency(adminReports.pending_payments) }}</strong><p>Por validar o cobrar.</p></article></div></section>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'settings'">
+        <section class="data-card wide"><h2>Configuración</h2><p class="empty-state">Gestiona porcentajes de comisión desde Red de aliados. Las cuentas administrativas se crean con código interno y permisos por rol.</p><button class="btn btn-primary" (click)="setAdminSection('partner-network')">Ir a configuración de comisiones</button></section>
       </div>
     </div>
   </section>
