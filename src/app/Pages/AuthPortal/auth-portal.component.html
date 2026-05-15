@@ -311,8 +311,9 @@
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'overview'">
-          <div class="data-toolbar"><h2>Mis referidos directos</h2><input class="form-control" placeholder="Buscar referido"><select class="form-select"><option>Todos los estados</option></select></div>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Cliente</th><th>Tipo de caso</th><th>Fecha</th><th>Estado</th><th>Comisión</th></tr></thead><tbody><tr *ngFor="let item of partnerNetwork.direct_referrals || []"><td>{{ item.referred_full_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td></tr></tbody></table></div>
+          <div class="data-toolbar"><h2>Mis referidos directos</h2><input class="form-control" placeholder="Buscar por estado o área" [(ngModel)]="partnerReferralSearch"><select class="form-select" [(ngModel)]="partnerReferralStatus"><option *ngFor="let status of partnerReferralStatuses">{{ status }}</option></select></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Área legal</th><th>Fecha</th><th>Estado</th><th>Comisión asignada</th><th></th></tr></thead><tbody><tr *ngFor="let item of filteredPartnerDirectReferrals"><td>{{ item.masked_name || item.referred_full_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(item)">Ver seguimiento</button></td></tr></tbody></table></div>
+          <div class="legal-notice">Por protección de datos, el aliado no accede a cédula, teléfono, correo, documentos ni información económica del referido. Solo verá estado y comisión asignada por la firma.</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'new-referral'">
@@ -393,7 +394,8 @@
               <strong>{{ pipelineCount(status) }}</strong>
             </article>
           </div>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Teléfono</th><th>Tipo de caso</th><th>Registro</th><th>Estado</th><th>Última actualización</th><th>Observaciones</th><th></th></tr></thead><tbody><tr *ngFor="let referral of partnerAdvanced.crm_referrals || []"><td>{{ referral.name }}</td><td>{{ referral.phone }}</td><td>{{ referral.case_type }}</td><td>{{ referral.registered_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.current_status }}</span></td><td>{{ referral.updated_at | date:'mediumDate' }}</td><td>{{ referral.observations }}</td><td><button class="btn btn-outline-dark btn-sm">Ver detalle</button></td></tr></tbody></table></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Tipo de caso</th><th>Registro</th><th>Estado</th><th>Última actualización</th><th>Seguimiento</th><th></th></tr></thead><tbody><tr *ngFor="let referral of filteredPartnerCrmReferrals"><td>{{ referral.masked_name || referral.name }}</td><td>{{ referral.case_type }}</td><td>{{ referral.registered_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.current_status }}</span></td><td>{{ referral.updated_at | date:'mediumDate' }}</td><td>{{ referral.public_note || referral.observations }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(referral)">Ver seguimiento</button></td></tr></tbody></table></div>
+          <section class="legal-notice" *ngIf="selectedPartnerReferral"><strong>Seguimiento protegido:</strong> {{ selectedPartnerReferral.masked_name || selectedPartnerReferral.name }} · {{ selectedPartnerReferral.case_type || selectedPartnerReferral.legal_area }} · {{ selectedPartnerReferral.current_status || selectedPartnerReferral.status }}. {{ selectedPartnerReferral.public_note || 'La firma actualizará el estado cuando exista una novedad comercial validada.' }}</section>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'activity'">
@@ -426,10 +428,11 @@
           <h2>Mi perfil profesional</h2>
           <div class="profile-grid">
             <div class="profile-avatar">{{ (partnerAdvanced.profile?.full_name || currentUser?.full_name || 'A').charAt(0) }}</div>
-            <p><strong>Nombre:</strong> {{ partnerAdvanced.profile?.full_name || currentUser?.full_name }}</p><p><strong>Cédula:</strong> {{ partnerAdvanced.profile?.document_id }}</p><p><strong>Teléfono:</strong> {{ partnerAdvanced.profile?.phone }}</p><p><strong>Correo:</strong> {{ partnerAdvanced.profile?.email || currentUser?.email }}</p><p><strong>Ciudad:</strong> {{ partnerAdvanced.profile?.city }}</p><p><strong>Tipo de aliado:</strong> {{ partnerAdvanced.profile?.partner_type }}</p><p><strong>Empresa:</strong> {{ partnerAdvanced.profile?.company }}</p><p><strong>Ocupación:</strong> {{ partnerAdvanced.profile?.occupation }}</p><p><strong>Código:</strong> {{ partnerAdvanced.profile?.referral_code }}</p><p><strong>Estado:</strong> {{ partnerAdvanced.profile?.status }}</p><p><strong>Fecha de ingreso:</strong> {{ partnerAdvanced.profile?.joined_at | date:'mediumDate' }}</p><p><strong>Banco:</strong> {{ partnerAdvanced.profile?.bank_name }}</p><p><strong>Tipo de cuenta:</strong> {{ partnerAdvanced.profile?.account_type }}</p><p><strong>Número de cuenta:</strong> {{ partnerAdvanced.profile?.account_number }}</p><p><strong>Balance de comisiones:</strong> {{ formatCurrency(partnerAdvanced.profile?.commission_balance) }}</p><p><strong>Link:</strong> <code>{{ partnerAdvanced.profile?.invite_link }}</code></p>
+            <p><strong>Nombre:</strong> {{ partnerAdvanced.profile?.full_name || currentUser?.full_name }}</p><p><strong>Documento:</strong> Dato protegido</p><p><strong>Teléfono:</strong> {{ partnerAdvanced.profile?.phone }}</p><p><strong>Correo:</strong> {{ partnerAdvanced.profile?.email || currentUser?.email }}</p><p><strong>Ciudad:</strong> {{ partnerAdvanced.profile?.city }}</p><p><strong>Tipo de aliado:</strong> {{ partnerAdvanced.profile?.partner_type }}</p><p><strong>Empresa:</strong> {{ partnerAdvanced.profile?.company }}</p><p><strong>Ocupación:</strong> {{ partnerAdvanced.profile?.occupation }}</p><p><strong>Código:</strong> {{ partnerAdvanced.profile?.referral_code }}</p><p><strong>Estado:</strong> {{ partnerAdvanced.profile?.status }}</p><p><strong>Fecha de ingreso:</strong> {{ partnerAdvanced.profile?.joined_at | date:'mediumDate' }}</p><p><strong>Banco:</strong> {{ partnerAdvanced.profile?.bank_name }}</p><p><strong>Tipo de cuenta:</strong> {{ partnerAdvanced.profile?.account_type }}</p><p><strong>Número de cuenta:</strong> {{ partnerAdvanced.profile?.account_number }}</p><p><strong>Comisiones registradas:</strong> {{ formatCurrency(commissionSummary.total) }}</p><p><strong>Link:</strong> <code>{{ partnerAdvanced.profile?.invite_link }}</code></p>
           </div>
           <div class="legal-notice">Los datos sensibles como cédula, correo principal y cuenta bancaria requieren aprobación administrativa para ser modificados.</div>
-          <button class="btn btn-primary">Editar datos no sensibles</button>
+          <button class="btn btn-primary" (click)="startAllyProfileEdit()">Editar datos permitidos</button>
+          <form class="network-form mt-3" *ngIf="showAllyProfileForm" [formGroup]="allyProfileForm" (ngSubmit)="saveAllyProfile()"><label>Teléfono<input class="form-control" formControlName="phone"></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Tipo de aliado<input class="form-control" formControlName="partner_type"></label><label>Empresa<input class="form-control" formControlName="company"></label><label>Ocupación<input class="form-control" formControlName="occupation"></label><label>Banco para pagos<input class="form-control" formControlName="bank_name"></label><label>Tipo de cuenta<input class="form-control" formControlName="account_type"></label><label>Número de cuenta<input class="form-control" formControlName="account_number"></label><button class="btn btn-primary">Guardar perfil</button></form>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'finance'">
@@ -482,13 +485,12 @@
           <div class="table-responsive">
             <table class="table finance-detail-table">
               <thead>
-                <tr><th>Referido</th><th>Tipo</th><th>Porcentaje</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr>
+                <tr><th>Referido</th><th>Tipo</th><th>Comisión asignada</th><th>Estado</th><th>Fecha</th></tr>
               </thead>
               <tbody>
                 <tr *ngFor="let item of partnerNetwork.commissions || []">
                   <td><strong>{{ item.referred_full_name }}</strong></td>
                   <td>{{ commissionTypeLabel(item.commission_type) }}</td>
-                  <td>{{ item.percentage }}%</td>
                   <td><strong>{{ formatCurrency(item.amount) }}</strong></td>
                   <td><span class="status-badge">{{ commissionStatusLabel(item.status) }}</span></td>
                   <td>{{ item.created_at | date:'mediumDate' }}</td>
@@ -497,9 +499,7 @@
             </table>
           </div>
 
-          <div class="chart-grid finance-charts">
-            <article *ngFor="let chart of [{title:'Comisiones por mes',data:partnerAdvanced.charts?.commissions_by_month},{title:'Referidos por mes',data:partnerAdvanced.charts?.referrals_by_month},{title:'Comisiones directas vs red',data:partnerAdvanced.charts?.direct_vs_indirect},{title:'Pendientes vs pagadas',data:partnerAdvanced.charts?.pending_vs_paid}]"><h3>{{ chart.title }}</h3><div class="bar-row" *ngFor="let item of chart.data || []"><span>{{ item.label }}</span><div><b [style.width.%]="item.value > 100 ? 100 : item.value"></b></div><strong>{{ item.value }}</strong></div></article>
-          </div>
+          <div class="chart-grid finance-charts"><article *ngFor="let chart of [{title:'Comisiones por mes',data:partnerAdvanced.charts?.commissions_by_month},{title:'Pendientes vs pagadas',data:partnerAdvanced.charts?.pending_vs_paid}]"><h3>{{ chart.title }}</h3><div class="bar-row" *ngFor="let item of chart.data || []"><span>{{ item.label }}</span><div><b [style.width.%]="item.value > 100 ? 100 : item.value"></b></div><strong>{{ item.value }}</strong></div></article></div>
           <div class="legal-notice">Las comisiones están sujetas a validación interna, pago efectivo del cliente y políticas del programa. El aliado no puede editar ni aprobar comisiones desde esta vista.</div>
         </section>
 
@@ -524,7 +524,10 @@
 
         <section class="data-card wide" *ngIf="partnerSection === 'academy'">
           <h2>Academia de Aliados</h2>
-          <div class="academy-grid"><article *ngFor="let module of partnerAdvanced.academy || []"><span class="status-badge">{{ module.progress_status }}</span><h3>{{ module.title }}</h3><p>{{ module.description }}</p><div class="progress"><div class="progress-bar" [style.width.%]="module.progress || 0"></div></div><small>{{ module.progress || 0 }}% completado</small><button class="btn btn-outline-dark">Ver contenido</button></article></div>
+          <div class="academy-grid"><article *ngFor="let module of partnerAdvanced.academy || []"><span class="status-badge">{{ module.progress_status }}</span><h3>{{ module.title }}</h3><p>{{ module.description }}</p><div class="progress"><div class="progress-bar" [style.width.%]="module.progress || 0"></div></div><small>{{ module.progress || 0 }}% completado</small><button class="btn btn-outline-dark" (click)="openAcademyModule(module)">Ver contenido</button></article></div>
+          <section class="legal-notice" *ngIf="selectedAcademyModule"><h3>{{ selectedAcademyModule.title }}</h3><p>{{ selectedAcademyModule.content || selectedAcademyModule.description }}</p><button class="btn btn-primary" (click)="completeAcademyModule(selectedAcademyModule)">Marcar completado</button></section>
+          <h2 class="mt-3">Documentos del programa</h2>
+          <div class="document-list"><article><i class="bi bi-file-earmark-text"></i><div><strong>Políticas del programa de aliados</strong><span>Reglas de comisiones, protección de datos y conducta comercial.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('programa_aliados')">Aceptar</button></article><article><i class="bi bi-file-earmark-text"></i><div><strong>Autorización de tratamiento de datos</strong><span>Compromiso para registrar referidos únicamente con autorización.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('tratamiento_datos')">Aceptar</button></article></div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'profile'">

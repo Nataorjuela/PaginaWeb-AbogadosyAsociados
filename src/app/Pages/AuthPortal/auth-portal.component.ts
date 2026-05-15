@@ -1,6 +1,6 @@
 ﻿import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
-import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
 import { environment } from '../../../environments/environment';
 
@@ -68,7 +68,7 @@ type PartnerNetwork = {
 @Component({
   selector: 'app-auth-portal',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, HttpClientModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, HttpClientModule],
   templateUrl: './auth-portal.component.html',
   styleUrls: ['./auth-portal.component.scss']
 })
@@ -86,6 +86,7 @@ export class AuthPortalComponent implements OnInit {
   clientMessageForm!: FormGroup;
   clientServiceForm!: FormGroup;
   clientProfileForm!: FormGroup;
+  allyProfileForm!: FormGroup;
   adminLeadForm!: FormGroup;
   adminCaseForm!: FormGroup;
   registerStep = 1;
@@ -109,6 +110,11 @@ export class AuthPortalComponent implements OnInit {
   adminAgenda: any[] = [];
   adminReports: any = {};
   showAdminLeadForm = false;
+  showAllyProfileForm = false;
+  selectedPartnerReferral: any = null;
+  selectedAcademyModule: any = null;
+  partnerReferralSearch = '';
+  partnerReferralStatus = 'Todos';
   formMessage = '';
   formError = '';
   clientFormMessage = '';
@@ -374,6 +380,17 @@ export class AuthPortalComponent implements OnInit {
       phone: [this.clientProfile.phone, [Validators.required, Validators.pattern(/^3\d{9}$|^\+57\s?3\d{9}$/)]],
       city: [this.clientProfile.city, [Validators.required, Validators.minLength(2), Validators.maxLength(80)]],
       address: [this.clientProfile.address, Validators.maxLength(160)]
+    });
+
+    this.allyProfileForm = this.fb.group({
+      phone: ['', Validators.required],
+      city: ['', Validators.required],
+      partner_type: ['Independiente', Validators.required],
+      company: [''],
+      occupation: [''],
+      bank_name: [''],
+      account_type: [''],
+      account_number: ['']
     });
 
     this.adminLeadForm = this.fb.group({
@@ -697,6 +714,8 @@ export class AuthPortalComponent implements OnInit {
     if (['crm', 'activity', 'level', 'goals', 'notifications', 'ally-profile', 'finance', 'tree', 'academy'].includes(section)) {
       this.loadPartnerAdvanced();
     }
+    this.formError = '';
+    this.formMessage = '';
   }
 
   setClientSection(section: string): void {
@@ -733,6 +752,31 @@ export class AuthPortalComponent implements OnInit {
       { label: 'Aliados activos en mi red', value: String(summary['active_team_members'] || 0) },
       { label: 'Codigo unico', value: this.partnerNetwork.partner?.referral_code || 'Pendiente' }
     ];
+  }
+
+  get partnerReferralStatuses(): string[] {
+    const rows = [...(this.partnerNetwork.direct_referrals || []), ...(this.partnerAdvanced.crm_referrals || [])];
+    return ['Todos', ...Array.from(new Set(rows.map((item: any) => item.status || item.current_status).filter(Boolean)))];
+  }
+
+  get filteredPartnerDirectReferrals(): any[] {
+    const term = this.partnerReferralSearch.toLowerCase().trim();
+    return (this.partnerNetwork.direct_referrals || []).filter((item: any) => {
+      const status = item.status || '';
+      const matchesStatus = this.partnerReferralStatus === 'Todos' || status === this.partnerReferralStatus;
+      const matchesTerm = !term || [item.masked_name, item.legal_area, item.status].some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
+  }
+
+  get filteredPartnerCrmReferrals(): any[] {
+    const term = this.partnerReferralSearch.toLowerCase().trim();
+    return (this.partnerAdvanced.crm_referrals || []).filter((item: any) => {
+      const status = item.current_status || '';
+      const matchesStatus = this.partnerReferralStatus === 'Todos' || status === this.partnerReferralStatus;
+      const matchesTerm = !term || [item.masked_name, item.case_type, item.current_status, item.public_note].some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
   }
 
   get commissionSummary() {
@@ -794,6 +838,14 @@ export class AuthPortalComponent implements OnInit {
       rejected: 'Rechazada'
     };
     return labels[status] || status || 'Pendiente';
+  }
+
+  openPartnerReferralDetail(referral: any): void {
+    this.selectedPartnerReferral = referral;
+  }
+
+  openAcademyModule(module: any): void {
+    this.selectedAcademyModule = module;
   }
 
   get unreadNotifications(): number {
@@ -891,11 +943,69 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  startAllyProfileEdit(): void {
+    const profile = this.partnerAdvanced.profile || {};
+    this.allyProfileForm.patchValue({
+      phone: profile.phone || '',
+      city: profile.city || '',
+      partner_type: profile.partner_type || 'Independiente',
+      company: profile.company || '',
+      occupation: profile.occupation || '',
+      bank_name: profile.bank_name && !String(profile.bank_name).includes('protegido') ? profile.bank_name : '',
+      account_type: profile.account_type && !String(profile.account_type).includes('protegido') ? profile.account_type : '',
+      account_number: ''
+    });
+    this.showAllyProfileForm = true;
+  }
+
+  saveAllyProfile(): void {
+    this.formError = '';
+    this.formMessage = '';
+    if (this.allyProfileForm.invalid) {
+      this.allyProfileForm.markAllAsTouched();
+      this.formError = 'Completa teléfono, ciudad y tipo de aliado.';
+      return;
+    }
+    this.http.patch<any>(this.apiUrl('/api/partner/profile'), this.allyProfileForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Perfil actualizado. Los datos de pago quedan sujetos a validación administrativa.';
+        this.showAllyProfileForm = false;
+        this.loadPartnerAdvanced();
+        this.loadPartnerNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el perfil.'
+    });
+  }
+
+  acceptPartnerLegalDocument(documentType: string): void {
+    this.http.post<any>(this.apiUrl('/api/partner/legal-acceptances'), { document_type: documentType, version: 'v1.0' }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Documento aceptado correctamente.';
+        this.loadPartnerAdvanced();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar la aceptación.'
+    });
+  }
+
+  completeAcademyModule(module: any): void {
+    this.http.post<any>(this.apiUrl(`/api/partner/academy/${module.id}/complete`), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Módulo marcado como completado.';
+        this.selectedAcademyModule = null;
+        this.loadPartnerAdvanced();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el módulo.'
+    });
+  }
+
   loadPartnerNetwork(): void {
     const token = this.getToken();
     if (!token) return;
     this.http.get<PartnerNetwork>(this.apiUrl('/api/partner/network'), { headers: this.authHeaders() }).subscribe({
-      next: (response) => this.partnerNetwork = this.applyDemoPartnerDataIfNeeded(response),
+      next: (response) => {
+        this.partnerNetwork = this.applyDemoPartnerDataIfNeeded(response);
+        if (!this.partnerAdvanced?.profile) this.loadPartnerAdvanced();
+      },
       error: () => {
         if (this.environment.enableDemoData) this.partnerNetwork = this.demoPartnerNetwork();
       }

@@ -892,6 +892,20 @@ function maskName(value) {
   return `${first} ${second}`.trim();
 }
 
+function publicReferral(row) {
+  return {
+    id: row.id,
+    masked_name: maskName(row.referred_full_name),
+    legal_area: row.legal_area,
+    status: row.status,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    commission_amount: row.commission_amount || row.amount || 0,
+    commission_status: row.commission_status,
+    public_note: 'Seguimiento limitado por protección de datos. La firma confirmará novedades comerciales relevantes.'
+  };
+}
+
 function currentMonthKey() {
   return new Date().toISOString().slice(0, 7);
 }
@@ -1703,12 +1717,23 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                   summary,
                   settings,
                   team,
-                  direct_referrals: directReferrals,
+                  direct_referrals: directReferrals.map(publicReferral),
                   network_referrals: networkReferrals.map((item) => ({
-                    ...item,
-                    masked_name: maskName(item.referred_full_name)
+                    id: item.id,
+                    masked_name: maskName(item.referred_full_name),
+                    legal_area: item.legal_area,
+                    status: item.status,
+                    created_at: item.created_at,
+                    source_ally_name: item.source_ally_name,
+                    commission_amount: item.commission_amount || 0,
+                    commission_status: item.commission_status,
+                    public_note: 'Seguimiento limitado por protección de datos.'
                   })),
-                  commissions,
+                  commissions: commissions.map((item) => ({
+                    ...item,
+                    referred_full_name: maskName(item.referred_full_name),
+                    percentage: undefined
+                  })),
                   activity: [
                     ...directReferrals.slice(0, 4).map((item) => ({
                       date: item.created_at,
@@ -1735,12 +1760,13 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                   crm_referrals: directReferrals.map((item) => ({
                     id: item.id,
                     name: item.referred_full_name,
-                    phone: item.referred_phone,
+                    masked_name: maskName(item.referred_full_name),
                     case_type: item.legal_area,
                     registered_at: item.created_at,
                     current_status: item.status,
                     updated_at: item.updated_at,
-                    observations: item.file_notes || item.case_description || 'Nuestro equipo actualizará novedades visibles para el aliado.',
+                    public_note: 'Seguimiento limitado por protección de datos. No se comparte información sensible del referido.',
+                    observations: 'La firma actualizará novedades comerciales visibles para el aliado.',
                   })),
                   resources: [],
                   level: {},
@@ -1791,12 +1817,6 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                     }))
                   },
                   academy: [],
-                  kyc: {},
-                  calculator: {
-                    direct_percentage: settings.direct_percentage,
-                    level_1_percentage: settings.level_1_percentage,
-                    level_2_percentage: settings.level_2_percentage
-                  },
                   share: {
                     client_message: `Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoria juridica personalizada. Puedes dejar tus datos aqui: ${inviteLink}`,
                     ally_message: `Hola, quiero invitarte al programa de aliados de Orjuela Abogados. Puedes referir personas que necesiten servicios legales y recibir comisiones por casos efectivos. Registrate aqui: ${inviteLink}`
@@ -2016,6 +2036,46 @@ app.post('/api/partner/electronic-signatures', requireAuth(['ally']), (req, res)
     if (err) return res.status(500).json({ error: 'No fue posible registrar la firma.' });
     res.status(201).json({ message: 'Firma electronica registrada.', id: this.lastID });
   });
+});
+
+app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
+  const payload = {
+    phone: cleanText(req.body.phone, 60),
+    city: cleanText(req.body.city, 100),
+    partner_type: cleanText(req.body.partner_type, 60) || 'Independiente',
+    company: cleanText(req.body.company, 120),
+    occupation: cleanText(req.body.occupation, 120),
+    bank_name: cleanText(req.body.bank_name, 100),
+    account_type: cleanText(req.body.account_type, 60),
+    account_number: cleanText(req.body.account_number, 80)
+  };
+  if (!payload.phone || !payload.city || !payload.partner_type) {
+    return res.status(400).json({ error: 'Teléfono, ciudad y tipo de aliado son obligatorios.' });
+  }
+  db.run(`UPDATE partners SET phone = ?, city = ?, partner_type = ?, company = ?, occupation = ?,
+      bank_name = COALESCE(NULLIF(?, ''), bank_name),
+      account_type = COALESCE(NULLIF(?, ''), account_type),
+      account_number = COALESCE(NULLIF(?, ''), account_number),
+      updated_at = ?
+    WHERE user_id = ?`,
+    [payload.phone, payload.city, payload.partner_type, payload.company, payload.occupation, payload.bank_name, payload.account_type, payload.account_number, getTimestamp(), req.user.id],
+    function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
+      if (this.changes === 0) return res.status(404).json({ error: 'No encontramos tu perfil de aliado.' });
+      res.json({ message: 'Perfil actualizado. Los datos de pago quedan sujetos a validación administrativa.' });
+    });
+});
+
+app.post('/api/partner/academy/:id/complete', requireAuth(['ally']), (req, res) => {
+  const moduleId = parseInt(req.params.id, 10);
+  if (!moduleId) return res.status(400).json({ error: 'Módulo inválido.' });
+  db.run(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
+      VALUES (?, ?, 'completado', 100, ?)
+      ON CONFLICT(ally_id, module_id) DO UPDATE SET status = 'completado', progress = 100, updated_at = excluded.updated_at`,
+    [req.user.id, moduleId, getTimestamp()], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar el módulo.' });
+      res.json({ message: 'Módulo completado.' });
+    });
 });
 
 app.post('/api/partner/kyc', requireAuth(['ally']), (req, res) => {
