@@ -105,7 +105,7 @@ export class AppComponent {
       {
         name: 'Jerson Fabián Naranjo Buitrago',
         role: 'Abogado asociado',
-        image: 'assets/jerson.jpeg',
+        image: 'assets/Jerson.jpeg',
         description: 'Abogado experto en Seguridad Social, con amplia experiencia en asesoría y litigio en el área.'
       },
       {
