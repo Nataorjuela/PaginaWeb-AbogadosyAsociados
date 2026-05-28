@@ -93,7 +93,7 @@ export class AppComponent {
       {
         name: 'Diego Orjuela Hernández',
         role: 'Director Jurídico - Socio Fundador',
-        image: 'assets/orjuela.jpg',
+        image: 'assets/DiegoOrjuela.jpeg',
         description: 'Especialista en Derecho Comercial, con amplia trayectoria en litigio civil, comercial y asesoría jurídica para sectores público y privado.'
       },
       {
@@ -105,8 +105,14 @@ export class AppComponent {
       {
         name: 'Jerson Fabián Naranjo Buitrago',
         role: 'Abogado asociado',
-        image: 'assets/yerson.jpg',
-        description: 'Abogado experto en Derecho Laboral y de la Seguridad Social, con amplia experiencia en asesoría y litigio en el área.'
+        image: 'assets/jerson.jpeg',
+        description: 'Abogado experto en Seguridad Social, con amplia experiencia en asesoría y litigio en el área.'
+      },
+      {
+        name: 'Diana',
+        role: 'Abogada asociada',
+        image: 'assets/Diana.jpeg',
+        description: 'Abogada especialista en Derecho Laboral y Seguridad Social, con 12 años de experiencia en asesoría, consultoría, litigio laboral y cumplimiento normativo para empresas y trabajadores.'
       }
     ];
 

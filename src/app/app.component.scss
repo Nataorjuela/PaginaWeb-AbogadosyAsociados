@@ -279,7 +279,7 @@
 .lawyers-grid {
   display: grid;
   gap: 1.25rem;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .lawyer-card {
@@ -327,6 +327,10 @@
 
 .lawyer-card:nth-child(3) .lawyer-photo img {
   object-position: center 43%;
+}
+
+.lawyer-card:nth-child(4) .lawyer-photo img {
+  object-position: center 22%;
 }
 
 .lawyer-card:hover .lawyer-photo img {
