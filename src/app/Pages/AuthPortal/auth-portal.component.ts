@@ -457,7 +457,7 @@ export class AuthPortalComponent implements OnInit {
       concept: [''],
       amount: [0, Validators.required],
       status: ['Pendiente', Validators.required],
-      payment_method: ['Nequi 3144278339', Validators.required],
+      payment_method: ['Nequi 3118924111', Validators.required],
       payment_date: [''],
       support_url: ['']
     });
@@ -1543,7 +1543,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.post(this.apiUrl('/api/admin/payments'), this.adminPaymentForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Pago registrado.';
-        this.adminPaymentForm.reset({ related_type: 'case', related_id: 1, amount: 0, status: 'Pendiente', payment_method: 'Nequi 3144278339' });
+        this.adminPaymentForm.reset({ related_type: 'case', related_id: 1, amount: 0, status: 'Pendiente', payment_method: 'Nequi 3118924111' });
         this.loadAdminSectionData('payments');
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible registrar el pago.'

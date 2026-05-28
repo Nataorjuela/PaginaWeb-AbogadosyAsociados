@@ -187,7 +187,7 @@ export class AppComponent {
   }
 
   get whatsappUrl(): string {
-    return `https://wa.me/573144278339?text=${encodeURIComponent(this.whatsappMessage)}`;
+    return `https://wa.me/573118924111?text=${encodeURIComponent(this.whatsappMessage)}`;
   }
 
 }
