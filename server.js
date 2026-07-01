@@ -33,6 +33,10 @@ const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '16mb' }));
+app.use((req, res, next) => {
+  res.charset = 'utf-8';
+  next();
+});
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 function ensureDataDirectory() {
@@ -3587,7 +3591,17 @@ const distFolder = path.join(__dirname, 'dist', 'abogados-asociados');
 const browserFolder = path.join(distFolder, 'browser');
 const staticFolder = fs.existsSync(browserFolder) ? browserFolder : distFolder;
 if (fs.existsSync(staticFolder)) {
-  app.use(express.static(staticFolder));
+  app.use(express.static(staticFolder, {
+    setHeaders: (res, filePath) => {
+      if (/\.(html|js|css|json|txt|svg)$/i.test(filePath)) {
+        res.charset = 'utf-8';
+        const contentType = res.getHeader('Content-Type');
+        if (typeof contentType === 'string' && !/charset=/i.test(contentType)) {
+          res.setHeader('Content-Type', `${contentType}; charset=utf-8`);
+        }
+      }
+    }
+  }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) return next();
     res.sendFile(path.join(staticFolder, 'index.html'));
