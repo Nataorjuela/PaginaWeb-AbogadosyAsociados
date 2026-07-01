@@ -19,27 +19,35 @@ export class NavbarComponent {
    @Output() blogClick = new EventEmitter<void>();
   
   onContactClick() {
-    this.contactClick.emit();
+    this.emitOrGo(this.contactClick, '/#contacto');
   }
 
   onAboutUsClick(){
-    this.aboutUsClick.emit();
+    this.emitOrGo(this.aboutUsClick, '/#equipo');
   }
 
   onServicesClick(){
-    this.servicesClick.emit();
+    this.emitOrGo(this.servicesClick, '/#servicios');
   }
 
   onHowClick() {
-    this.howClick.emit();
+    this.emitOrGo(this.howClick, '/#como-funciona');
   }
 
   onAlliesClick() {
-    this.alliesClick.emit();
+    this.emitOrGo(this.alliesClick, '/#aliados');
   }
 
   onBlogClick() {
-    this.blogClick.emit();
+    this.emitOrGo(this.blogClick, '/#blog');
+  }
+
+  private emitOrGo(event: EventEmitter<void>, fallback: string): void {
+    if (event.observed) {
+      event.emit();
+      return;
+    }
+    window.location.href = fallback;
   }
   
 }

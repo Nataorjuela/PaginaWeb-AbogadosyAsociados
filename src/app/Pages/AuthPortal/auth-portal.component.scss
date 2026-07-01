@@ -1,7 +1,20 @@
 .auth-platform {
-  background: #f5f7fb;
+  --oa-bg: #f6f8fb;
+  --oa-surface: #ffffff;
+  --oa-ink: #101828;
+  --oa-muted: #667085;
+  --oa-navy: #101828;
+  --oa-blue: #1e3650;
+  --oa-accent: #1abc9c;
+  --oa-accent-dark: #0e7e6a;
+  --oa-border: #e5e9ef;
+  --oa-radius: 18px;
+  --oa-radius-lg: 24px;
+  --oa-shadow: 0 18px 45px rgba(15, 23, 42, 0.07);
+  background: var(--oa-bg);
+  color: var(--oa-ink);
   min-height: 100vh;
-  color: #111827;
+  padding-top: 76px;
 }
 
 .environment-badge {
@@ -23,7 +36,7 @@
 .access-select,
 .recovery-page,
 .register-page {
-  padding: 96px 0;
+  padding: 88px 0;
 }
 
 .access-heading {
@@ -56,10 +69,10 @@ h2 {
 
 .secure-pill {
   align-items: center;
-  background: #fff8e5;
-  border: 1px solid #ead79a;
+  background: rgba(26, 188, 156, 0.12);
+  border: 1px solid rgba(26, 188, 156, 0.28);
   border-radius: 999px;
-  color: #7a5c12;
+  color: var(--oa-accent-dark);
   display: inline-flex;
   font-size: 0.82rem;
   font-weight: 800;
@@ -130,10 +143,10 @@ h2 {
 .register-card,
 .data-card,
 .metric-card {
-  background: #ffffff;
-  border: 1px solid #e6eaf0;
-  border-radius: 24px;
-  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  background: var(--oa-surface);
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius-lg);
+  box-shadow: var(--oa-shadow);
 }
 
 .access-card {
@@ -158,13 +171,15 @@ h2 {
 
 .login-split {
   display: grid;
-  min-height: 100vh;
+  min-height: calc(100vh - 76px);
   grid-template-columns: 1fr 520px;
 }
 
 .login-visual {
   align-items: center;
-  background: radial-gradient(circle at 70% 20%, rgba(185, 151, 63, 0.25), transparent 30%), linear-gradient(135deg, #0b1624, #1f344d);
+  background:
+    radial-gradient(circle at 74% 18%, rgba(26, 188, 156, 0.22), transparent 30%),
+    linear-gradient(135deg, rgba(9, 21, 34, 0.96), rgba(30, 54, 80, 0.94));
   color: #ffffff;
   display: flex;
   justify-content: center;
@@ -172,11 +187,15 @@ h2 {
 }
 
 .login-visual.calm {
-  background: linear-gradient(135deg, #1e3650, #eef7ff);
+  background:
+    radial-gradient(circle at 74% 18%, rgba(26, 188, 156, 0.2), transparent 30%),
+    linear-gradient(135deg, #102033, #1e3650);
 }
 
 .login-visual.dark {
-  background: #060b12;
+  background:
+    radial-gradient(circle at 74% 18%, rgba(26, 188, 156, 0.16), transparent 30%),
+    linear-gradient(135deg, #091522, #1e3650);
 }
 
 .mock-card {
@@ -215,12 +234,12 @@ h2 {
 }
 
 .dark-panel {
-  background: #0b1624;
-  color: #ffffff;
+  background: var(--oa-surface);
+  color: var(--oa-ink);
 }
 
 .dark-panel p {
-  color: #aab4c0;
+  color: var(--oa-muted);
 }
 
 .back-link,
@@ -277,7 +296,14 @@ h2 {
 .form-select {
   border-color: #d0d5dd;
   border-radius: 14px;
+  min-height: 48px;
   padding: 0.82rem 0.95rem;
+}
+
+.form-control:focus,
+.form-select:focus {
+  border-color: var(--oa-accent);
+  box-shadow: 0 0 0 0.2rem rgba(26, 188, 156, 0.16);
 }
 
 .password-field {
@@ -470,13 +496,16 @@ h2 {
 .dashboard-shell {
   display: grid;
   grid-template-columns: 220px 1fr;
-  min-height: 100vh;
+  min-height: calc(100vh - 76px);
 }
 
 .sidebar {
-  background: #0b1624;
+  background: var(--oa-navy);
   color: #ffffff;
   padding: 0.9rem;
+  position: sticky;
+  top: 76px;
+  height: calc(100vh - 76px);
 }
 
 .sidebar strong {
@@ -586,9 +615,10 @@ h2 {
 }
 
 .status-badge {
-  background: #fff8e5;
+  background: rgba(26, 188, 156, 0.12);
+  border: 1px solid rgba(26, 188, 156, 0.28);
   border-radius: 999px;
-  color: #7a5c12;
+  color: var(--oa-accent-dark);
   font-size: 0.78rem;
   font-weight: 900;
   padding: 0.35rem 0.65rem;
@@ -606,9 +636,9 @@ h2 {
 
 .deadline-list article,
 .appointment-list article {
-  background: #f7f9fc;
-  border: 1px solid #e6eaf0;
-  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid var(--oa-border);
+  border-radius: var(--oa-radius);
   display: grid;
   gap: 0.25rem;
   padding: 0.9rem;
@@ -1499,20 +1529,53 @@ h2 {
 }
 
 .recovery-page .login-panel {
-  max-width: 520px;
-  width: min(92vw, 520px);
+  max-width: 620px;
+  width: min(92vw, 620px);
+}
+
+.recovery-page .login-panel label {
+  color: #344054;
+  display: grid;
+  font-weight: 800;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.recovery-page .login-panel .form-control {
+  min-height: 54px;
+  width: 100%;
+}
+
+.recovery-page .recovery-submit {
+  justify-self: center;
+  margin-top: 0.75rem;
+  min-width: 190px;
+  padding: 0.62rem 1.4rem;
+  width: auto;
 }
 
 .btn-primary {
-  background: #1e3650;
-  border-color: #1e3650;
+  background: var(--oa-accent);
+  border-color: var(--oa-accent);
   border-radius: 999px;
+  color: #092034;
   font-weight: 800;
+  min-height: 44px;
+  padding-inline: 1.1rem;
+}
+
+.btn-primary:hover,
+.btn-primary:focus {
+  background: #15a88b;
+  border-color: #15a88b;
+  color: #061725;
 }
 
 .btn-outline-dark {
   border-radius: 999px;
   font-weight: 800;
+  min-height: 44px;
+  padding-inline: 1.05rem;
 }
 
 .btn-secondary-contrast {
@@ -1545,7 +1608,8 @@ h2 {
 
   .sidebar {
     position: sticky;
-    top: 0;
+    top: 76px;
+    height: auto;
     z-index: 10;
   }
 
@@ -1613,7 +1677,8 @@ h2 {
 
 @media (max-width: 720px) {
   .access-select,
-  .register-page {
+  .register-page,
+  .recovery-page {
     padding: 48px 0;
   }
 

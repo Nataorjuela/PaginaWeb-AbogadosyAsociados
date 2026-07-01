@@ -37,17 +37,18 @@ npm run build:qa
 npm run start:api:qa
 ```
 
-Then open `http://localhost:3000/ingresar`. QA settings are documented in `.env.qa.example`.
+Then open `http://localhost:3000/ingresar`. QA settings should be provided through local shell variables or your deployment secret manager, never through versioned `.env` examples.
 
 ## Allies and referrals module
 
-Environment variables are configured from `.env` using the keys shown in `.env.example`:
+Runtime variables are configured outside the repository. Use your OS shell, CI/CD secret manager, or hosting provider settings:
 
 ```bash
 PORT=3000
 DB_FILE=./data/orjuela.db
 ADMIN_EMAIL=contacto@orjuelaabogados.com
-ADMIN_PASSWORD=change-this-password
+ADMIN_REGISTRATION_CODE=internal-code-for-admin-signup
+JWT_SECRET=long-random-secret
 SMTP_HOST=smtp.example.com
 SMTP_PORT=587
 SMTP_SECURE=false
@@ -64,9 +65,9 @@ Public form:
 
 Administrative panel:
 
-- Open `/admin`.
-- Log in with `ADMIN_PASSWORD`.
-- Manage ally statuses and referral statuses.
+- Open `/admin/login`.
+- Log in with an authorized admin user.
+- Manage leads, clients, cases, payments, allies, commissions, resources, goals and reports from `/admin/dashboard`.
 
 ## Code scaffolding
 

@@ -13,7 +13,6 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { AlliesProgramComponent } from './Pages/AlliesProgram/allies-program.component';
-import { AdminComponent } from './Pages/Admin/admin.component';
 import { AuthPortalComponent } from './Pages/AuthPortal/auth-portal.component';
 
 type StatItem = { value: string; label: string; detail: string };
@@ -39,7 +38,6 @@ type LawyerItem = { name: string; role: string; description: string; image: stri
     ServicesComponent,
     ContactUsComponent,
     AlliesProgramComponent,
-    AdminComponent,
     AuthPortalComponent,
     MatSlideToggleModule,
     MatFormFieldModule,
@@ -56,13 +54,13 @@ export class AppComponent {
     @ViewChild('alliesRef') alliesRef!: ElementRef;
     @ViewChild('howRef') howRef!: ElementRef;
     @ViewChild('blogRef') blogRef!: ElementRef;
-    isAdminPath = typeof window !== 'undefined' && window.location.pathname === '/admin';
     isPlatformPath = typeof window !== 'undefined' && (
       window.location.pathname === '/ingresar' ||
       window.location.pathname.startsWith('/aliados/') ||
       window.location.pathname.startsWith('/clientes/') ||
       window.location.pathname.startsWith('/admin/') ||
-      window.location.pathname.startsWith('/recuperar-contrasena')
+      window.location.pathname.startsWith('/recuperar-contrasena') ||
+      window.location.pathname.startsWith('/restablecer-contrasena')
     );
     whatsappMessage = 'Hola, quiero recibir asesoría legal';
 

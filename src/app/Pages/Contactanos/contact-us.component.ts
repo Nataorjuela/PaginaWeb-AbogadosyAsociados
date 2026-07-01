@@ -1,8 +1,8 @@
-import { CommonModule } from '@angular/common';
+﻿import { CommonModule } from '@angular/common';
 import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
-import { environment } from '../../../environments/environment';
+import { APP_PUBLIC_CONFIG } from '../../shared/config/app-public-config';
 
 @Component({
   selector: 'app-contactUs',
@@ -52,7 +52,7 @@ export class ContactUsComponent implements OnInit {
     }
 
     const values = this.form.value;
-    this.http.post(`${environment.apiBaseUrl || ''}/api/leads`, {
+    this.http.post(`${APP_PUBLIC_CONFIG.apiBaseUrl || ''}/api/leads`, {
       name: values.nombre,
       phone: values.celular,
       email: values.correo,

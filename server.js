@@ -12,9 +12,9 @@ dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, 'data', 'orjuela.db');
+const UPLOAD_DIR = path.resolve(path.dirname(DB_FILE), 'uploads');
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const ADMIN_REGISTRATION_CODE = process.env.ADMIN_REGISTRATION_CODE || ADMIN_PASSWORD;
+const ADMIN_REGISTRATION_CODE = process.env.ADMIN_REGISTRATION_CODE || '';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
 const APP_ENV = process.env.APP_ENV || 'development';
 const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
@@ -32,12 +32,16 @@ const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '50kb' }));
+app.use(express.json({ limit: '16mb' }));
+app.use('/uploads', express.static(UPLOAD_DIR));
 
 function ensureDataDirectory() {
   const folder = path.dirname(DB_FILE);
   if (!fs.existsSync(folder)) {
     fs.mkdirSync(folder, { recursive: true });
+  }
+  if (!fs.existsSync(UPLOAD_DIR)) {
+    fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   }
 }
 
@@ -148,6 +152,53 @@ function createDatabase() {
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS client_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      case_id INTEGER,
+      sender_id INTEGER,
+      sender_role TEXT NOT NULL,
+      sender_name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      attachment_name TEXT,
+      attachment_url TEXT,
+      is_read_by_client INTEGER NOT NULL DEFAULT 1,
+      is_read_by_admin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id),
+      FOREIGN KEY (case_id) REFERENCES cases(id),
+      FOREIGN KEY (sender_id) REFERENCES users(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS client_service_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      lead_id INTEGER,
+      service_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      urgency TEXT NOT NULL,
+      documents TEXT,
+      city TEXT,
+      email TEXT,
+      phone TEXT,
+      status TEXT NOT NULL DEFAULT 'Enviada',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id),
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )`);
+
+    db.run(`CREATE TABLE IF NOT EXISTS client_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id INTEGER NOT NULL,
+      notification_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id)
     )`);
 
     db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
@@ -398,6 +449,7 @@ function createDatabase() {
       `ALTER TABLE payments ADD COLUMN support_url TEXT`,
       `ALTER TABLE payments ADD COLUMN updated_at TEXT`,
       `ALTER TABLE payments ADD COLUMN payment_method TEXT`,
+      `ALTER TABLE client_messages ADD COLUMN attachment_url TEXT`,
     ].forEach((sql) => db.run(sql, () => {}));
 
     db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -481,8 +533,37 @@ function sendNotificationEmail(subject, html) {
   });
 }
 
+function sendTransactionalEmail(to, subject, html) {
+  if (!to || !transporter) {
+    console.log('[mail] Transactional email skipped. Configure SMTP_* variables.', subject);
+    return false;
+  }
+
+  transporter.sendMail({
+    from: process.env.SMTP_FROM || ADMIN_EMAIL || process.env.SMTP_USER,
+    to,
+    subject,
+    html
+  }).catch((error) => {
+    console.error('[mail] Error sending transactional email:', error);
+  });
+  return true;
+}
+
 function getTimestamp() {
   return new Date().toISOString();
+}
+
+function createClientNotification(clientId, type, title, description) {
+  if (!clientId || !title || !description) return;
+  db.run(`INSERT INTO client_notifications (client_id, notification_type, title, description, is_read, created_at)
+    VALUES (?, ?, ?, ?, 0, ?)`, [
+    clientId,
+    cleanText(type || 'Portal', 60),
+    cleanText(title, 160),
+    cleanText(description, 500),
+    getTimestamp()
+  ], () => {});
 }
 
 function cleanText(value, maxLength = 180) {
@@ -1094,22 +1175,8 @@ if (QA_DEMO_DATA) {
   seedQaData();
 }
 
-if (SEED_ACCESS_USERS || APP_ENV === 'production') {
+if (SEED_ACCESS_USERS) {
   seedProductionAccessUsers();
-}
-
-function authorizeAdmin(req, res, next) {
-  const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-  const payload = verifyToken(token);
-  if (payload && ['admin', 'abogado', 'asistente'].includes(payload.role)) {
-    req.user = payload;
-    return next();
-  }
-  const password = (req.headers['x-admin-password'] || '').toString();
-  if (!password || password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  next();
 }
 
 function auditAdminAction(req, action, entityType, entityId, summary = '') {
@@ -1372,11 +1439,6 @@ app.post('/api/auth/login', (req, res) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al validar credenciales.' });
-    }
-
-    if (!user && requestedRole === 'admin' && password === ADMIN_PASSWORD) {
-      const adminUser = { id: 0, full_name: 'Equipo Orjuela', email, role: 'admin', status: 'active' };
-      return res.json({ token: signToken(adminUser), user: adminUser });
     }
 
     if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
@@ -1966,10 +2028,77 @@ app.get('/api/client/portal', requireAuth(['client']), (req, res) => {
             WHERE (related_type = 'client' AND related_id = ?) OR (related_type = 'case' AND related_id IN (${placeholders}))
             ORDER BY scheduled_at DESC`, [client.id, ...caseIds], (agendaErr, appointments) => {
             if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
-            res.json({ client, cases, documents, payments, appointments, messages: [], notifications: [] });
+            db.all(`SELECT m.*, ca.case_type
+              FROM client_messages m
+              LEFT JOIN cases ca ON ca.id = m.case_id
+              WHERE m.client_id = ?
+              ORDER BY m.created_at DESC
+              LIMIT 100`, [client.id], (messageErr, messages) => {
+              if (messageErr) return res.status(500).json({ error: 'No fue posible cargar mensajes.' });
+              db.all(`SELECT *
+                FROM client_service_requests
+                WHERE client_id = ?
+                ORDER BY created_at DESC
+                LIMIT 50`, [client.id], (serviceErr, serviceRequests) => {
+                if (serviceErr) return res.status(500).json({ error: 'No fue posible cargar solicitudes.' });
+                db.all(`SELECT *
+                  FROM client_notifications
+                  WHERE client_id = ?
+                  ORDER BY created_at DESC
+                  LIMIT 100`, [client.id], (notificationErr, notifications) => {
+                  if (notificationErr) return res.status(500).json({ error: 'No fue posible cargar notificaciones.' });
+                  res.json({ client, cases, documents, payments, appointments, messages, serviceRequests, notifications });
+                });
+              });
+            });
           });
         });
       });
+    });
+  });
+});
+
+app.post('/api/client/uploads', requireAuth(['client']), (req, res) => {
+  const fileName = cleanText(req.body.file_name, 180);
+  const mimeType = cleanText(req.body.mime_type, 120);
+  const dataBase64 = String(req.body.data_base64 || '');
+  const context = cleanText(req.body.context || 'general', 40).replace(/[^a-z0-9_-]/gi, '').toLowerCase() || 'general';
+  const allowedTypes = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/jpeg',
+    'image/png',
+    'image/webp'
+  ]);
+
+  if (!fileName || !mimeType || !dataBase64) return res.status(400).json({ error: 'Archivo incompleto.' });
+  if (!allowedTypes.has(mimeType)) return res.status(400).json({ error: 'Formato de archivo no permitido.' });
+
+  let buffer;
+  try {
+    buffer = Buffer.from(dataBase64, 'base64');
+  } catch (err) {
+    return res.status(400).json({ error: 'Archivo no válido.' });
+  }
+  if (!buffer.length || buffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'El archivo no puede superar 10 MB.' });
+
+  const originalExt = path.extname(fileName).toLowerCase();
+  const fallbackExt = mimeType.includes('pdf') ? '.pdf' : mimeType.includes('png') ? '.png' : mimeType.includes('webp') ? '.webp' : mimeType.includes('word') ? '.docx' : '.jpg';
+  const ext = originalExt || fallbackExt;
+  const safeBase = path.basename(fileName, originalExt).replace(/[^a-z0-9_-]/gi, '-').replace(/-+/g, '-').slice(0, 80) || 'archivo';
+  const clientFolder = path.join(UPLOAD_DIR, `client-${req.user.id}`, context);
+  fs.mkdirSync(clientFolder, { recursive: true });
+  const storedName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${safeBase}${ext}`;
+  const storedPath = path.join(clientFolder, storedName);
+  fs.writeFile(storedPath, buffer, (writeErr) => {
+    if (writeErr) return res.status(500).json({ error: 'No fue posible guardar el archivo.' });
+    const relativeUrl = `/uploads/client-${req.user.id}/${context}/${storedName}`;
+    res.status(201).json({
+      file_name: fileName,
+      file_url: relativeUrl,
+      mime_type: mimeType,
+      size: buffer.length
     });
   });
 });
@@ -1983,12 +2112,13 @@ app.post('/api/client/documents', requireAuth(['client']), (req, res) => {
     observations: cleanText(req.body.observations, 500)
   };
   if (!caseId || !payload.file_name) return res.status(400).json({ error: 'Caso y archivo son obligatorios.' });
-  db.get(`SELECT ca.id FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
     if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
     if (!legalCase) return res.status(403).json({ error: 'No puedes cargar documentos a este caso.' });
     db.run(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
       VALUES (?, ?, ?, ?, 'Recibido', ?, ?)`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.observations, getTimestamp()], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible registrar documento.' });
+      createClientNotification(legalCase.client_id, 'Documentos', 'Documento recibido', `Registramos ${payload.file_name} en tu caso ${legalCase.case_type}.`);
       res.status(201).json({ id: this.lastID, case_id: caseId, ...payload, status: 'Recibido' });
     });
   });
@@ -2002,14 +2132,263 @@ app.post('/api/client/appointments', requireAuth(['client']), (req, res) => {
     notes: cleanText(req.body.notes || req.body.reason, 500)
   };
   if (!caseId || !payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Caso, motivo y fecha son obligatorios.' });
-  db.get(`SELECT ca.id, cl.name FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
     if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
     if (!legalCase) return res.status(403).json({ error: 'No puedes solicitar cita para este caso.' });
     const now = getTimestamp();
     db.run(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
       VALUES (?, ?, 'case', ?, 'Equipo Orjuela', ?, 'Solicitada', ?, ?, ?)`, [payload.title, legalCase.name, caseId, payload.scheduled_at, payload.notes, now, now], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible solicitar cita.' });
+      createClientNotification(legalCase.client_id, 'Citas', 'Cita solicitada', `Recibimos tu solicitud de cita para ${legalCase.case_type}.`);
       res.status(201).json({ id: this.lastID, message: 'Cita solicitada.' });
+    });
+  });
+});
+
+app.patch('/api/client/appointments/:id/reschedule', requireAuth(['client']), (req, res) => {
+  const appointmentId = parseInt(req.params.id, 10);
+  const payload = {
+    scheduled_at: cleanText(req.body.scheduled_at || req.body.requested_date, 60),
+    notes: cleanText(req.body.notes || req.body.reason, 500)
+  };
+  if (!appointmentId || !payload.scheduled_at) return res.status(400).json({ error: 'Cita y nueva fecha son obligatorias.' });
+
+  db.get(`SELECT ag.*, ca.case_type, cl.id AS client_id
+    FROM admin_agenda ag
+    LEFT JOIN cases ca ON ca.id = ag.related_id AND ag.related_type = 'case'
+    LEFT JOIN clients cl ON (ag.related_type = 'client' AND cl.id = ag.related_id) OR (ag.related_type = 'case' AND cl.id = ca.client_id)
+    WHERE ag.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    [appointmentId, req.user.email, req.user.document_id], (agendaErr, appointment) => {
+      if (agendaErr) return res.status(500).json({ error: 'No fue posible validar la cita.' });
+      if (!appointment) return res.status(403).json({ error: 'No puedes reprogramar esta cita.' });
+      if (['Cancelada', 'Archivado', 'Realizada'].includes(appointment.status)) return res.status(400).json({ error: 'Esta cita ya no se puede reprogramar.' });
+
+      db.run(`UPDATE admin_agenda SET scheduled_at = ?, status = 'Reprogramación solicitada', notes = COALESCE(NULLIF(?, ''), notes), updated_at = ? WHERE id = ?`,
+        [payload.scheduled_at, payload.notes, getTimestamp(), appointmentId], function (err) {
+          if (err) return res.status(500).json({ error: 'No fue posible reprogramar la cita.' });
+          createClientNotification(appointment.client_id, 'Citas', 'Reprogramación solicitada', `Recibimos tu nueva fecha para ${appointment.case_type || appointment.title}.`);
+          sendNotificationEmail('Cliente solicitó reprogramar cita', `
+            <h2>Solicitud de reprogramación</h2>
+            <p><strong>Cliente:</strong> ${escapeHtml(req.user.full_name)}</p>
+            <p><strong>Cita:</strong> ${escapeHtml(appointment.title)}</p>
+            <p><strong>Nueva fecha:</strong> ${escapeHtml(payload.scheduled_at)}</p>
+            <p>${escapeHtml(payload.notes)}</p>
+          `);
+          res.json({ message: 'Reprogramación solicitada.' });
+        });
+    });
+});
+
+app.post('/api/client/appointments/:id/cancel', requireAuth(['client']), (req, res) => {
+  const appointmentId = parseInt(req.params.id, 10);
+  const reason = cleanText(req.body.reason || 'Cancelada por el cliente', 500);
+  if (!appointmentId) return res.status(400).json({ error: 'Cita inválida.' });
+
+  db.get(`SELECT ag.*, ca.case_type, cl.id AS client_id
+    FROM admin_agenda ag
+    LEFT JOIN cases ca ON ca.id = ag.related_id AND ag.related_type = 'case'
+    LEFT JOIN clients cl ON (ag.related_type = 'client' AND cl.id = ag.related_id) OR (ag.related_type = 'case' AND cl.id = ca.client_id)
+    WHERE ag.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    [appointmentId, req.user.email, req.user.document_id], (agendaErr, appointment) => {
+      if (agendaErr) return res.status(500).json({ error: 'No fue posible validar la cita.' });
+      if (!appointment) return res.status(403).json({ error: 'No puedes cancelar esta cita.' });
+      if (['Cancelada', 'Archivado', 'Realizada'].includes(appointment.status)) return res.status(400).json({ error: 'Esta cita ya no se puede cancelar.' });
+
+      const notes = [appointment.notes, `Cancelada por cliente: ${reason}`].filter(Boolean).join('\n');
+      db.run(`UPDATE admin_agenda SET status = 'Cancelada', notes = ?, updated_at = ? WHERE id = ?`,
+        [notes, getTimestamp(), appointmentId], function (err) {
+          if (err) return res.status(500).json({ error: 'No fue posible cancelar la cita.' });
+          createClientNotification(appointment.client_id, 'Citas', 'Cita cancelada', `Cancelamos tu cita ${appointment.title}.`);
+          sendNotificationEmail('Cliente canceló una cita', `
+            <h2>Cita cancelada por cliente</h2>
+            <p><strong>Cliente:</strong> ${escapeHtml(req.user.full_name)}</p>
+            <p><strong>Cita:</strong> ${escapeHtml(appointment.title)}</p>
+            <p>${escapeHtml(reason)}</p>
+          `);
+          res.json({ message: 'Cita cancelada.' });
+        });
+    });
+});
+
+app.post('/api/client/payments/:id/support', requireAuth(['client']), (req, res) => {
+  const paymentId = parseInt(req.params.id, 10);
+  const payload = {
+    support_url: cleanText(req.body.support_url, 220),
+    payment_method: cleanText(req.body.payment_method || 'Nequi 3118924111', 80),
+    payment_date: cleanText(req.body.payment_date, 40)
+  };
+  if (!paymentId) return res.status(400).json({ error: 'Pago inválido.' });
+  if (!payload.support_url) return res.status(400).json({ error: 'Registra el enlace o referencia del comprobante.' });
+  if (!['Nequi 3118924111', 'Nequi 3144278339', 'Efectivo', 'Transferencia', 'Otro'].includes(payload.payment_method)) {
+    return res.status(400).json({ error: 'Medio de pago no válido.' });
+  }
+
+  db.get(`SELECT id, name FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
+    if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
+
+    db.get(`SELECT p.*
+      FROM payments p
+      LEFT JOIN cases ca ON ca.id = p.related_id AND p.related_type = 'case'
+      WHERE p.id = ? AND (
+        (p.related_type = 'client' AND p.related_id = ?)
+        OR (p.related_type = 'case' AND ca.client_id = ?)
+      )`, [paymentId, client.id, client.id], (paymentErr, payment) => {
+      if (paymentErr) return res.status(500).json({ error: 'No fue posible validar el pago.' });
+      if (!payment) return res.status(403).json({ error: 'No puedes registrar soporte para este pago.' });
+
+      db.run(`UPDATE payments SET support_url = ?, payment_method = ?, payment_date = COALESCE(NULLIF(?, ''), payment_date), status = 'Soporte enviado', updated_at = ? WHERE id = ?`,
+        [payload.support_url, payload.payment_method, payload.payment_date, getTimestamp(), paymentId], function (err) {
+          if (err) return res.status(500).json({ error: 'No fue posible registrar el soporte.' });
+          createClientNotification(client.id, 'Pagos', 'Soporte de pago enviado', `Recibimos el soporte para ${payment.concept || 'tu pago'}.`);
+          sendNotificationEmail('Soporte de pago registrado por cliente', `
+            <h2>Soporte de pago recibido</h2>
+            <p><strong>Cliente:</strong> ${escapeHtml(client.name || req.user.full_name)}</p>
+            <p><strong>Concepto:</strong> ${escapeHtml(payment.concept || 'Pago')}</p>
+            <p><strong>Medio:</strong> ${escapeHtml(payload.payment_method)}</p>
+            <p><strong>Soporte:</strong> ${escapeHtml(payload.support_url)}</p>
+          `);
+          res.json({ message: 'Soporte registrado.', id: paymentId, status: 'Soporte enviado', ...payload });
+        });
+    });
+  });
+});
+
+app.post('/api/client/messages', requireAuth(['client']), (req, res) => {
+  const caseId = parseInt(req.body.case_id, 10);
+  const payload = {
+    message: cleanText(req.body.message, 2000),
+    attachment_name: cleanText(req.body.attachment_name, 180),
+    attachment_url: cleanText(req.body.attachment_url, 220)
+  };
+  if (!caseId || !payload.message || payload.message.length < 8) {
+    return res.status(400).json({ error: 'Caso y mensaje son obligatorios.' });
+  }
+
+  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name AS client_name
+    FROM cases ca
+    JOIN clients cl ON cl.id = ca.client_id
+    WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+      if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
+      if (!legalCase) return res.status(403).json({ error: 'No puedes enviar mensajes a este caso.' });
+
+      const now = getTimestamp();
+      db.run(`INSERT INTO client_messages
+        (client_id, case_id, sender_id, sender_role, sender_name, message, attachment_name, attachment_url, is_read_by_client, is_read_by_admin, created_at)
+        VALUES (?, ?, ?, 'client', ?, ?, ?, ?, 1, 0, ?)`,
+        [legalCase.client_id, caseId, req.user.id, req.user.full_name || legalCase.client_name, payload.message, payload.attachment_name, payload.attachment_url, now], function (err) {
+          if (err) return res.status(500).json({ error: 'No fue posible enviar el mensaje.' });
+          createClientNotification(legalCase.client_id, 'Mensajes', 'Mensaje enviado', `Tu mensaje sobre ${legalCase.case_type} fue enviado a la firma.`);
+          sendNotificationEmail('Nuevo mensaje de cliente', `
+            <h2>Nuevo mensaje en portal cliente</h2>
+            <p><strong>Cliente:</strong> ${escapeHtml(req.user.full_name || legalCase.client_name)}</p>
+            <p><strong>Caso:</strong> ${escapeHtml(legalCase.case_type)}</p>
+            <p>${escapeHtml(payload.message)}</p>
+            ${payload.attachment_name ? `<p><strong>Adjunto:</strong> ${escapeHtml(payload.attachment_name)}</p>` : ''}
+            ${payload.attachment_url ? `<p><strong>URL:</strong> ${escapeHtml(payload.attachment_url)}</p>` : ''}
+          `);
+          res.status(201).json({
+            id: this.lastID,
+            client_id: legalCase.client_id,
+            case_id: caseId,
+            case_type: legalCase.case_type,
+            sender_role: 'client',
+            sender_name: req.user.full_name || legalCase.client_name,
+            message: payload.message,
+            attachment_name: payload.attachment_name,
+            attachment_url: payload.attachment_url,
+            is_read_by_client: 1,
+            is_read_by_admin: 0,
+            created_at: now
+          });
+        });
+    });
+});
+
+app.post('/api/client/service-requests', requireAuth(['client']), (req, res) => {
+  const payload = {
+    service_type: cleanText(req.body.service_type, 80),
+    description: cleanText(req.body.description, 2000),
+    urgency: cleanText(req.body.urgency || 'Media', 20),
+    documents: cleanText(req.body.documents, 180),
+    city: cleanText(req.body.city, 80),
+    email: normalizeEmail(req.body.email || req.user.email),
+    phone: cleanText(req.body.phone, 30)
+  };
+
+  if (!payload.service_type || !payload.description || payload.description.length < 12 || !payload.city || !payload.email || !payload.phone) {
+    return res.status(400).json({ error: 'Completa tipo de servicio, descripción, ciudad, correo y teléfono.' });
+  }
+  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
+
+  db.get(`SELECT id, name, phone, email, city FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
+    if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
+
+    const now = getTimestamp();
+    const leadNotes = [
+      payload.description,
+      payload.documents ? `Documento inicial: ${payload.documents}` : '',
+      `Urgencia: ${payload.urgency}`,
+      `Solicitud enviada desde portal cliente #${client.id}`
+    ].filter(Boolean).join('\n');
+
+    db.serialize(() => {
+      db.run(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'Portal cliente', 'Nuevo', 'Comercial', ?, ?, 'Contactar al cliente y abrir caso si aplica', ?, ?)`,
+        [client.name || req.user.full_name, payload.phone, payload.email, payload.service_type, leadNotes, payload.urgency === 'Alta' ? 'Alta' : 'Media', now, now], function (leadErr) {
+          if (leadErr) return res.status(500).json({ error: 'No fue posible registrar la solicitud.' });
+          const leadId = this.lastID;
+          db.run(`INSERT INTO client_service_requests
+            (client_id, lead_id, service_type, description, urgency, documents, city, email, phone, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Enviada', ?, ?)`,
+            [client.id, leadId, payload.service_type, payload.description, payload.urgency, payload.documents, payload.city, payload.email, payload.phone, now, now], function (requestErr) {
+          if (requestErr) return res.status(500).json({ error: 'No fue posible guardar la solicitud.' });
+              createClientNotification(client.id, 'Servicios', 'Solicitud enviada', `Recibimos tu solicitud de ${payload.service_type}.`);
+              sendNotificationEmail('Nueva solicitud de servicio desde portal cliente', `
+                <h2>Nueva solicitud de servicio legal</h2>
+                <p><strong>Cliente:</strong> ${escapeHtml(client.name || req.user.full_name)}</p>
+                <p><strong>Servicio:</strong> ${escapeHtml(payload.service_type)}</p>
+                <p><strong>Urgencia:</strong> ${escapeHtml(payload.urgency)}</p>
+                <p>${escapeHtml(payload.description)}</p>
+                ${payload.documents ? `<p><strong>Documento inicial:</strong> ${escapeHtml(payload.documents)}</p>` : ''}
+              `);
+              res.status(201).json({
+                id: this.lastID,
+                lead_id: leadId,
+                client_id: client.id,
+                ...payload,
+                status: 'Enviada',
+                created_at: now,
+                updated_at: now
+              });
+            });
+        });
+    });
+  });
+});
+
+app.post('/api/client/notifications/:id/read', requireAuth(['client']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Notificación inválida.' });
+  db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
+    if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
+    db.run(`UPDATE client_notifications SET is_read = 1 WHERE client_id = ? AND id = ?`, [client.id, id], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificación.' });
+      res.json({ message: 'Notificación marcada como leída.' });
+    });
+  });
+});
+
+app.post('/api/client/notifications/read-all', requireAuth(['client']), (req, res) => {
+  db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
+    if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
+    db.run(`UPDATE client_notifications SET is_read = 1 WHERE client_id = ?`, [client.id], function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar notificaciones.' });
+      res.json({ message: 'Notificaciones marcadas como leídas.' });
     });
   });
 });
@@ -2043,7 +2422,7 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
           ORDER BY p.user_id DESC`, [req.user.id, req.user.id], (teamErr, team) => {
           if (teamErr) return res.status(500).json({ error: 'Error al cargar tu equipo.' });
 
-          db.all(`SELECT r.id, r.referred_full_name, r.legal_area, r.status, r.created_at,
+          db.all(`SELECT r.id, r.ally_id AS source_ally_id, r.referred_full_name, r.legal_area, r.status, r.created_at,
               u.full_name AS source_ally_name, c.amount AS commission_amount, c.status AS commission_status
             FROM referrals r
             JOIN users u ON u.id = r.ally_id
@@ -2542,7 +2921,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
               if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
               db.all(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
                 if (kycErr) return res.status(500).json({ error: 'Error al cargar KYC.' });
-                db.all(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
+                db.all(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id WHERE f.status <> 'archived' ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
                   if (fraudErr) return res.status(500).json({ error: 'Error al cargar alertas.' });
                   db.all(`SELECT * FROM ally_academy_modules WHERE is_active = 1 ORDER BY sort_order`, (academyErr, academy) => {
                     if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
@@ -2668,37 +3047,344 @@ app.patch('/api/admin/commission-settings', requireAuth(['admin']), (req, res) =
   });
 });
 
+app.post('/api/admin/partner-network/levels', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    name: cleanText(req.body.name, 80),
+    min_converted_referrals: parseInt(req.body.min_converted_referrals, 10),
+    min_commissions: Number(req.body.min_commissions),
+    min_active_allies: parseInt(req.body.min_active_allies, 10),
+    benefits: cleanText(req.body.benefits, 500),
+    sort_order: parseInt(req.body.sort_order, 10) || 1
+  };
+  if (!payload.name || [payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies].some((value) => Number.isNaN(value) || value < 0)) {
+    return res.status(400).json({ error: 'Completa los requisitos del nivel con valores válidos.' });
+  }
+  db.run(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order, is_active)
+    VALUES (?, ?, ?, ?, ?, ?, 1)`, [payload.name, payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies, payload.benefits, payload.sort_order], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear el nivel.' });
+    auditAdminAction(req, 'crear', 'nivel_aliado', this.lastID, payload.name);
+    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
+  });
+});
+
+app.patch('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const payload = {
+    name: cleanText(req.body.name, 80),
+    min_converted_referrals: req.body.min_converted_referrals === undefined ? null : parseInt(req.body.min_converted_referrals, 10),
+    min_commissions: req.body.min_commissions === undefined ? null : Number(req.body.min_commissions),
+    min_active_allies: req.body.min_active_allies === undefined ? null : parseInt(req.body.min_active_allies, 10),
+    benefits: cleanText(req.body.benefits, 500),
+    sort_order: req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10)
+  };
+  if (!id) return res.status(400).json({ error: 'Nivel inválido.' });
+  db.run(`UPDATE ally_levels SET
+      name = COALESCE(NULLIF(?, ''), name),
+      min_converted_referrals = COALESCE(?, min_converted_referrals),
+      min_commissions = COALESCE(?, min_commissions),
+      min_active_allies = COALESCE(?, min_active_allies),
+      benefits = COALESCE(NULLIF(?, ''), benefits),
+      sort_order = COALESCE(?, sort_order)
+    WHERE id = ?`, [
+    payload.name,
+    payload.min_converted_referrals !== null && !Number.isNaN(payload.min_converted_referrals) ? payload.min_converted_referrals : null,
+    payload.min_commissions !== null && !Number.isNaN(payload.min_commissions) ? payload.min_commissions : null,
+    payload.min_active_allies !== null && !Number.isNaN(payload.min_active_allies) ? payload.min_active_allies : null,
+    payload.benefits,
+    payload.sort_order !== null && !Number.isNaN(payload.sort_order) ? payload.sort_order : null,
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el nivel.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Nivel no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'nivel_aliado', id, payload.name || 'Nivel actualizado');
+    res.json({ message: 'Nivel actualizado.' });
+  });
+});
+
+app.delete('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Nivel inválido.' });
+  db.run(`UPDATE ally_levels SET is_active = 0 WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar el nivel.' });
+    auditAdminAction(req, 'archivar', 'nivel_aliado', id, 'Nivel archivado');
+    res.json({ message: 'Nivel archivado.' });
+  });
+});
+
+app.post('/api/admin/partner-network/goals', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    ally_id: req.body.ally_id ? parseInt(req.body.ally_id, 10) : null,
+    month: cleanText(req.body.month, 20),
+    referral_goal: parseInt(req.body.referral_goal, 10),
+    converted_goal: parseInt(req.body.converted_goal, 10),
+    commission_goal: Number(req.body.commission_goal)
+  };
+  if (!payload.month || [payload.referral_goal, payload.converted_goal, payload.commission_goal].some((value) => Number.isNaN(value) || value < 0)) {
+    return res.status(400).json({ error: 'Completa la meta con valores válidos.' });
+  }
+  db.run(`INSERT INTO ally_goals (ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?)`, [payload.ally_id, payload.month, payload.referral_goal, payload.converted_goal, payload.commission_goal, getTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear la meta.' });
+    auditAdminAction(req, 'crear', 'meta_aliado', this.lastID, payload.month);
+    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
+  });
+});
+
+app.patch('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const payload = {
+    ally_id: req.body.ally_id === '' ? null : (req.body.ally_id === undefined ? undefined : parseInt(req.body.ally_id, 10)),
+    month: cleanText(req.body.month, 20),
+    referral_goal: req.body.referral_goal === undefined ? null : parseInt(req.body.referral_goal, 10),
+    converted_goal: req.body.converted_goal === undefined ? null : parseInt(req.body.converted_goal, 10),
+    commission_goal: req.body.commission_goal === undefined ? null : Number(req.body.commission_goal)
+  };
+  if (!id) return res.status(400).json({ error: 'Meta inválida.' });
+  db.run(`UPDATE ally_goals SET
+      ally_id = CASE WHEN ? = '__KEEP__' THEN ally_id ELSE ? END,
+      month = COALESCE(NULLIF(?, ''), month),
+      referral_goal = COALESCE(?, referral_goal),
+      converted_goal = COALESCE(?, converted_goal),
+      commission_goal = COALESCE(?, commission_goal),
+      updated_at = ?
+    WHERE id = ?`, [
+    payload.ally_id === undefined ? '__KEEP__' : '',
+    payload.ally_id === undefined || Number.isNaN(payload.ally_id) ? null : payload.ally_id,
+    payload.month,
+    payload.referral_goal !== null && !Number.isNaN(payload.referral_goal) ? payload.referral_goal : null,
+    payload.converted_goal !== null && !Number.isNaN(payload.converted_goal) ? payload.converted_goal : null,
+    payload.commission_goal !== null && !Number.isNaN(payload.commission_goal) ? payload.commission_goal : null,
+    getTimestamp(),
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la meta.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Meta no encontrada.' });
+    auditAdminAction(req, 'actualizar', 'meta_aliado', id, payload.month || 'Meta actualizada');
+    res.json({ message: 'Meta actualizada.' });
+  });
+});
+
+app.delete('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Meta inválida.' });
+  db.run(`UPDATE ally_goals SET is_active = 0, updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar la meta.' });
+    auditAdminAction(req, 'archivar', 'meta_aliado', id, 'Meta archivada');
+    res.json({ message: 'Meta archivada.' });
+  });
+});
+
+app.post('/api/admin/partner-network/resources', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    title: cleanText(req.body.title, 140),
+    resource_type: cleanText(req.body.resource_type || 'Mensaje', 60),
+    description: cleanText(req.body.description, 500),
+    url: cleanText(req.body.url, 220),
+    content: cleanText(req.body.content, 2000)
+  };
+  if (!payload.title || !payload.resource_type) return res.status(400).json({ error: 'Título y tipo son obligatorios.' });
+  db.run(`INSERT INTO ally_resources (title, resource_type, description, url, content, is_active, created_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?)`, [payload.title, payload.resource_type, payload.description, payload.url, payload.content, getTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear el recurso.' });
+    auditAdminAction(req, 'crear', 'recurso_aliado', this.lastID, payload.title);
+    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
+  });
+});
+
+app.patch('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Recurso inválido.' });
+  db.run(`UPDATE ally_resources SET
+      title = COALESCE(NULLIF(?, ''), title),
+      resource_type = COALESCE(NULLIF(?, ''), resource_type),
+      description = COALESCE(NULLIF(?, ''), description),
+      url = COALESCE(NULLIF(?, ''), url),
+      content = COALESCE(NULLIF(?, ''), content)
+    WHERE id = ?`, [
+    cleanText(req.body.title, 140),
+    cleanText(req.body.resource_type, 60),
+    cleanText(req.body.description, 500),
+    cleanText(req.body.url, 220),
+    cleanText(req.body.content, 2000),
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el recurso.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Recurso no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'recurso_aliado', id, cleanText(req.body.title, 140) || 'Recurso actualizado');
+    res.json({ message: 'Recurso actualizado.' });
+  });
+});
+
+app.delete('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Recurso inválido.' });
+  db.run(`UPDATE ally_resources SET is_active = 0 WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar el recurso.' });
+    auditAdminAction(req, 'archivar', 'recurso_aliado', id, 'Recurso archivado');
+    res.json({ message: 'Recurso archivado.' });
+  });
+});
+
+app.post('/api/admin/partner-network/academy', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    title: cleanText(req.body.title, 140),
+    description: cleanText(req.body.description, 500),
+    content: cleanText(req.body.content, 4000),
+    video_url: cleanText(req.body.video_url, 220),
+    sort_order: parseInt(req.body.sort_order, 10) || 1
+  };
+  if (!payload.title || !payload.description) return res.status(400).json({ error: 'Título y descripción son obligatorios.' });
+  db.run(`INSERT INTO ally_academy_modules (title, description, content, video_url, sort_order, is_active)
+    VALUES (?, ?, ?, ?, ?, 1)`, [payload.title, payload.description, payload.content, payload.video_url, payload.sort_order], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear el módulo.' });
+    auditAdminAction(req, 'crear', 'academia_aliado', this.lastID, payload.title);
+    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
+  });
+});
+
+app.patch('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const sortOrder = req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10);
+  if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
+  db.run(`UPDATE ally_academy_modules SET
+      title = COALESCE(NULLIF(?, ''), title),
+      description = COALESCE(NULLIF(?, ''), description),
+      content = COALESCE(NULLIF(?, ''), content),
+      video_url = COALESCE(NULLIF(?, ''), video_url),
+      sort_order = COALESCE(?, sort_order)
+    WHERE id = ?`, [
+    cleanText(req.body.title, 140),
+    cleanText(req.body.description, 500),
+    cleanText(req.body.content, 4000),
+    cleanText(req.body.video_url, 220),
+    sortOrder !== null && !Number.isNaN(sortOrder) ? sortOrder : null,
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el módulo.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Módulo no encontrado.' });
+    auditAdminAction(req, 'actualizar', 'academia_aliado', id, cleanText(req.body.title, 140) || 'Módulo actualizado');
+    res.json({ message: 'Módulo actualizado.' });
+  });
+});
+
+app.delete('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
+  db.run(`UPDATE ally_academy_modules SET is_active = 0 WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar el módulo.' });
+    auditAdminAction(req, 'archivar', 'academia_aliado', id, 'Módulo archivado');
+    res.json({ message: 'Módulo archivado.' });
+  });
+});
+
+app.post('/api/admin/partner-network/fraud-alerts', requireAuth(['admin']), (req, res) => {
+  const payload = {
+    ally_id: req.body.ally_id ? parseInt(req.body.ally_id, 10) : null,
+    referral_id: req.body.referral_id ? parseInt(req.body.referral_id, 10) : null,
+    risk_level: cleanText(req.body.risk_level || 'Medio', 20),
+    alert_type: cleanText(req.body.alert_type || 'Revisión manual', 80),
+    description: cleanText(req.body.description, 700),
+    status: cleanText(req.body.status || 'open', 30)
+  };
+  if (!payload.alert_type || !payload.description) return res.status(400).json({ error: 'Tipo y descripción son obligatorios.' });
+  db.run(`INSERT INTO ally_fraud_alerts (ally_id, referral_id, risk_level, alert_type, description, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`, [payload.ally_id, payload.referral_id, payload.risk_level, payload.alert_type, payload.description, payload.status, getTimestamp()], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible crear la alerta.' });
+    auditAdminAction(req, 'crear', 'alerta_antifraude', this.lastID, payload.alert_type);
+    res.status(201).json({ id: this.lastID, ...payload });
+  });
+});
+
+app.patch('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
+  db.run(`UPDATE ally_fraud_alerts SET
+      risk_level = COALESCE(NULLIF(?, ''), risk_level),
+      alert_type = COALESCE(NULLIF(?, ''), alert_type),
+      description = COALESCE(NULLIF(?, ''), description),
+      status = COALESCE(NULLIF(?, ''), status)
+    WHERE id = ?`, [
+    cleanText(req.body.risk_level, 20),
+    cleanText(req.body.alert_type, 80),
+    cleanText(req.body.description, 700),
+    cleanText(req.body.status, 30),
+    id
+  ], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la alerta.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Alerta no encontrada.' });
+    auditAdminAction(req, 'actualizar', 'alerta_antifraude', id, cleanText(req.body.alert_type, 80) || 'Alerta actualizada');
+    res.json({ message: 'Alerta actualizada.' });
+  });
+});
+
+app.delete('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
+  db.run(`UPDATE ally_fraud_alerts SET status = 'archived' WHERE id = ?`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible archivar la alerta.' });
+    auditAdminAction(req, 'archivar', 'alerta_antifraude', id, 'Alerta archivada');
+    res.json({ message: 'Alerta archivada.' });
+  });
+});
+
 app.post('/api/auth/recovery/request', (req, res) => {
   const email = normalizeEmail(req.body.email);
   if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Ingresa un correo válido.' });
 
-  const rawToken = crypto.randomBytes(24).toString('hex');
-  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
+  db.get(`SELECT id, full_name, email, role, status FROM users WHERE email = ?`, [email], (selectErr, user) => {
+    if (selectErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
+    if (!user || user.status !== 'active') {
+      return res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
+    }
 
-  db.run(`UPDATE users SET reset_token_hash = ?, reset_token_expires_at = ?, updated_at = ? WHERE email = ?`, [tokenHash, expiresAt, getTimestamp(), email], () => {
-    sendNotificationEmail('Recuperación de contraseña', `
-      <h2>Solicitud de recuperación de acceso</h2>
-      <p>Correo: ${escapeHtml(email)}</p>
-      <p>Token temporal: ${escapeHtml(rawToken)}</p>
-      <p>Vence: ${escapeHtml(expiresAt)}</p>
-    `);
-    res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
+    const rawCode = crypto.randomBytes(24).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawCode).digest('hex');
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
+    const resetUrl = `${getBaseUrl(req)}/restablecer-contrasena?codigo=${encodeURIComponent(rawCode)}`;
+
+    db.run(`UPDATE users SET reset_token_hash = ?, reset_token_expires_at = ?, updated_at = ? WHERE id = ?`, [tokenHash, expiresAt, getTimestamp(), user.id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
+
+      const sent = sendTransactionalEmail(user.email, 'Restablece tu contraseña Orjuela Abogados', `
+        <h2>Restablecimiento de contraseña</h2>
+        <p>Hola ${escapeHtml(user.full_name || 'usuario')}, recibimos una solicitud para recuperar tu acceso.</p>
+        <p>Este enlace vence en 30 minutos y funciona para tu portal de ${escapeHtml(user.role)}:</p>
+        <p><a href="${escapeHtml(resetUrl)}">Crear nueva contraseña</a></p>
+        <p>Código temporal: ${escapeHtml(rawCode)}</p>
+        <p>Si el botón no funciona, copia este enlace:</p>
+        <p>${escapeHtml(resetUrl)}</p>
+        <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+      `);
+
+      if (!sent) {
+        console.log('[recovery] Reset link generated:', resetUrl);
+      }
+      res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
+    });
   });
 });
 
 app.post('/api/auth/recovery/reset', (req, res) => {
-  const tokenHash = crypto.createHash('sha256').update(String(req.body.token || '')).digest('hex');
+  const code = String(req.body.codigo || req.body.token || '').trim();
   const password = String(req.body.password || '');
-  if (!tokenHash || password.length < 8) return res.status(400).json({ error: 'Token o contraseña no válidos.' });
+  const passwordError = validatePasswordStrength(password);
+  if (!code || passwordError) return res.status(400).json({ error: passwordError || 'Código no válido.' });
 
+  const tokenHash = crypto.createHash('sha256').update(code).digest('hex');
   db.get(`SELECT id, reset_token_expires_at FROM users WHERE reset_token_hash = ?`, [tokenHash], (err, user) => {
     if (err || !user || new Date(user.reset_token_expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ error: 'Token inválido o vencido.' });
+      return res.status(400).json({ error: 'Código inválido o vencido.' });
     }
 
-    db.run(`UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = ? WHERE id = ?`, [hashPassword(password), getTimestamp(), user.id], () => {
-      res.json({ message: 'Contraseña actualizada correctamente.' });
+    db.run(`UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = ? WHERE id = ?`, [hashPassword(password), getTimestamp(), user.id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la contraseña.' });
+      db.get(`SELECT id, full_name, document_id, email, auth_provider, avatar_url, role, status FROM users WHERE id = ?`, [user.id], (userErr, updatedUser) => {
+        if (userErr || !updatedUser) return res.status(500).json({ error: 'Contraseña actualizada, pero no fue posible iniciar sesión automáticamente.' });
+        res.json({
+          message: 'Contraseña actualizada correctamente.',
+          ...createAuthResponse(updatedUser)
+        });
+      });
     });
   });
 });
@@ -2895,103 +3581,6 @@ app.post('/api/leads', (req, res) => {
     res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactará pronto.' });
   });
   stmt.finalize();
-});
-
-app.post('/api/admin/login', (req, res) => {
-  const { password } = req.body;
-  if (!password || password !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: 'Credenciales inválidas' });
-  }
-  res.json({ message: 'Autenticación correcta' });
-});
-
-app.get('/api/admin/allies', authorizeAdmin, (req, res) => {
-  const search = req.query.search ? cleanText(String(req.query.search), 80).toLowerCase().replace(/%/g, '') : '';
-  let baseQuery = `SELECT id, full_name, document_number, phone, email, city, ally_type, status, created_at, updated_at FROM allies`;
-  const params = [];
-
-  if (search) {
-    baseQuery += ` WHERE LOWER(full_name) LIKE ? OR LOWER(document_number) LIKE ? OR LOWER(city) LIKE ? OR LOWER(status) LIKE ?`;
-    const term = `%${search}%`;
-    params.push(term, term, term, term);
-  }
-
-  baseQuery += ` ORDER BY created_at DESC`;
-  db.all(baseQuery, params, (err, rows) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al cargar aliados.' });
-    }
-    res.json(rows);
-  });
-});
-
-app.patch('/api/admin/allies/:id/status', authorizeAdmin, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const status = cleanText(req.body.status, 20);
-  if (!id || !status) {
-    return res.status(400).json({ error: 'ID y estado son obligatorios.' });
-  }
-  if (!isOneOf(status, ALLY_STATUSES)) {
-    return res.status(400).json({ error: 'Estado de aliado no válido.' });
-  }
-
-  db.run(`UPDATE allies SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al actualizar el estado del aliado.' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Aliado no encontrado.' });
-    }
-    res.json({ message: 'Aliado actualizado correctamente.' });
-  });
-});
-
-app.get('/api/admin/referrals', authorizeAdmin, (req, res) => {
-  const search = req.query.search ? cleanText(String(req.query.search), 80).toLowerCase().replace(/%/g, '') : '';
-  let baseQuery = `SELECT r.id, r.referred_full_name, r.referred_phone, r.referred_email, r.referred_city, r.legal_area, r.case_description, r.status, r.created_at, r.updated_at,
-      a.full_name AS ally_name, a.document_number AS ally_document_number
-    FROM referrals r
-    JOIN allies a ON a.id = r.ally_id`;
-  const params = [];
-
-  if (search) {
-    baseQuery += ` WHERE LOWER(r.referred_full_name) LIKE ? OR LOWER(r.referred_phone) LIKE ? OR LOWER(r.referred_email) LIKE ? OR LOWER(r.referred_city) LIKE ? OR LOWER(r.legal_area) LIKE ? OR LOWER(r.status) LIKE ? OR LOWER(a.full_name) LIKE ? OR LOWER(a.document_number) LIKE ?`;
-    const term = `%${search}%`;
-    params.push(term, term, term, term, term, term, term, term);
-  }
-
-  baseQuery += ` ORDER BY r.created_at DESC`;
-  db.all(baseQuery, params, (err, rows) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al cargar los referidos.' });
-    }
-    res.json(rows);
-  });
-});
-
-app.patch('/api/admin/referrals/:id/status', authorizeAdmin, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const status = cleanText(req.body.status, 20);
-  if (!id || !status) {
-    return res.status(400).json({ error: 'ID y estado son obligatorios.' });
-  }
-  if (!isOneOf(status, REFERRAL_STATUSES)) {
-    return res.status(400).json({ error: 'Estado de referido no válido.' });
-  }
-
-  db.run(`UPDATE referrals SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: 'Error al actualizar el estado del referido.' });
-    }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Referido no encontrado.' });
-    }
-    res.json({ message: 'Referido actualizado correctamente.' });
-  });
 });
 
 const distFolder = path.join(__dirname, 'dist', 'abogados-asociados');

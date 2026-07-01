@@ -1,8 +1,8 @@
 import { createBrowserClient } from '@supabase/ssr';
-import { environment } from '../../../../environments/environment';
+import { APP_PUBLIC_CONFIG } from '../../config/app-public-config';
 
 export const createSupabaseBrowserClient = () =>
   createBrowserClient(
-    environment.supabase.url,
-    environment.supabase.publishableKey
+    APP_PUBLIC_CONFIG.supabase.url,
+    APP_PUBLIC_CONFIG.supabase.publishableKey
   );

@@ -1,12 +1,7 @@
-﻿<ng-container *ngIf="isPlatformPath; else legacyAdminOrPublic">
+﻿<ng-container *ngIf="isPlatformPath; else publicSite">
   <app-auth-portal></app-auth-portal>
 </ng-container>
 
-<ng-template #legacyAdminOrPublic>
-<ng-container *ngIf="isAdminPath; else publicSite">
-  <app-admin></app-admin>
-</ng-container>
-</ng-template>
 
 <ng-template #publicSite>
   <app-navbar
@@ -81,11 +76,11 @@
       </div>
     </section>
 
-    <div #servicesRef (mouseenter)="updateWhatsAppContext('Hola, necesito asesoría legal sobre un servicio de Orjuela Abogados')">
+    <div id="servicios" #servicesRef (mouseenter)="updateWhatsAppContext('Hola, necesito asesoría legal sobre un servicio de Orjuela Abogados')">
       <app-services (adviceClick)="updateWhatsAppContext($event); scrollToContact()"></app-services>
     </div>
 
-    <section class="section-shell" #howRef>
+    <section class="section-shell" id="como-funciona" #howRef>
       <div class="container">
         <div class="section-heading">
           <span class="eyebrow">Cómo funciona</span>
@@ -149,7 +144,7 @@
         </div>
       </div>
     </section>
-    <div #alliesRef (mouseenter)="updateWhatsAppContext('Hola, quiero ser aliado de Orjuela Abogados')">
+    <div id="aliados" #alliesRef (mouseenter)="updateWhatsAppContext('Hola, quiero ser aliado de Orjuela Abogados')">
       <app-allies-program></app-allies-program>
     </div>
 
@@ -239,7 +234,7 @@
       </div>
     </section>
 
-    <section class="section-shell soft-section" #blogRef>
+    <section class="section-shell soft-section" id="blog" #blogRef>
       <div class="container">
         <div class="section-heading">
           <span class="eyebrow">Recursos legales</span>
@@ -278,7 +273,7 @@
       </div>
     </section>
 
-    <div #contactRef>
+    <div id="contacto" #contactRef>
       <app-contactUs></app-contactUs>
     </div>
 

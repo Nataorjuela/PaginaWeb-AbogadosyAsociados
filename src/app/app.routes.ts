@@ -15,6 +15,7 @@ export const routes: Routes = [
     {path:'admin/login',component:AuthPortalComponent},
     {path:'admin/dashboard',component:AuthPortalComponent},
     {path:'recuperar-contrasena',component:AuthPortalComponent},
+    {path:'restablecer-contrasena',component:AuthPortalComponent},
     { path: '**', redirectTo: '', pathMatch: 'full' }
 
 ];

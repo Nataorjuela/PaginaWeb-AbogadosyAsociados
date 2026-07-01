@@ -2,7 +2,9 @@
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
-import { environment } from '../../../environments/environment';
+import { firstValueFrom } from 'rxjs';
+import { APP_PUBLIC_CONFIG } from '../../shared/config/app-public-config';
+import { NavbarComponent } from '../../Navbar/navbar.component';
 
 declare const google: any;
 
@@ -23,12 +25,12 @@ type ClientPortalCase = {
   timeline: { date: string; title: string; description: string; status: string }[];
   tasks: string[];
 };
-type ClientDocument = { id: number; caseTitle: string; name: string; uploadedBy: string; uploadedAt: string; status: string; observations: string; size: string };
-type ClientPayment = { concept: string; caseTitle: string; amount: number; dueDate: string; status: string; receipt: string };
-type ClientAppointment = { title: string; caseTitle: string; date: string; type: string; status: string; location: string };
-type ClientMessage = { caseTitle: string; from: string; date: string; unread: boolean; text: string; attachmentName?: string };
-type ClientNotification = { title: string; description: string; date: string; type: string; unread: boolean };
-type LegalServiceRequest = { service_type: string; description: string; urgency: string; documents: string; city: string; email: string; phone: string };
+type ClientDocument = { id: number; caseTitle: string; name: string; uploadedBy: string; uploadedAt: string; status: string; observations: string; size: string; fileUrl?: string };
+type ClientPayment = { id?: number; concept: string; caseTitle: string; amount: number; dueDate: string; status: string; receipt: string; supportUrl?: string; paymentMethod?: string };
+type ClientAppointment = { id?: number; title: string; caseTitle: string; date: string; type: string; status: string; location: string };
+type ClientMessage = { caseTitle: string; from: string; date: string; unread: boolean; text: string; attachmentName?: string; attachmentUrl?: string };
+type ClientNotification = { id?: number; title: string; description: string; date: string; type: string; unread: boolean };
+type LegalServiceRequest = { service_type: string; description: string; urgency: string; documents: string; city: string; email: string; phone: string; status?: string; createdAt?: string };
 type ClientProfile = {
   full_name: string;
   document_id: string;
@@ -68,7 +70,7 @@ type PartnerNetwork = {
 @Component({
   selector: 'app-auth-portal',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule, HttpClientModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, HttpClientModule, NavbarComponent],
   templateUrl: './auth-portal.component.html',
   styleUrls: ['./auth-portal.component.scss']
 })
@@ -78,12 +80,14 @@ export class AuthPortalComponent implements OnInit {
   partnerRegisterForm!: FormGroup;
   accountRegisterForm!: FormGroup;
   recoveryForm!: FormGroup;
+  resetPasswordForm!: FormGroup;
   networkReferralForm!: FormGroup;
   invitationForm!: FormGroup;
   commissionSettingsForm!: FormGroup;
   clientDocumentForm!: FormGroup;
   clientAppointmentForm!: FormGroup;
   clientMessageForm!: FormGroup;
+  clientPaymentSupportForm!: FormGroup;
   clientServiceForm!: FormGroup;
   clientProfileForm!: FormGroup;
   allyProfileForm!: FormGroup;
@@ -94,8 +98,14 @@ export class AuthPortalComponent implements OnInit {
   adminPaymentForm!: FormGroup;
   adminDocumentForm!: FormGroup;
   adminAgendaForm!: FormGroup;
+  adminLevelForm!: FormGroup;
+  adminGoalForm!: FormGroup;
+  adminResourceForm!: FormGroup;
+  adminAcademyForm!: FormGroup;
+  adminFraudAlertForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
+  showResetPassword = false;
   loading = false;
   googleLoadingRole: 'ally' | 'client' | 'admin' | null = null;
   message = '';
@@ -123,21 +133,43 @@ export class AuthPortalComponent implements OnInit {
   editingAdminClientId: number | null = null;
   editingAdminCaseId: number | null = null;
   editingAdminAllyId: number | null = null;
+  editingAdminLevelId: number | null = null;
+  editingAdminGoalId: number | null = null;
+  editingAdminResourceId: number | null = null;
+  editingAdminAcademyId: number | null = null;
+  editingAdminFraudAlertId: number | null = null;
   showAllyProfileForm = false;
   selectedPartnerReferral: any = null;
+  selectedPartnerTeamAlly: any = null;
   selectedAcademyModule: any = null;
   partnerReferralSearch = '';
   partnerReferralStatus = 'Todos';
+  clientCaseSearch = '';
+  clientCaseStatus = 'Todos los estados';
+  clientPaymentStatus = 'Todos';
+  adminLeadSearch = '';
+  adminLeadStatus = 'Todos los estados';
+  adminLeadSource = 'Todas las fuentes';
+  adminCaseSearch = '';
+  adminCaseStatus = 'Todos los estados';
+  adminPaymentSearch = '';
+  adminPaymentStatus = 'Todos los estados';
   formMessage = '';
   formError = '';
   clientFormMessage = '';
   clientFormError = '';
   clientMessageAttachmentName = '';
   clientServiceAttachmentName = '';
+  clientDocumentFile: File | null = null;
+  clientMessageFile: File | null = null;
+  clientServiceFile: File | null = null;
   clientProfileLoading = false;
   clientProfileSaving = false;
   showClientDocument = false;
   selectedClientCaseId = 1;
+  selectedClientPaymentId: number | null = null;
+  reschedulingAppointmentId: number | null = null;
+  resetCode = '';
   private googleScriptPromise?: Promise<void>;
   readonly environment = this.resolveEnvironment();
   readonly strongPasswordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
@@ -329,6 +361,13 @@ export class AuthPortalComponent implements OnInit {
       email: ['', [Validators.required, Validators.email]]
     });
 
+    this.resetCode = this.getQueryParam('codigo') || this.getQueryParam('token');
+    this.resetPasswordForm = this.fb.group({
+      codigo: [this.resetCode, Validators.required],
+      password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
+      confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]]
+    });
+
     this.networkReferralForm = this.fb.group({
       client_name: ['', Validators.required],
       client_identification: ['', Validators.required],
@@ -376,6 +415,12 @@ export class AuthPortalComponent implements OnInit {
       caseTitle: ['Revisión contrato de compraventa', Validators.required],
       message: ['', [Validators.required, Validators.minLength(8)]],
       attachment: ['']
+    });
+
+    this.clientPaymentSupportForm = this.fb.group({
+      support_url: ['', Validators.required],
+      payment_method: ['Nequi 3118924111', Validators.required],
+      payment_date: ['']
     });
 
     this.clientServiceForm = this.fb.group({
@@ -482,6 +527,48 @@ export class AuthPortalComponent implements OnInit {
       notes: ['']
     });
 
+    this.adminLevelForm = this.fb.group({
+      name: ['', Validators.required],
+      min_converted_referrals: [0, Validators.required],
+      min_commissions: [0, Validators.required],
+      min_active_allies: [0, Validators.required],
+      benefits: [''],
+      sort_order: [1, Validators.required]
+    });
+
+    this.adminGoalForm = this.fb.group({
+      ally_id: [''],
+      month: [new Date().toISOString().slice(0, 7), Validators.required],
+      referral_goal: [5, Validators.required],
+      converted_goal: [1, Validators.required],
+      commission_goal: [500000, Validators.required]
+    });
+
+    this.adminResourceForm = this.fb.group({
+      title: ['', Validators.required],
+      resource_type: ['Mensaje', Validators.required],
+      description: [''],
+      url: [''],
+      content: ['']
+    });
+
+    this.adminAcademyForm = this.fb.group({
+      title: ['', Validators.required],
+      description: ['', Validators.required],
+      content: [''],
+      video_url: [''],
+      sort_order: [1, Validators.required]
+    });
+
+    this.adminFraudAlertForm = this.fb.group({
+      ally_id: [''],
+      referral_id: [''],
+      risk_level: ['Medio', Validators.required],
+      alert_type: ['Revisión manual', Validators.required],
+      description: ['', Validators.required],
+      status: ['open', Validators.required]
+    });
+
     this.restoreSession();
     this.enforceDashboardAccess();
     if (this.mode === 'partner-dashboard') {
@@ -509,6 +596,7 @@ export class AuthPortalComponent implements OnInit {
     if (this.path === '/admin/login') return 'admin-login';
     if (this.path === '/admin/registro') return 'admin-register';
     if (this.path === '/admin/dashboard') return 'admin-dashboard';
+    if (this.path.includes('restablecer-contrasena')) return 'reset-password';
     if (this.path.includes('recuperar')) return 'recovery';
     return 'access';
   }
@@ -749,10 +837,66 @@ export class AuthPortalComponent implements OnInit {
       this.recoveryForm.markAllAsTouched();
       return;
     }
+    this.loading = true;
     this.http.post<any>(this.apiUrl('/api/auth/recovery/request'), this.recoveryForm.value).subscribe({
-      next: (response) => this.message = response.message || 'Te enviamos instrucciones para recuperar el acceso.',
-      error: (err) => this.error = err?.error?.error || 'No fue posible procesar la solicitud.'
+      next: (response) => {
+        this.loading = false;
+        this.message = response.message || 'Te enviamos instrucciones para recuperar el acceso.';
+      },
+      error: (err) => {
+        this.loading = false;
+        this.error = err?.error?.error || 'No fue posible procesar la solicitud.';
+      }
     });
+  }
+
+  resetPassword(): void {
+    this.error = '';
+    this.message = '';
+    if (this.resetPasswordForm.invalid) {
+      this.resetPasswordForm.markAllAsTouched();
+      this.error = this.getResetPasswordError();
+      return;
+    }
+    if (this.resetPasswordForm.value.password !== this.resetPasswordForm.value.confirm_password) {
+      this.error = 'Las contraseñas no coinciden.';
+      return;
+    }
+    if (!this.strongPasswordPattern.test(this.resetPasswordForm.value.password || '')) {
+      this.error = 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+      return;
+    }
+
+    this.loading = true;
+    this.http.post<any>(this.apiUrl('/api/auth/recovery/reset'), {
+      codigo: this.resetPasswordForm.value.codigo,
+      password: this.resetPasswordForm.value.password
+    }).subscribe({
+      next: (response) => {
+        this.loading = false;
+        if (response?.token && response?.user) {
+          localStorage.setItem('orjuelaToken', response.token);
+          localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
+          this.currentUser = response.user;
+          this.resetPasswordForm.reset();
+          this.go(this.dashboardPathForRole(response.user.role));
+          return;
+        }
+        this.message = response.message || 'Contraseña actualizada correctamente.';
+      },
+      error: (err) => {
+        this.loading = false;
+        this.error = err?.error?.error || 'No fue posible actualizar la contraseña.';
+      }
+    });
+  }
+
+  private getResetPasswordError(): string {
+    if (this.resetPasswordForm.get('codigo')?.invalid) return 'Ingresa el código recibido por correo.';
+    if (this.resetPasswordForm.get('password')?.hasError('pattern') || this.resetPasswordForm.get('confirm_password')?.hasError('pattern')) {
+      return 'La contraseña debe tener mínimo 8 caracteres, mayúscula, minúscula, número y símbolo.';
+    }
+    return 'Completa todos los campos para crear una nueva contraseña.';
   }
 
   nextRegisterStep(): void {
@@ -913,6 +1057,22 @@ export class AuthPortalComponent implements OnInit {
     this.selectedPartnerReferral = referral;
   }
 
+  openPartnerTeamDetail(ally: any): void {
+    this.selectedPartnerTeamAlly = ally;
+  }
+
+  closePartnerTeamDetail(): void {
+    this.selectedPartnerTeamAlly = null;
+  }
+
+  get selectedPartnerTeamReferrals(): any[] {
+    const ally = this.selectedPartnerTeamAlly;
+    if (!ally) return [];
+    return (this.partnerNetwork.network_referrals || []).filter((item: any) =>
+      item.source_ally_id === ally.user_id || item.source_ally_name === ally.full_name
+    );
+  }
+
   openAcademyModule(module: any): void {
     this.selectedAcademyModule = module;
   }
@@ -923,6 +1083,56 @@ export class AuthPortalComponent implements OnInit {
 
   get selectedClientCase(): ClientPortalCase {
     return this.clientPortalCases.find((item) => item.id === this.selectedClientCaseId) || this.clientPortalCases[0];
+  }
+
+  get filteredClientPortalCases(): ClientPortalCase[] {
+    const term = this.clientCaseSearch.toLowerCase().trim();
+    return this.clientPortalCases.filter((item) => {
+      const matchesStatus = this.clientCaseStatus === 'Todos los estados' || item.status === this.clientCaseStatus;
+      const matchesTerm = !term || [item.title, item.type, item.status, item.lawyer, item.nextAction]
+        .some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
+  }
+
+  get filteredClientPayments(): ClientPayment[] {
+    return this.clientPayments.filter((item) => {
+      if (this.clientPaymentStatus === 'Todos') return true;
+      if (this.clientPaymentStatus === 'Pendiente') return item.status !== 'Pagado';
+      return item.status === this.clientPaymentStatus;
+    });
+  }
+
+  get filteredAdminLeads(): AdminLead[] {
+    const term = this.adminLeadSearch.toLowerCase().trim();
+    return this.adminLeads.filter((item) => {
+      const matchesStatus = this.adminLeadStatus === 'Todos los estados' || item.status === this.adminLeadStatus;
+      const matchesSource = this.adminLeadSource === 'Todas las fuentes' || item.source === this.adminLeadSource;
+      const matchesTerm = !term || [item.name, item.phone, item.email, item.caseType, item.owner, item.priority]
+        .some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesSource && matchesTerm;
+    });
+  }
+
+  get filteredAdminCases(): any[] {
+    const term = this.adminCaseSearch.toLowerCase().trim();
+    return this.adminCases.filter((item) => {
+      const matchesStatus = this.adminCaseStatus === 'Todos los estados' || item.status === this.adminCaseStatus;
+      const matchesTerm = !term || [item.client_name, item.client_email, item.case_type, item.assigned_lawyer, item.next_action]
+        .some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
+  }
+
+  get filteredAdminPayments(): any[] {
+    const term = this.adminPaymentSearch.toLowerCase().trim();
+    return this.adminPayments.filter((item) => {
+      const matchesStatus = this.adminPaymentStatus === 'Todos los estados' || item.status === this.adminPaymentStatus;
+      const related = `${item.related_type || ''} #${item.related_id || ''}`;
+      const matchesTerm = !term || [related, item.concept, item.payment_method, item.amount, item.payment_date, item.support_url]
+        .some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
   }
 
   get clientDashboardMetrics(): PortalMetric[] {
@@ -1147,7 +1357,7 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
-  submitClientDocument(): void {
+  async submitClientDocument(): Promise<void> {
     this.clientFormError = '';
     this.clientFormMessage = '';
     if (this.clientDocumentForm.invalid) {
@@ -1155,26 +1365,36 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Completa los datos del documento. Tamaño máximo: 10 MB.';
       return;
     }
-    const fileName = this.clientDocumentForm.value.fileName;
+    if (!this.clientDocumentFile) {
+      this.clientFormError = 'Selecciona el archivo que quieres subir.';
+      return;
+    }
+    const fileName = this.clientDocumentForm.value.fileName || this.clientDocumentFile.name;
     const fileType = String(this.clientDocumentForm.value.fileType || '').toLowerCase();
-    if (!['pdf', 'jpg', 'jpeg', 'png', 'docx'].includes(fileType)) {
-      this.clientFormError = 'Formato no permitido. Usa PDF, JPG, PNG o DOCX.';
+    if (!['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'].includes(fileType)) {
+      this.clientFormError = 'Formato no permitido. Usa PDF, DOC, DOCX, JPG o PNG.';
       return;
     }
     const legalCase = this.clientPortalCases.find((item) => item.title === this.clientDocumentForm.value.caseTitle) || this.clientPortalCases[0];
-    this.http.post<any>(this.apiUrl('/api/client/documents'), {
-      case_id: legalCase?.id,
-      file_name: fileName,
-      document_type: fileType,
-      observations: this.clientDocumentForm.value.observations || 'Pendiente de revisión por el abogado.'
-    }, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.clientFormMessage = 'Documento registrado correctamente. Quedó pendiente de revisión.';
-        this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
-        this.loadClientPortal();
-      },
-      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible registrar el documento.'
-    });
+    try {
+      this.loading = true;
+      const uploaded = await this.uploadClientFile(this.clientDocumentFile, 'documents');
+      await firstValueFrom(this.http.post<any>(this.apiUrl('/api/client/documents'), {
+        case_id: legalCase?.id,
+        file_name: fileName,
+        file_url: uploaded.file_url,
+        document_type: fileType,
+        observations: this.clientDocumentForm.value.observations || 'Pendiente de revisión por el abogado.'
+      }, { headers: this.authHeaders() }));
+      this.loading = false;
+      this.clientFormMessage = 'Documento registrado correctamente. Quedó pendiente de revisión.';
+      this.clientDocumentFile = null;
+      this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
+      this.loadClientPortal();
+    } catch (err: any) {
+      this.loading = false;
+      this.clientFormError = err?.error?.error || 'No fue posible registrar el documento.';
+    }
   }
 
   submitClientAppointment(): void {
@@ -1185,7 +1405,27 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Completa la información para solicitar la cita.';
       return;
     }
+    if (this.reschedulingAppointmentId) {
+      this.loading = true;
+      this.http.patch<any>(this.apiUrl(`/api/client/appointments/${this.reschedulingAppointmentId}/reschedule`), {
+        scheduled_at: this.clientAppointmentForm.value.requestedDate,
+        notes: this.clientAppointmentForm.value.reason
+      }, { headers: this.authHeaders() }).subscribe({
+        next: () => {
+          this.loading = false;
+          this.clientFormMessage = 'Reprogramación solicitada. El equipo confirmará disponibilidad.';
+          this.cancelClientAppointmentReschedule();
+          this.loadClientPortal();
+        },
+        error: (err) => {
+          this.loading = false;
+          this.clientFormError = err?.error?.error || 'No fue posible reprogramar la cita.';
+        }
+      });
+      return;
+    }
     const legalCase = this.clientPortalCases.find((item) => item.title === this.clientAppointmentForm.value.caseTitle) || this.clientPortalCases[0];
+    this.loading = true;
     this.http.post<any>(this.apiUrl('/api/client/appointments'), {
       case_id: legalCase?.id,
       title: this.clientAppointmentForm.value.reason,
@@ -1193,15 +1433,154 @@ export class AuthPortalComponent implements OnInit {
       notes: this.clientAppointmentForm.value.type
     }, { headers: this.authHeaders() }).subscribe({
       next: () => {
+        this.loading = false;
         this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmará disponibilidad.';
         this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '' });
         this.loadClientPortal();
       },
-      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible solicitar la cita.'
+      error: (err) => {
+        this.loading = false;
+        this.clientFormError = err?.error?.error || 'No fue posible solicitar la cita.';
+      }
     });
   }
 
-  submitClientMessage(): void {
+  startClientAppointmentReschedule(appointment: ClientAppointment): void {
+    if (!appointment.id) {
+      this.clientFormError = 'No encontramos el identificador de esta cita.';
+      return;
+    }
+    this.reschedulingAppointmentId = appointment.id;
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    this.clientAppointmentForm.patchValue({
+      caseTitle: appointment.caseTitle,
+      type: appointment.type === 'Agenda' ? 'Virtual' : appointment.type,
+      requestedDate: this.toDateTimeLocalValue(appointment.date),
+      reason: `Reprogramar: ${appointment.title}`
+    });
+  }
+
+  cancelClientAppointmentReschedule(): void {
+    this.reschedulingAppointmentId = null;
+    this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '', type: 'Virtual' });
+  }
+
+  cancelClientAppointment(appointment: ClientAppointment): void {
+    if (!appointment.id) {
+      this.clientFormError = 'No encontramos el identificador de esta cita.';
+      return;
+    }
+    const reason = window.prompt('Motivo de cancelación', 'No podré asistir a la cita.');
+    if (reason === null) return;
+    this.loading = true;
+    this.http.post<any>(this.apiUrl(`/api/client/appointments/${appointment.id}/cancel`), { reason }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.loading = false;
+        this.clientFormMessage = 'Cita cancelada correctamente.';
+        this.loadClientPortal();
+      },
+      error: (err) => {
+        this.loading = false;
+        this.clientFormError = err?.error?.error || 'No fue posible cancelar la cita.';
+      }
+    });
+  }
+
+  downloadClientPaymentSupport(payment: ClientPayment): void {
+    this.clientFormError = '';
+    const support = payment.supportUrl || '';
+    if (!support || support === '#' || support === 'Pendiente de soporte') {
+      this.clientFormError = 'Este pago aún no tiene comprobante descargable.';
+      return;
+    }
+    if (!/^https?:\/\//i.test(support)) {
+      this.clientFormError = 'El soporte registrado no es un enlace descargable.';
+      return;
+    }
+    window.open(support, '_blank', 'noopener');
+  }
+
+  openClientFile(url?: string): void {
+    this.clientFormError = '';
+    if (!url || url === '#') {
+      this.clientFormError = 'Este archivo aún no tiene enlace descargable.';
+      return;
+    }
+    const target = /^https?:\/\//i.test(url) ? url : this.apiUrl(url);
+    window.open(target, '_blank', 'noopener');
+  }
+
+  isClientFileLink(value?: string): boolean {
+    return Boolean(value && (/^https?:\/\//i.test(value) || value.startsWith('/uploads/')));
+  }
+
+  startClientPaymentSupport(payment: ClientPayment): void {
+    if (!payment.id) {
+      this.clientFormError = 'No encontramos el identificador de este pago.';
+      return;
+    }
+    this.selectedClientPaymentId = payment.id;
+    this.clientPaymentSupportForm.reset({
+      support_url: payment.supportUrl && /^https?:\/\//i.test(payment.supportUrl) ? payment.supportUrl : '',
+      payment_method: payment.paymentMethod || 'Nequi 3118924111',
+      payment_date: ''
+    });
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+  }
+
+  cancelClientPaymentSupport(): void {
+    this.selectedClientPaymentId = null;
+    this.clientPaymentSupportForm.reset({ support_url: '', payment_method: 'Nequi 3118924111', payment_date: '' });
+  }
+
+  submitClientPaymentSupport(): void {
+    this.clientFormError = '';
+    this.clientFormMessage = '';
+    if (!this.selectedClientPaymentId) {
+      this.clientFormError = 'Selecciona un pago para registrar soporte.';
+      return;
+    }
+    if (this.clientPaymentSupportForm.invalid) {
+      this.clientPaymentSupportForm.markAllAsTouched();
+      this.clientFormError = 'Registra el enlace o referencia del comprobante.';
+      return;
+    }
+    this.loading = true;
+    this.http.post<any>(this.apiUrl(`/api/client/payments/${this.selectedClientPaymentId}/support`), this.clientPaymentSupportForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.loading = false;
+        this.clientFormMessage = 'Soporte de pago registrado. Quedó pendiente de validación.';
+        this.cancelClientPaymentSupport();
+        this.loadClientPortal();
+      },
+      error: (err) => {
+        this.loading = false;
+        this.clientFormError = err?.error?.error || 'No fue posible registrar el soporte.';
+      }
+    });
+  }
+
+  onClientDocumentFileChange(event: Event): void {
+    this.clientFormError = '';
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) {
+      this.clientDocumentFile = null;
+      return;
+    }
+    if (!this.validateClientUploadFile(file, input, 'El documento no puede superar 10 MB.')) return;
+    this.clientDocumentFile = file;
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    this.clientDocumentForm.patchValue({
+      fileName: file.name,
+      fileType: extension === 'jpeg' ? 'jpg' : extension,
+      fileSizeMb: Math.max(1, Math.ceil((file.size / (1024 * 1024)) * 10) / 10)
+    });
+  }
+
+  async submitClientMessage(): Promise<void> {
     this.clientFormError = '';
     this.clientFormMessage = '';
     if (this.clientMessageForm.invalid) {
@@ -1209,17 +1588,30 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Escribe un mensaje claro para el abogado asignado.';
       return;
     }
-    this.clientMessages.unshift({
-      caseTitle: this.clientMessageForm.value.caseTitle,
-      from: this.currentUser?.full_name || 'Cliente',
-      date: new Date().toISOString(),
-      unread: false,
-      text: this.clientMessageForm.value.message,
-      attachmentName: this.clientMessageForm.value.attachment || undefined
-    });
-    this.clientFormMessage = 'Mensaje enviado a la firma.';
-    this.clientMessageAttachmentName = '';
-    this.clientMessageForm.patchValue({ message: '', attachment: '' });
+    const legalCase = this.clientPortalCases.find((item) => item.title === this.clientMessageForm.value.caseTitle) || this.clientPortalCases[0];
+    if (!legalCase?.id) {
+      this.clientFormError = 'Selecciona un caso válido para enviar el mensaje.';
+      return;
+    }
+    try {
+      this.loading = true;
+      const uploaded = this.clientMessageFile ? await this.uploadClientFile(this.clientMessageFile, 'messages') : null;
+      await firstValueFrom(this.http.post<any>(this.apiUrl('/api/client/messages'), {
+        case_id: legalCase.id,
+        message: this.clientMessageForm.value.message,
+        attachment_name: uploaded?.file_name || this.clientMessageForm.value.attachment || '',
+        attachment_url: uploaded?.file_url || ''
+      }, { headers: this.authHeaders() }));
+      this.loading = false;
+      this.clientFormMessage = 'Mensaje enviado a la firma.';
+      this.clientMessageAttachmentName = '';
+      this.clientMessageFile = null;
+      this.clientMessageForm.patchValue({ message: '', attachment: '' });
+      this.loadClientPortal();
+    } catch (err: any) {
+      this.loading = false;
+      this.clientFormError = err?.error?.error || 'No fue posible enviar el mensaje.';
+    }
   }
 
   onClientMessageAttachmentChange(event: Event): void {
@@ -1228,36 +1620,14 @@ export class AuthPortalComponent implements OnInit {
     const file = input.files?.[0];
     if (!file) {
       this.clientMessageAttachmentName = '';
+      this.clientMessageFile = null;
       this.clientMessageForm.patchValue({ attachment: '' });
       return;
     }
-
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'image/jpeg',
-      'image/png',
-      'image/webp'
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
-      this.clientFormError = 'Adjunta únicamente documentos PDF, DOC, DOCX o imágenes JPG, PNG, WEBP.';
-      input.value = '';
-      this.clientMessageAttachmentName = '';
-      this.clientMessageForm.patchValue({ attachment: '' });
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      this.clientFormError = 'El archivo adjunto no puede superar 10 MB.';
-      input.value = '';
-      this.clientMessageAttachmentName = '';
-      this.clientMessageForm.patchValue({ attachment: '' });
-      return;
-    }
+    if (!this.validateClientUploadFile(file, input, 'El archivo adjunto no puede superar 10 MB.')) return;
 
     this.clientMessageAttachmentName = file.name;
+    this.clientMessageFile = file;
     this.clientMessageForm.patchValue({ attachment: file.name });
   }
 
@@ -1267,40 +1637,18 @@ export class AuthPortalComponent implements OnInit {
     const file = input.files?.[0];
     if (!file) {
       this.clientServiceAttachmentName = '';
+      this.clientServiceFile = null;
       this.clientServiceForm.patchValue({ documents: '' });
       return;
     }
-
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'image/jpeg',
-      'image/png',
-      'image/webp'
-    ];
-
-    if (!allowedTypes.includes(file.type)) {
-      this.clientFormError = 'Adjunta únicamente documentos PDF, DOC, DOCX o imágenes JPG, PNG, WEBP.';
-      input.value = '';
-      this.clientServiceAttachmentName = '';
-      this.clientServiceForm.patchValue({ documents: '' });
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      this.clientFormError = 'El documento inicial no puede superar 10 MB.';
-      input.value = '';
-      this.clientServiceAttachmentName = '';
-      this.clientServiceForm.patchValue({ documents: '' });
-      return;
-    }
+    if (!this.validateClientUploadFile(file, input, 'El documento inicial no puede superar 10 MB.')) return;
 
     this.clientServiceAttachmentName = file.name;
+    this.clientServiceFile = file;
     this.clientServiceForm.patchValue({ documents: file.name });
   }
 
-  submitClientServiceRequest(): void {
+  async submitClientServiceRequest(): Promise<void> {
     this.clientFormError = '';
     this.clientFormMessage = '';
     if (this.clientServiceForm.invalid) {
@@ -1308,14 +1656,24 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Completa los campos obligatorios para solicitar el servicio.';
       return;
     }
-    this.clientServiceRequests.unshift({
-      ...this.clientServiceForm.value,
-      status: 'Enviada',
-      createdAt: new Date().toISOString().slice(0, 10)
-    });
-    this.clientFormMessage = 'Solicitud enviada. Queda lista para registrarse en el panel administrativo cuando se conecte al API.';
-    this.clientServiceAttachmentName = '';
-    this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone });
+    try {
+      this.loading = true;
+      const uploaded = this.clientServiceFile ? await this.uploadClientFile(this.clientServiceFile, 'service-requests') : null;
+      await firstValueFrom(this.http.post<any>(this.apiUrl('/api/client/service-requests'), {
+        ...this.clientServiceForm.value,
+        documents: uploaded?.file_url || this.clientServiceForm.value.documents || ''
+      }, { headers: this.authHeaders() }));
+      this.loading = false;
+      this.clientFormMessage = 'Solicitud enviada. El equipo la revisará desde el panel administrativo.';
+      this.clientServiceAttachmentName = '';
+      this.clientServiceFile = null;
+      this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone, city: this.clientProfile.city });
+      this.loadClientPortal();
+      this.loadClientProfile();
+    } catch (err: any) {
+      this.loading = false;
+      this.clientFormError = err?.error?.error || 'No fue posible enviar la solicitud.';
+    }
   }
 
   loadAdminDashboard(): void {
@@ -1538,6 +1896,196 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  saveAdminLevel(): void {
+    if (this.adminLevelForm.invalid) return this.adminLevelForm.markAllAsTouched();
+    const endpoint = this.editingAdminLevelId ? `/api/admin/partner-network/levels/${this.editingAdminLevelId}` : '/api/admin/partner-network/levels';
+    const request = this.editingAdminLevelId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminLevelForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminLevelForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminLevelId ? 'Nivel actualizado.' : 'Nivel creado.';
+        this.cancelAdminLevelEdit();
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el nivel.'
+    });
+  }
+
+  editAdminLevel(level: any): void {
+    this.editingAdminLevelId = level.id;
+    this.adminLevelForm.patchValue(level);
+  }
+
+  cancelAdminLevelEdit(): void {
+    this.editingAdminLevelId = null;
+    this.adminLevelForm.reset({ min_converted_referrals: 0, min_commissions: 0, min_active_allies: 0, sort_order: 1 });
+  }
+
+  archiveAdminLevel(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/levels/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Nivel archivado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el nivel.'
+    });
+  }
+
+  saveAdminGoal(): void {
+    if (this.adminGoalForm.invalid) return this.adminGoalForm.markAllAsTouched();
+    const endpoint = this.editingAdminGoalId ? `/api/admin/partner-network/goals/${this.editingAdminGoalId}` : '/api/admin/partner-network/goals';
+    const request = this.editingAdminGoalId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminGoalForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminGoalForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminGoalId ? 'Meta actualizada.' : 'Meta creada.';
+        this.cancelAdminGoalEdit();
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar la meta.'
+    });
+  }
+
+  editAdminGoal(goal: any): void {
+    this.editingAdminGoalId = goal.id;
+    this.adminGoalForm.patchValue({ ...goal, ally_id: goal.ally_id || '' });
+  }
+
+  cancelAdminGoalEdit(): void {
+    this.editingAdminGoalId = null;
+    this.adminGoalForm.reset({ ally_id: '', month: new Date().toISOString().slice(0, 7), referral_goal: 5, converted_goal: 1, commission_goal: 500000 });
+  }
+
+  archiveAdminGoal(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/goals/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Meta archivada.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar la meta.'
+    });
+  }
+
+  saveAdminResource(): void {
+    if (this.adminResourceForm.invalid) return this.adminResourceForm.markAllAsTouched();
+    const endpoint = this.editingAdminResourceId ? `/api/admin/partner-network/resources/${this.editingAdminResourceId}` : '/api/admin/partner-network/resources';
+    const request = this.editingAdminResourceId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminResourceForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminResourceForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminResourceId ? 'Recurso actualizado.' : 'Recurso creado.';
+        this.cancelAdminResourceEdit();
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el recurso.'
+    });
+  }
+
+  editAdminResource(resource: any): void {
+    this.editingAdminResourceId = resource.id;
+    this.adminResourceForm.patchValue(resource);
+  }
+
+  cancelAdminResourceEdit(): void {
+    this.editingAdminResourceId = null;
+    this.adminResourceForm.reset({ resource_type: 'Mensaje' });
+  }
+
+  archiveAdminResource(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/resources/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Recurso archivado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el recurso.'
+    });
+  }
+
+  saveAdminAcademy(): void {
+    if (this.adminAcademyForm.invalid) return this.adminAcademyForm.markAllAsTouched();
+    const endpoint = this.editingAdminAcademyId ? `/api/admin/partner-network/academy/${this.editingAdminAcademyId}` : '/api/admin/partner-network/academy';
+    const request = this.editingAdminAcademyId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminAcademyForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminAcademyForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminAcademyId ? 'Módulo actualizado.' : 'Módulo creado.';
+        this.cancelAdminAcademyEdit();
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el módulo.'
+    });
+  }
+
+  editAdminAcademy(module: any): void {
+    this.editingAdminAcademyId = module.id;
+    this.adminAcademyForm.patchValue(module);
+  }
+
+  cancelAdminAcademyEdit(): void {
+    this.editingAdminAcademyId = null;
+    this.adminAcademyForm.reset({ sort_order: 1 });
+  }
+
+  archiveAdminAcademy(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/academy/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Módulo archivado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el módulo.'
+    });
+  }
+
+  saveAdminFraudAlert(): void {
+    if (this.adminFraudAlertForm.invalid) return this.adminFraudAlertForm.markAllAsTouched();
+    const endpoint = this.editingAdminFraudAlertId ? `/api/admin/partner-network/fraud-alerts/${this.editingAdminFraudAlertId}` : '/api/admin/partner-network/fraud-alerts';
+    const request = this.editingAdminFraudAlertId
+      ? this.http.patch(this.apiUrl(endpoint), this.adminFraudAlertForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl(endpoint), this.adminFraudAlertForm.value, { headers: this.authHeaders() });
+    request.subscribe({
+      next: () => {
+        this.formMessage = this.editingAdminFraudAlertId ? 'Alerta actualizada.' : 'Alerta creada.';
+        this.cancelAdminFraudAlertEdit();
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar la alerta.'
+    });
+  }
+
+  editAdminFraudAlert(alert: any): void {
+    this.editingAdminFraudAlertId = alert.id;
+    this.adminFraudAlertForm.patchValue({ ...alert, ally_id: alert.ally_id || '', referral_id: alert.referral_id || '' });
+  }
+
+  cancelAdminFraudAlertEdit(): void {
+    this.editingAdminFraudAlertId = null;
+    this.adminFraudAlertForm.reset({ ally_id: '', referral_id: '', risk_level: 'Medio', alert_type: 'Revisión manual', status: 'open' });
+  }
+
+  updateAdminFraudAlertStatus(id: number, status: string): void {
+    this.http.patch(this.apiUrl(`/api/admin/partner-network/fraud-alerts/${id}`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Alerta actualizada.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar la alerta.'
+    });
+  }
+
+  archiveAdminFraudAlert(id: number): void {
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/fraud-alerts/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Alerta archivada.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar la alerta.'
+    });
+  }
+
   createAdminPayment(): void {
     if (this.adminPaymentForm.invalid) return this.adminPaymentForm.markAllAsTouched();
     this.http.post(this.apiUrl('/api/admin/payments'), this.adminPaymentForm.value, { headers: this.authHeaders() }).subscribe({
@@ -1640,23 +2188,56 @@ export class AuthPortalComponent implements OnInit {
           uploadedAt: doc.uploaded_at,
           status: doc.status || 'Recibido',
           observations: doc.observations || '',
-          size: doc.document_type || 'Documento'
+          size: doc.document_type || 'Documento',
+          fileUrl: doc.file_url || ''
         }));
         this.clientPayments = (response.payments || []).map((payment: any) => ({
+          id: payment.id,
           concept: payment.concept || `Pago ${payment.related_type} #${payment.related_id}`,
           caseTitle: payment.related_type === 'case' ? `Caso #${payment.related_id}` : 'Cliente',
           amount: payment.amount,
           dueDate: payment.payment_date || payment.created_at,
           status: payment.status,
-          receipt: payment.support_url || payment.payment_method || 'Pendiente de soporte'
+          receipt: payment.support_url || payment.payment_method || 'Pendiente de soporte',
+          supportUrl: payment.support_url || '',
+          paymentMethod: payment.payment_method || 'Nequi 3118924111'
         }));
         this.clientAppointments = (response.appointments || []).map((item: any) => ({
+          id: item.id,
           title: item.title,
           caseTitle: item.related_type === 'case' ? `Caso #${item.related_id}` : 'Cliente',
           date: item.date || item.scheduled_at,
           type: 'Agenda',
           status: item.status,
           location: item.notes || 'Pendiente de confirmación'
+        }));
+        this.clientMessages = (response.messages || []).map((msg: any) => ({
+          caseTitle: msg.case_type || 'Caso',
+          from: msg.sender_role === 'client' ? (msg.sender_name || 'Cliente') : (msg.sender_name || 'Equipo Orjuela'),
+          date: msg.created_at,
+          unread: msg.sender_role !== 'client' && !msg.is_read_by_client,
+          text: msg.message,
+          attachmentName: msg.attachment_name || undefined,
+          attachmentUrl: msg.attachment_url || undefined
+        }));
+        this.clientServiceRequests = (response.serviceRequests || []).map((request: any) => ({
+          service_type: request.service_type,
+          description: request.description,
+          urgency: request.urgency,
+          documents: request.documents || '',
+          city: request.city || '',
+          email: request.email || this.clientProfile.email,
+          phone: request.phone || this.clientProfile.phone,
+          status: request.status || 'Enviada',
+          createdAt: request.created_at
+        }));
+        this.clientNotifications = (response.notifications || []).map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          date: item.created_at,
+          type: item.notification_type || 'Portal',
+          unread: !item.is_read
         }));
       }
     });
@@ -1710,8 +2291,24 @@ export class AuthPortalComponent implements OnInit {
   }
 
   markClientNotificationsRead(): void {
-    this.clientNotifications = this.clientNotifications.map((item) => ({ ...item, unread: false }));
-    this.clientFormMessage = 'Notificaciones marcadas como leídas.';
+    this.http.post(this.apiUrl('/api/client/notifications/read-all'), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.clientNotifications = this.clientNotifications.map((item) => ({ ...item, unread: false }));
+        this.clientFormMessage = 'Notificaciones marcadas como leídas.';
+      },
+      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible actualizar notificaciones.'
+    });
+  }
+
+  markClientNotificationRead(item: ClientNotification): void {
+    if (!item.id) return;
+    this.http.post(this.apiUrl(`/api/client/notifications/${item.id}/read`), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        item.unread = false;
+        this.clientFormMessage = 'Notificación marcada como leída.';
+      },
+      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible actualizar la notificación.'
+    });
   }
 
   formatCurrency(value: any): string {
@@ -1728,6 +2325,66 @@ export class AuthPortalComponent implements OnInit {
 
   private apiUrl(path: string): string {
     return `${this.environment.apiBaseUrl || ''}${path}`;
+  }
+
+  private validateClientUploadFile(file: File, input: HTMLInputElement, sizeMessage: string): boolean {
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ];
+    if (!allowedTypes.includes(file.type)) {
+      this.clientFormError = 'Adjunta únicamente documentos PDF, DOC, DOCX o imágenes JPG, PNG, WEBP.';
+      input.value = '';
+      return false;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      this.clientFormError = sizeMessage;
+      input.value = '';
+      return false;
+    }
+    return true;
+  }
+
+  private async uploadClientFile(file: File, context: string): Promise<any> {
+    const dataBase64 = await this.fileToBase64(file);
+    return firstValueFrom(this.http.post<any>(this.apiUrl('/api/client/uploads'), {
+      file_name: file.name,
+      mime_type: file.type,
+      data_base64: dataBase64,
+      context
+    }, { headers: this.authHeaders() }));
+  }
+
+  private fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+      reader.onerror = () => reject(new Error('No fue posible leer el archivo.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private getQueryParam(name: string): string {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get(name) || '';
+  }
+
+  private dashboardPathForRole(role: string): string {
+    if (role === 'ally') return '/aliados/dashboard';
+    if (role === 'client') return '/clientes/dashboard';
+    return '/admin/dashboard';
+  }
+
+  private toDateTimeLocalValue(value: string): string {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value.includes('T') ? value.slice(0, 16) : '';
+    const pad = (part: number) => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   private authHeaders(): HttpHeaders {
@@ -1821,10 +2478,10 @@ export class AuthPortalComponent implements OnInit {
       || host.includes('preprod');
 
     return {
-      ...environment,
-      name: isPreviewHost ? 'qa' : environment.name,
-      enableDemoData: environment.enableDemoData || isPreviewHost,
-      showEnvironmentBadge: environment.showEnvironmentBadge || isPreviewHost
+      ...APP_PUBLIC_CONFIG,
+      name: isPreviewHost ? 'qa' : APP_PUBLIC_CONFIG.name,
+      enableDemoData: APP_PUBLIC_CONFIG.enableDemoData || isPreviewHost,
+      showEnvironmentBadge: APP_PUBLIC_CONFIG.showEnvironmentBadge || isPreviewHost
     };
   }
 
