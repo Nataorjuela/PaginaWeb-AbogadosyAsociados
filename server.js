@@ -658,13 +658,19 @@ function verifyGoogleCredential(credential, callback) {
   });
 }
 
+function googleTokenMatchesClient(tokenInfo) {
+  if (!GOOGLE_CLIENT_ID) return true;
+  const tokenClientId = cleanText(tokenInfo.aud || tokenInfo.audience || tokenInfo.issued_to, 250);
+  return tokenClientId === GOOGLE_CLIENT_ID;
+}
+
 function verifyGoogleAccessToken(accessToken, callback) {
   const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`;
   getJsonFromUrl(tokenInfoUrl, {}, (tokenErr, tokenResult) => {
     if (tokenErr) return callback(tokenErr);
     const tokenInfo = tokenResult.body;
     if (tokenResult.statusCode !== 200 || tokenInfo.error) return callback(new Error('invalid_credential'));
-    if (GOOGLE_CLIENT_ID && tokenInfo.aud !== GOOGLE_CLIENT_ID) return callback(new Error('invalid_audience'));
+    if (!googleTokenMatchesClient(tokenInfo)) return callback(new Error('invalid_audience'));
 
     getJsonFromUrl('https://www.googleapis.com/oauth2/v3/userinfo', { Authorization: `Bearer ${accessToken}` }, (profileErr, profileResult) => {
       if (profileErr) return callback(profileErr);
@@ -1364,6 +1370,7 @@ app.post('/api/auth/google', (req, res) => {
 
   verifyGoogleCredential(String(req.body.credential || req.body.access_token || ''), (verifyErr, googleProfile) => {
     if (verifyErr || !googleProfile?.email) {
+      console.error('[auth/google] Google validation failed:', verifyErr?.message || 'missing_profile');
       return res.status(401).json({ error: 'No fue posible validar tu cuenta de Google.' });
     }
 
