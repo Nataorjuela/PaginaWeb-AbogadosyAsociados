@@ -300,6 +300,7 @@
         <button [class.active]="adminSection === 'payments'" (click)="setAdminSection('payments')">Pagos</button>
         <button [class.active]="adminSection === 'agenda'" (click)="setAdminSection('agenda')">Agenda</button>
         <button [class.active]="adminSection === 'documents'" (click)="setAdminSection('documents')">Documentos</button>
+        <button [class.active]="adminSection === 'notifications'" (click)="setAdminSection('notifications')">Notificaciones</button>
         <button [class.active]="adminSection === 'reports'" (click)="setAdminSection('reports')">Reportes</button>
         <button [class.active]="adminSection === 'settings'" (click)="setAdminSection('settings')">Configuración</button>
         <button (click)="logout()">Cerrar sesión</button>
@@ -861,6 +862,47 @@
         </section>
         <div *ngIf="formError" class="alert alert-danger">{{ formError }}</div>
         <div *ngIf="formMessage" class="alert alert-success">{{ formMessage }}</div>
+      </div>
+      <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'notifications'">
+        <section class="lead-hero-card">
+          <div>
+            <span class="secure-pill">Centro de novedades</span>
+            <h2>Notificaciones administrativas</h2>
+            <p>Revisa nuevos aliados, referidos y clientes registrados. Contacta rápido por WhatsApp, correo o teléfono.</p>
+          </div>
+          <button class="btn btn-outline-dark" type="button" (click)="markAdminNotificationsRead()">Marcar todas como leídas</button>
+        </section>
+
+        <section class="data-card wide">
+          <div class="activity-list admin-notification-list">
+            <article *ngFor="let item of adminNotifications" [class.unread]="!item.is_read">
+              <i class="bi" [ngClass]="item.notification_type === 'new_referral' ? 'bi-person-lines-fill' : item.notification_type === 'new_ally' ? 'bi-diagram-3' : 'bi-person-plus'"></i>
+              <div>
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.description }}</span>
+                <small>{{ item.created_at | date:'medium' }}</small>
+                <div class="contact-strip">
+                  <span *ngIf="item.contact_name"><i class="bi bi-person"></i>{{ item.contact_name }}</span>
+                  <span *ngIf="item.contact_phone"><i class="bi bi-telephone"></i>{{ item.contact_phone }}</span>
+                  <span *ngIf="item.contact_email"><i class="bi bi-envelope"></i>{{ item.contact_email }}</span>
+                </div>
+              </div>
+              <div class="quick-actions">
+                <a class="btn btn-primary btn-sm" *ngIf="item.whatsapp_url" [href]="item.whatsapp_url" target="_blank" rel="noopener">
+                  <i class="bi bi-whatsapp"></i> WhatsApp
+                </a>
+                <a class="btn btn-outline-dark btn-sm" *ngIf="item.email_url" [href]="item.email_url">
+                  <i class="bi bi-envelope"></i> Correo
+                </a>
+                <button class="btn btn-outline-dark btn-sm" type="button" *ngIf="!item.is_read" (click)="markAdminNotificationRead(item.id)">Leída</button>
+              </div>
+            </article>
+            <article *ngIf="!adminNotifications.length">
+              <i class="bi bi-check-circle"></i>
+              <div><strong>Sin notificaciones pendientes</strong><span>Cuando llegue un nuevo aliado, referido o cliente aparecerá aquí.</span></div>
+            </article>
+          </div>
+        </section>
       </div>
       <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'partner-network'">
         <section class="lead-hero-card">

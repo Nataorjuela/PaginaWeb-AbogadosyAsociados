@@ -124,6 +124,7 @@ export class AuthPortalComponent implements OnInit {
   adminDocuments: any[] = [];
   adminAgenda: any[] = [];
   adminReports: any = {};
+  adminNotifications: any[] = [];
   showAdminLeadForm = false;
   showAdminClientForm = false;
   showAdminAllyForm = false;
@@ -1724,6 +1725,25 @@ export class AuthPortalComponent implements OnInit {
     if (section === 'agenda') this.http.get<any[]>(this.apiUrl('/api/admin/agenda'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminAgenda = rows });
     if (section === 'documents') this.http.get<any[]>(this.apiUrl('/api/admin/documents'), { headers: this.authHeaders() }).subscribe({ next: (rows) => this.adminDocuments = rows });
     if (section === 'reports') this.http.get<any>(this.apiUrl('/api/admin/reports'), { headers: this.authHeaders() }).subscribe({ next: (report) => this.adminReports = report });
+    if (section === 'notifications') this.loadAdminNotifications();
+  }
+
+  loadAdminNotifications(): void {
+    this.http.get<any[]>(this.apiUrl('/api/admin/notifications'), { headers: this.authHeaders() }).subscribe({
+      next: (rows) => this.adminNotifications = rows || []
+    });
+  }
+
+  markAdminNotificationRead(id: number): void {
+    this.http.post(this.apiUrl(`/api/admin/notifications/${id}/read`), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => this.loadAdminNotifications()
+    });
+  }
+
+  markAdminNotificationsRead(): void {
+    this.http.post(this.apiUrl('/api/admin/notifications/read-all'), {}, { headers: this.authHeaders() }).subscribe({
+      next: () => this.loadAdminNotifications()
+    });
   }
 
   loadAdminLeads(): void {

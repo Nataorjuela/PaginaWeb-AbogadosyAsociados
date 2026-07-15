@@ -424,6 +424,22 @@ async function createDatabase() {
       created_at TEXT NOT NULL
     )`,
 
+    `CREATE TABLE IF NOT EXISTS admin_notifications (
+      id BIGSERIAL PRIMARY KEY,
+      notification_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      entity_type TEXT,
+      entity_id BIGINT,
+      contact_name TEXT,
+      contact_phone TEXT,
+      contact_email TEXT,
+      whatsapp_url TEXT,
+      email_url TEXT,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    )`,
+
     `CREATE TABLE IF NOT EXISTS ally_legal_acceptances (
       id BIGSERIAL PRIMARY KEY,
       ally_id BIGINT NOT NULL,
@@ -615,6 +631,51 @@ function createClientNotification(clientId, type, title, description) {
     cleanText(description, 500),
     getTimestamp()
   ], () => {});
+}
+
+function whatsappLink(phone, message = '') {
+  const digits = String(phone || '').replace(/\D/g, '');
+  if (!digits) return '';
+  const normalized = digits.length === 10 && digits.startsWith('3') ? `57${digits}` : digits;
+  const text = cleanText(message, 500);
+  return `https://wa.me/${normalized}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
+}
+
+function mailtoLink(email, subject = '') {
+  const cleanEmail = normalizeEmail(email);
+  if (!cleanEmail || !isValidEmail(cleanEmail)) return '';
+  const cleanSubject = cleanText(subject, 160);
+  return `mailto:${cleanEmail}${cleanSubject ? `?subject=${encodeURIComponent(cleanSubject)}` : ''}`;
+}
+
+function createAdminNotification(data = {}) {
+  const title = cleanText(data.title, 180);
+  const description = cleanText(data.description, 700);
+  if (!title || !description) return;
+
+  const contactName = cleanText(data.contact_name, 180);
+  const contactPhone = cleanText(data.contact_phone, 80);
+  const contactEmail = normalizeEmail(data.contact_email);
+  const notificationType = cleanText(data.notification_type || 'general', 80);
+  const entityType = cleanText(data.entity_type || '', 80);
+  const entityId = data.entity_id ? parseInt(data.entity_id, 10) : null;
+  const message = data.whatsapp_message || `Hola ${contactName || ''}, te contactamos de Orjuela Abogados y Asociados.`;
+
+  pgRun(`INSERT INTO admin_notifications
+    (notification_type, title, description, entity_type, entity_id, contact_name, contact_phone, contact_email, whatsapp_url, email_url, is_read, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11)`, [
+    notificationType,
+    title,
+    description,
+    entityType,
+    entityId,
+    contactName,
+    contactPhone,
+    contactEmail,
+    whatsappLink(contactPhone, message),
+    mailtoLink(contactEmail, title),
+    getTimestamp()
+  ], createPgErrorLogger('create admin notification'));
 }
 
 function cleanText(value, maxLength = 180) {
@@ -1352,6 +1413,17 @@ app.post('/api/auth/register-client', (req, res) => {
           const userId = this.lastID;
           pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES ($1, $2, 'Equipo Orjuela')`, [userId, documentId]);
           pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES ($1, $2, $3, $4, $5)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
+          createAdminNotification({
+            notification_type: 'new_client',
+            title: 'Nuevo cliente registrado',
+            description: `${payload.full_name} creó cuenta de cliente en la plataforma.`,
+            entity_type: 'client',
+            entity_id: userId,
+            contact_name: payload.full_name,
+            contact_phone: payload.phone,
+            contact_email: payload.email,
+            whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para acompañarte en tu proceso.`
+          });
           res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
         });
       });
@@ -1555,6 +1627,28 @@ app.post('/api/auth/google', (req, res) => {
           };
           ensureRoleProfile(user, (profileErr) => {
             if (profileErr) return res.status(500).json({ error: 'No fue posible preparar tu perfil.' });
+            if (requestedRole === 'ally') {
+              createAdminNotification({
+                notification_type: 'new_ally',
+                title: 'Nuevo aliado registrado con Google',
+                description: `${googleProfile.full_name} creó cuenta de aliado con Google.`,
+                entity_type: 'ally',
+                entity_id: user.id,
+                contact_name: googleProfile.full_name,
+                contact_email: googleProfile.email
+              });
+            }
+            if (requestedRole === 'client') {
+              createAdminNotification({
+                notification_type: 'new_client',
+                title: 'Nuevo cliente registrado con Google',
+                description: `${googleProfile.full_name} creó cuenta de cliente con Google.`,
+                entity_type: 'client',
+                entity_id: user.id,
+                contact_name: googleProfile.full_name,
+                contact_email: googleProfile.email
+              });
+            }
             res.status(201).json(createAuthResponse(user));
           });
         });
@@ -1643,6 +1737,29 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
         });
       });
     });
+  });
+});
+
+app.get('/api/admin/notifications', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  pgAll(`SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 150`, (err, rows) => {
+    if (err) return res.status(500).json({ error: 'No fue posible cargar notificaciones.' });
+    res.json(rows);
+  });
+});
+
+app.post('/api/admin/notifications/:id/read', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Notificación inválida.' });
+  pgRun(`UPDATE admin_notifications SET is_read = 1 WHERE id = $1`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificación.' });
+    res.json({ message: 'Notificación marcada como leída.' });
+  });
+});
+
+app.post('/api/admin/notifications/read-all', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  pgRun(`UPDATE admin_notifications SET is_read = 1`, (err) => {
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar notificaciones.' });
+    res.json({ message: 'Notificaciones marcadas como leídas.' });
   });
 });
 
@@ -3644,6 +3761,18 @@ app.post('/api/allies', (req, res) => {
       <p><strong>Fecha:</strong> ${createdAt}</p>
     `);
 
+    createAdminNotification({
+      notification_type: 'new_ally',
+      title: 'Nuevo aliado registrado',
+      description: `${payload.full_name} se registró como aliado desde la landing. Ciudad: ${payload.city}. Tipo: ${payload.ally_type}.`,
+      entity_type: 'ally',
+      entity_id: this.lastID,
+      contact_name: payload.full_name,
+      contact_phone: payload.phone,
+      contact_email: payload.email,
+      whatsapp_message: `Hola ${payload.full_name}, bienvenido al programa de aliados de Orjuela Abogados. Queremos confirmar tu registro.`
+    });
+
     res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Ya puedes ingresar al portal de aliados con tu correo y contraseña.' });
   });
   });
@@ -3674,11 +3803,15 @@ app.post('/api/referrals', (req, res) => {
     return res.status(400).json({ error: 'El área legal seleccionada no es válida.' });
   }
 
-  pgGet(`SELECT id, full_name, status FROM allies WHERE document_number = $1 AND email = $2
+  pgGet(`SELECT u.id, u.full_name, u.status
+    FROM partners p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.document_id = $1 AND u.email = $2
     UNION
     SELECT u.id, u.full_name, u.status
-    FROM partners p JOIN users u ON u.id = p.user_id
-    WHERE p.document_id = $3 AND u.email = $4`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
+    FROM allies a
+    JOIN users u ON u.email = a.email AND u.role = 'ally'
+    WHERE a.document_number = $3 AND a.email = $4`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error interno al verificar el aliado.' });
@@ -3692,12 +3825,14 @@ app.post('/api/referrals', (req, res) => {
 
     const createdAt = getTimestamp();
     pgRun(`INSERT INTO referrals (ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, file_notes, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'new', $10, $11)`,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Nuevo referido', $10, $11)
+      RETURNING id`,
       [ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, payload.urgency, payload.file_notes, createdAt, createdAt], function (insertErr) {
       if (insertErr) {
         console.error(insertErr);
         return res.status(500).json({ error: 'Error interno al guardar el referido.' });
       }
+      const referralId = this.lastID;
 
       sendNotificationEmail('Nuevo referido desde aliado', `
         <h2>Nuevo referido recibido</h2>
@@ -3712,7 +3847,22 @@ app.post('/api/referrals', (req, res) => {
         <p><strong>Fecha:</strong> ${createdAt}</p>
       `);
 
-      res.status(201).json({ message: 'Referido enviado correctamente. El equipo de Orjuela Abogados se pondrá en contacto con la persona referida.' });
+      createAdminNotification({
+        notification_type: 'new_referral',
+        title: 'Nuevo referido recibido',
+        description: `${ally.full_name} registró a ${payload.referred_full_name}. Área: ${payload.legal_area}. Ciudad: ${payload.referred_city}.`,
+        entity_type: 'referral',
+        entity_id: referralId,
+        contact_name: payload.referred_full_name,
+        contact_phone: payload.referred_phone,
+        contact_email: payload.referred_email,
+        whatsapp_message: `Hola ${payload.referred_full_name}, te contactamos de Orjuela Abogados. Recibimos tu solicitud por medio de ${ally.full_name} y queremos orientarte.`
+      });
+
+      createCommissionRows(referralId, ally.id, (commissionErr) => {
+        if (commissionErr) console.error('[referrals] Error creando comisiones:', commissionErr);
+        res.status(201).json({ message: 'Referido enviado correctamente. Quedó asociado al perfil del aliado y el equipo de Orjuela Abogados fue notificado.', id: referralId });
+      });
     });
   });
 });
@@ -3754,6 +3904,18 @@ app.post('/api/leads', (req, res) => {
       <p><strong>Fuente:</strong> ${escapeHtml(payload.source)}</p>
       <p><strong>Notas:</strong> ${escapeHtml(payload.notes)}</p>
     `);
+
+    createAdminNotification({
+      notification_type: 'new_lead',
+      title: 'Nuevo cliente potencial',
+      description: `${payload.name} solicitó contacto por ${payload.case_type}. Fuente: ${payload.source}.`,
+      entity_type: 'lead',
+      entity_id: this.lastID,
+      contact_name: payload.name,
+      contact_phone: payload.phone,
+      contact_email: payload.email,
+      whatsapp_message: `Hola ${payload.name}, te contactamos de Orjuela Abogados. Recibimos tu solicitud sobre ${payload.case_type}.`
+    });
 
     res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactará pronto.' });
   });
