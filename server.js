@@ -4,15 +4,16 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const https = require('https');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
-const DB_FILE = process.env.DB_FILE || path.resolve(__dirname, 'data', 'orjuela.db');
-const UPLOAD_DIR = path.resolve(path.dirname(DB_FILE), 'uploads');
+const DATA_DIR = process.env.DATA_DIR || path.resolve(__dirname, 'data');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(DATA_DIR, 'uploads');
+const DATABASE_URL = process.env.DATABASE_URL || '';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || '';
 const ADMIN_REGISTRATION_CODE = process.env.ADMIN_REGISTRATION_CODE || '';
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret';
@@ -52,21 +53,70 @@ app.use((req, res, next) => {
 app.use('/uploads', express.static(UPLOAD_DIR));
 
 function ensureDataDirectory() {
-  const folder = path.dirname(DB_FILE);
-  if (!fs.existsSync(folder)) {
-    fs.mkdirSync(folder, { recursive: true });
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
   }
   if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
   }
 }
 
-function createDatabase() {
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: DATABASE_URL && !/localhost|127\.0\.0\.1/i.test(DATABASE_URL) ? { rejectUnauthorized: false } : false
+});
+
+function createPgErrorLogger(context, callback) {
+  return (err) => {
+    if (err) console.error(`[db] ${context}:`, err);
+    if (callback) callback(err || null);
+  };
+}
+
+function normalizeQueryArgs(params, callback) {
+  if (typeof params === 'function') return { params: [], callback: params };
+  return { params: params || [], callback: callback || (() => {}) };
+}
+
+function pgGet(sql, params = [], callback) {
+  const args = normalizeQueryArgs(params, callback);
+  pool.query(sql, args.params, (err, result) => {
+    args.callback(err, result?.rows?.[0]);
+  });
+}
+
+function pgAll(sql, params = [], callback) {
+  const args = normalizeQueryArgs(params, callback);
+  pool.query(sql, args.params, (err, result) => {
+    args.callback(err, result?.rows || []);
+  });
+}
+
+function pgRun(sql, params = [], callback = () => {}) {
+  const args = normalizeQueryArgs(params, callback);
+  pool.query(sql, args.params, (err, result) => {
+    args.callback.call({
+      lastID: result?.rows?.[0]?.id || result?.rows?.[0]?.user_id,
+      changes: result?.rowCount || 0
+    }, err);
+  });
+}
+
+async function runSchema(sqlStatements) {
+  for (const sql of sqlStatements) {
+    await pool.query(sql);
+  }
+}
+
+async function createDatabase() {
   ensureDataDirectory();
-  const db = new sqlite3.Database(DB_FILE);
-  db.serialize(() => {
-    db.run(`CREATE TABLE IF NOT EXISTS allies (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+  if (!DATABASE_URL) {
+    throw new Error('DATABASE_URL es obligatorio para usar PostgreSQL/Supabase.');
+  }
+
+  await runSchema([
+    `CREATE TABLE IF NOT EXISTS allies (
+      id BIGSERIAL PRIMARY KEY,
       full_name TEXT NOT NULL,
       document_number TEXT NOT NULL UNIQUE,
       phone TEXT NOT NULL,
@@ -80,11 +130,11 @@ function createDatabase() {
       status TEXT NOT NULL DEFAULT 'pending',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS referrals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS referrals (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
       referred_full_name TEXT NOT NULL,
       client_identification TEXT,
       referred_phone TEXT NOT NULL,
@@ -97,12 +147,11 @@ function createDatabase() {
       file_notes TEXT,
       status TEXT NOT NULL DEFAULT 'new',
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (ally_id) REFERENCES allies(id)
-    )`);
+      updated_at TEXT NOT NULL
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS leads (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS leads (
+      id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       phone TEXT NOT NULL,
       email TEXT,
@@ -111,125 +160,83 @@ function createDatabase() {
       status TEXT NOT NULL DEFAULT 'Nuevo',
       assigned_to TEXT,
       notes TEXT,
-      referrer_id INTEGER,
+      referrer_id BIGINT,
+      priority TEXT DEFAULT 'Media',
+      next_action TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS clients (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS clients (
+      id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       document_id TEXT,
       phone TEXT,
       email TEXT,
-      created_at TEXT NOT NULL
-    )`);
+      city TEXT,
+      address TEXT,
+      verified INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'Activo',
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS cases (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS cases (
+      id BIGSERIAL PRIMARY KEY,
+      client_id BIGINT NOT NULL,
       case_type TEXT NOT NULL,
       description TEXT,
       status TEXT NOT NULL DEFAULT 'Recibido',
       assigned_lawyer TEXT,
       next_action TEXT,
       created_at TEXT NOT NULL,
+      updated_at TEXT,
+      archived_at TEXT,
       FOREIGN KEY (client_id) REFERENCES clients(id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS case_documents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      case_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS case_documents (
+      id BIGSERIAL PRIMARY KEY,
+      case_id BIGINT NOT NULL,
       file_name TEXT NOT NULL,
       file_url TEXT NOT NULL,
+      document_type TEXT,
+      status TEXT DEFAULT 'Recibido',
+      observations TEXT,
       uploaded_at TEXT NOT NULL,
       FOREIGN KEY (case_id) REFERENCES cases(id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS payments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS payments (
+      id BIGSERIAL PRIMARY KEY,
       related_type TEXT NOT NULL,
-      related_id INTEGER NOT NULL,
+      related_id BIGINT NOT NULL,
+      concept TEXT,
       amount REAL NOT NULL,
       status TEXT NOT NULL,
+      payment_method TEXT,
       payment_date TEXT,
-      created_at TEXT NOT NULL
-    )`);
+      support_url TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS admin_agenda (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS admin_agenda (
+      id BIGSERIAL PRIMARY KEY,
       title TEXT NOT NULL,
       client_name TEXT,
       related_type TEXT,
-      related_id INTEGER,
+      related_id BIGINT,
       assigned_to TEXT,
       scheduled_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'Programada',
       notes TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS client_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      case_id INTEGER,
-      sender_id INTEGER,
-      sender_role TEXT NOT NULL,
-      sender_name TEXT NOT NULL,
-      message TEXT NOT NULL,
-      attachment_name TEXT,
-      attachment_url TEXT,
-      is_read_by_client INTEGER NOT NULL DEFAULT 1,
-      is_read_by_admin INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (client_id) REFERENCES clients(id),
-      FOREIGN KEY (case_id) REFERENCES cases(id),
-      FOREIGN KEY (sender_id) REFERENCES users(id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS client_service_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      lead_id INTEGER,
-      service_type TEXT NOT NULL,
-      description TEXT NOT NULL,
-      urgency TEXT NOT NULL,
-      documents TEXT,
-      city TEXT,
-      email TEXT,
-      phone TEXT,
-      status TEXT NOT NULL DEFAULT 'Enviada',
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (client_id) REFERENCES clients(id),
-      FOREIGN KEY (lead_id) REFERENCES leads(id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS client_notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      client_id INTEGER NOT NULL,
-      notification_type TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      is_read INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (client_id) REFERENCES clients(id)
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      actor_id INTEGER,
-      actor_name TEXT,
-      action TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id INTEGER,
-      summary TEXT,
-      created_at TEXT NOT NULL
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
       full_name TEXT NOT NULL,
       document_id TEXT,
       email TEXT NOT NULL UNIQUE,
@@ -243,10 +250,68 @@ function createDatabase() {
       reset_token_expires_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS partners (
-      user_id INTEGER PRIMARY KEY,
+    `CREATE TABLE IF NOT EXISTS client_messages (
+      id BIGSERIAL PRIMARY KEY,
+      client_id BIGINT NOT NULL,
+      case_id BIGINT,
+      sender_id BIGINT,
+      sender_role TEXT NOT NULL,
+      sender_name TEXT NOT NULL,
+      message TEXT NOT NULL,
+      attachment_name TEXT,
+      attachment_url TEXT,
+      is_read_by_client INTEGER NOT NULL DEFAULT 1,
+      is_read_by_admin INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id),
+      FOREIGN KEY (case_id) REFERENCES cases(id),
+      FOREIGN KEY (sender_id) REFERENCES users(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS client_service_requests (
+      id BIGSERIAL PRIMARY KEY,
+      client_id BIGINT NOT NULL,
+      lead_id BIGINT,
+      service_type TEXT NOT NULL,
+      description TEXT NOT NULL,
+      urgency TEXT NOT NULL,
+      documents TEXT,
+      city TEXT,
+      email TEXT,
+      phone TEXT,
+      status TEXT NOT NULL DEFAULT 'Enviada',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id),
+      FOREIGN KEY (lead_id) REFERENCES leads(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS client_notifications (
+      id BIGSERIAL PRIMARY KEY,
+      client_id BIGINT NOT NULL,
+      notification_type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES clients(id)
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS audit_logs (
+      id BIGSERIAL PRIMARY KEY,
+      actor_id BIGINT,
+      actor_name TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id BIGINT,
+      summary TEXT,
+      created_at TEXT NOT NULL
+    )`,
+
+    `CREATE TABLE IF NOT EXISTS partners (
+      user_id BIGINT PRIMARY KEY,
       document_id TEXT NOT NULL UNIQUE,
       phone TEXT NOT NULL,
       city TEXT NOT NULL,
@@ -258,18 +323,18 @@ function createDatabase() {
       account_type TEXT,
       account_number TEXT,
       referral_code TEXT UNIQUE,
-      invited_by_partner_id INTEGER,
+      invited_by_partner_id BIGINT,
       commission_balance REAL DEFAULT 0,
       created_at TEXT,
       updated_at TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS commissions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
-      referral_id INTEGER NOT NULL,
-      source_ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS commissions (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
+      referral_id BIGINT NOT NULL,
+      source_ally_id BIGINT NOT NULL,
       commission_type TEXT NOT NULL,
       percentage REAL NOT NULL,
       amount REAL NOT NULL DEFAULT 0,
@@ -279,40 +344,40 @@ function createDatabase() {
       FOREIGN KEY (ally_id) REFERENCES partners(user_id),
       FOREIGN KEY (source_ally_id) REFERENCES partners(user_id),
       FOREIGN KEY (referral_id) REFERENCES referrals(id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS commission_settings (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS commission_settings (
+      id BIGSERIAL PRIMARY KEY,
       direct_percentage REAL NOT NULL DEFAULT 10,
       level_1_percentage REAL NOT NULL DEFAULT 3,
       level_2_percentage REAL NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS referral_status_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      referral_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS referral_status_history (
+      id BIGSERIAL PRIMARY KEY,
+      referral_id BIGINT NOT NULL,
       status TEXT NOT NULL,
       notes TEXT,
       visible_to_ally INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       FOREIGN KEY (referral_id) REFERENCES referrals(id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_activity_logs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ally_activity_logs (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
       event_type TEXT NOT NULL,
       description TEXT NOT NULL,
       icon TEXT,
       status TEXT,
       created_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_resources (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS ally_resources (
+      id BIGSERIAL PRIMARY KEY,
       title TEXT NOT NULL,
       resource_type TEXT NOT NULL,
       description TEXT,
@@ -320,10 +385,10 @@ function createDatabase() {
       content TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_levels (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS ally_levels (
+      id BIGSERIAL PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       min_converted_referrals INTEGER NOT NULL,
       min_commissions REAL NOT NULL,
@@ -331,42 +396,42 @@ function createDatabase() {
       benefits TEXT,
       sort_order INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_goals (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER,
+    `CREATE TABLE IF NOT EXISTS ally_goals (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT,
       month TEXT NOT NULL,
       referral_goal INTEGER NOT NULL DEFAULT 5,
       converted_goal INTEGER NOT NULL DEFAULT 1,
       commission_goal REAL NOT NULL DEFAULT 500000,
       is_active INTEGER NOT NULL DEFAULT 1,
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ally_notifications (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
       notification_type TEXT NOT NULL,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       is_read INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_legal_acceptances (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ally_legal_acceptances (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
       document_type TEXT NOT NULL,
       accepted_at TEXT,
       ip_address TEXT,
       version TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending'
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_kyc_verifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL UNIQUE,
+    `CREATE TABLE IF NOT EXISTS ally_kyc_verifications (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL UNIQUE,
       front_document_url TEXT,
       back_document_url TEXT,
       selfie_url TEXT,
@@ -377,100 +442,61 @@ function createDatabase() {
       email_validated INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'Sin verificar',
       updated_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_electronic_signatures (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ally_electronic_signatures (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
       document_type TEXT NOT NULL,
       full_name TEXT NOT NULL,
       document_number TEXT NOT NULL,
       version TEXT NOT NULL,
       signed_at TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'accepted'
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_fraud_alerts (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER,
-      referral_id INTEGER,
+    `CREATE TABLE IF NOT EXISTS ally_fraud_alerts (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT,
+      referral_id BIGINT,
       risk_level TEXT NOT NULL,
       alert_type TEXT NOT NULL,
       description TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
       created_at TEXT NOT NULL
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_academy_modules (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+    `CREATE TABLE IF NOT EXISTS ally_academy_modules (
+      id BIGSERIAL PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       content TEXT,
       video_url TEXT,
       sort_order INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS ally_academy_progress (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      ally_id INTEGER NOT NULL,
-      module_id INTEGER NOT NULL,
+    `CREATE TABLE IF NOT EXISTS ally_academy_progress (
+      id BIGSERIAL PRIMARY KEY,
+      ally_id BIGINT NOT NULL,
+      module_id BIGINT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pendiente',
       progress INTEGER NOT NULL DEFAULT 0,
       updated_at TEXT NOT NULL,
       UNIQUE(ally_id, module_id)
-    )`);
+    )`,
 
-    db.run(`CREATE TABLE IF NOT EXISTS auth_clients (
-      user_id INTEGER PRIMARY KEY,
+    `CREATE TABLE IF NOT EXISTS auth_clients (
+      user_id BIGINT PRIMARY KEY,
       document_id TEXT UNIQUE,
       assigned_lawyer TEXT,
       FOREIGN KEY (user_id) REFERENCES users(id)
-    )`);
+    )`
+  ]);
 
-    [
-      `ALTER TABLE allies ADD COLUMN how_known TEXT`,
-      `ALTER TABLE allies ADD COLUMN bank_name TEXT`,
-      `ALTER TABLE allies ADD COLUMN account_type TEXT`,
-      `ALTER TABLE allies ADD COLUMN account_number TEXT`,
-      `ALTER TABLE referrals ADD COLUMN urgency TEXT`,
-      `ALTER TABLE referrals ADD COLUMN file_notes TEXT`,
-      `ALTER TABLE referrals ADD COLUMN client_identification TEXT`,
-      `ALTER TABLE referrals ADD COLUMN referral_channel TEXT`,
-      `ALTER TABLE partners ADD COLUMN occupation TEXT`,
-      `ALTER TABLE partners ADD COLUMN bank_name TEXT`,
-      `ALTER TABLE partners ADD COLUMN account_type TEXT`,
-      `ALTER TABLE partners ADD COLUMN account_number TEXT`,
-      `ALTER TABLE partners ADD COLUMN referral_code TEXT`,
-      `ALTER TABLE partners ADD COLUMN invited_by_partner_id INTEGER`,
-      `ALTER TABLE partners ADD COLUMN created_at TEXT`,
-      `ALTER TABLE partners ADD COLUMN updated_at TEXT`,
-      `ALTER TABLE users ADD COLUMN document_id TEXT`,
-      `ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'password'`,
-      `ALTER TABLE users ADD COLUMN google_sub TEXT`,
-      `ALTER TABLE users ADD COLUMN avatar_url TEXT`,
-      `ALTER TABLE clients ADD COLUMN city TEXT`,
-      `ALTER TABLE clients ADD COLUMN address TEXT`,
-      `ALTER TABLE clients ADD COLUMN updated_at TEXT`,
-      `ALTER TABLE clients ADD COLUMN verified INTEGER DEFAULT 0`,
-      `ALTER TABLE clients ADD COLUMN status TEXT DEFAULT 'Activo'`,
-      `ALTER TABLE leads ADD COLUMN priority TEXT DEFAULT 'Media'`,
-      `ALTER TABLE leads ADD COLUMN next_action TEXT`,
-      `ALTER TABLE cases ADD COLUMN updated_at TEXT`,
-      `ALTER TABLE cases ADD COLUMN archived_at TEXT`,
-      `ALTER TABLE case_documents ADD COLUMN document_type TEXT`,
-      `ALTER TABLE case_documents ADD COLUMN status TEXT DEFAULT 'Recibido'`,
-      `ALTER TABLE case_documents ADD COLUMN observations TEXT`,
-      `ALTER TABLE payments ADD COLUMN concept TEXT`,
-      `ALTER TABLE payments ADD COLUMN support_url TEXT`,
-      `ALTER TABLE payments ADD COLUMN updated_at TEXT`,
-      `ALTER TABLE payments ADD COLUMN payment_method TEXT`,
-      `ALTER TABLE client_messages ADD COLUMN attachment_url TEXT`,
-    ].forEach((sql) => db.run(sql, () => {}));
-
-    db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
-      SELECT 10, 3, 1, 1, ?, ?
-      WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()]);
+  pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
+    SELECT 10, 3, 1, 1, $1, $2
+    WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()], createPgErrorLogger('seed commission_settings'));
 
     const seedNow = new Date().toISOString();
     [
@@ -479,8 +505,9 @@ function createDatabase() {
       ['Oro', 8, 1500000, 3, 'Acompañamiento comercial dedicado y materiales personalizados.', 3],
       ['Elite', 15, 3500000, 5, 'Beneficios preferenciales, sesiones estratégicas y reconocimiento destacado.', 4]
     ].forEach((item) => {
-      db.run(`INSERT OR IGNORE INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?)`, item);
+      pgRun(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (name) DO NOTHING`, item, createPgErrorLogger('seed ally_levels'));
     });
 
     [
@@ -491,9 +518,9 @@ function createDatabase() {
       ['PDF portafolio de servicios', 'pdf', 'Documento comercial editable.', '/assets/logoCompleto.jpg', ''],
       ['Logo autorizado', 'logo', 'Uso de marca aprobado para aliados.', '/assets/logoCompleto.jpg', '']
     ].forEach((item) => {
-      db.run(`INSERT INTO ally_resources (title, resource_type, description, url, content, created_at)
-        SELECT ?, ?, ?, ?, ?, ?
-        WHERE NOT EXISTS (SELECT 1 FROM ally_resources WHERE title = ?)`, [...item, seedNow, item[0]]);
+      pgRun(`INSERT INTO ally_resources (title, resource_type, description, url, content, created_at)
+        SELECT $1, $2, $3, $4, $5, $6
+        WHERE NOT EXISTS (SELECT 1 FROM ally_resources WHERE title = $7)`, [...item, seedNow, item[0]], createPgErrorLogger('seed ally_resources'));
     });
 
     [
@@ -507,12 +534,10 @@ function createDatabase() {
       ['Scripts de venta', 'Guiones profesionales para conversaciones.', 'Mantén un tono claro, honesto y consultivo.'],
       ['Buenas prácticas', 'Recomendaciones para mejorar vinculación.', 'Prioriza calidad de información y seguimiento oportuno.']
     ].forEach((item, index) => {
-      db.run(`INSERT INTO ally_academy_modules (title, description, content, sort_order)
-        SELECT ?, ?, ?, ?
-        WHERE NOT EXISTS (SELECT 1 FROM ally_academy_modules WHERE title = ?)`, [item[0], item[1], item[2], index + 1, item[0]]);
+      pgRun(`INSERT INTO ally_academy_modules (title, description, content, sort_order)
+        SELECT $1, $2, $3, $4
+        WHERE NOT EXISTS (SELECT 1 FROM ally_academy_modules WHERE title = $5)`, [item[0], item[1], item[2], index + 1, item[0]], createPgErrorLogger('seed ally_academy_modules'));
     });
-  });
-  return db;
 }
 
 function createTransporter() {
@@ -531,7 +556,7 @@ function createTransporter() {
 }
 
 const transporter = createTransporter();
-const db = createDatabase();
+const dbReady = createDatabase();
 
 function sendNotificationEmail(subject, html) {
   if (!ADMIN_EMAIL || !transporter) {
@@ -572,8 +597,8 @@ function getTimestamp() {
 
 function createClientNotification(clientId, type, title, description) {
   if (!clientId || !title || !description) return;
-  db.run(`INSERT INTO client_notifications (client_id, notification_type, title, description, is_read, created_at)
-    VALUES (?, ?, ?, ?, 0, ?)`, [
+  pgRun(`INSERT INTO client_notifications (client_id, notification_type, title, description, is_read, created_at)
+    VALUES ($1, $2, $3, $4, 0, $5)`, [
     clientId,
     cleanText(type || 'Portal', 60),
     cleanText(title, 160),
@@ -627,12 +652,14 @@ function generatedDocumentId(prefix, email) {
 
 function ensureClientProfile(user, callback) {
   const documentId = normalizeDocument(user.document_id) || generatedDocumentId('CLIENTE', user.email);
-  db.run(`INSERT OR IGNORE INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES (?, ?, 'Equipo Orjuela')`, [user.id, documentId], (authErr) => {
+  pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer)
+    VALUES ($1, $2, 'Equipo Orjuela')
+    ON CONFLICT (user_id) DO NOTHING`, [user.id, documentId], (authErr) => {
     if (authErr) return callback(authErr);
-    db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [user.email, documentId], (clientErr, client) => {
+    pgGet(`SELECT id FROM clients WHERE email = $1 OR document_id = $2`, [user.email, documentId], (clientErr, client) => {
       if (clientErr) return callback(clientErr);
       if (client) return callback();
-      db.run(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES (?, ?, '', ?, ?)`, [user.full_name, documentId, user.email, getTimestamp()], callback);
+      pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES ($1, $2, '', $3, $4)`, [user.full_name, documentId, user.email, getTimestamp()], callback);
     });
   });
 }
@@ -640,8 +667,9 @@ function ensureClientProfile(user, callback) {
 function ensurePartnerProfile(user, callback) {
   const documentId = normalizeDocument(user.document_id) || generatedDocumentId('ALIADO', user.email);
   const referralCode = generateReferralCode(user.full_name || user.email, documentId);
-  db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
-    VALUES (?, ?, '', '', 'Independiente', '', 'Registro web', 'Aliado referidor', ?, 0, ?, ?)`,
+  pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
+    VALUES ($1, $2, '', '', 'Independiente', '', 'Registro web', 'Aliado referidor', $3, 0, $4, $5)
+    ON CONFLICT (user_id) DO NOTHING`,
     [user.id, documentId, referralCode, getTimestamp(), getTimestamp()], callback);
 }
 
@@ -812,19 +840,20 @@ function upsertSeedUser({ fullName, documentId, email, password, role }, callbac
   const now = getTimestamp();
   const passwordHash = hashPassword(password);
 
-  db.get(`SELECT id FROM users WHERE email = ?`, [email], (selectErr, existingUser) => {
+  pgGet(`SELECT id FROM users WHERE email = $1`, [email], (selectErr, existingUser) => {
     if (selectErr) return callback(selectErr);
 
     if (existingUser) {
-      return db.run(`UPDATE users
-        SET full_name = ?, document_id = ?, password_hash = ?, role = ?, status = 'active', updated_at = ?
-        WHERE id = ?`, [fullName, documentId, passwordHash, role, now, existingUser.id], (updateErr) => {
+      return pgRun(`UPDATE users
+        SET full_name = $1, document_id = $2, password_hash = $3, role = $4, status = 'active', updated_at = $5
+        WHERE id = $6`, [fullName, documentId, passwordHash, role, now, existingUser.id], (updateErr) => {
         callback(updateErr, existingUser.id);
       });
     }
 
-    return db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'active', ?, ?)`, [fullName, documentId, email, passwordHash, role, now, now], function insertUser(insertErr) {
+    return pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
+      RETURNING id`, [fullName, documentId, email, passwordHash, role, now, now], function insertUser(insertErr) {
       callback(insertErr, this?.lastID);
     });
   });
@@ -850,21 +879,21 @@ function seedProductionAccessUsers() {
       }
 
       if (user.role === 'client') {
-        db.run(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer)
-          VALUES (?, ?, 'Equipo Orjuela')
+        pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer)
+          VALUES ($1, $2, 'Equipo Orjuela')
           ON CONFLICT(user_id) DO UPDATE SET
             document_id = excluded.document_id,
             assigned_lawyer = excluded.assigned_lawyer`, [userId, user.documentId]);
 
-        db.run(`INSERT INTO clients (name, document_id, phone, email, created_at)
-          SELECT ?, ?, '3000000000', ?, ?
-          WHERE NOT EXISTS (SELECT 1 FROM clients WHERE email = ?)`,
+        pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at)
+          SELECT $1, $2, '3000000000', $3, $4
+          WHERE NOT EXISTS (SELECT 1 FROM clients WHERE email = $5)`,
           [user.fullName, user.documentId, user.email, now, user.email]);
       }
 
       if (user.role === 'ally') {
-        db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
-          VALUES (?, ?, '3001234567', 'Bogotá', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba para producción', 'Asesor comercial aliado', 'Bancolombia', 'Ahorros', '****6789', 'ORJUELAPRUEBA', 1190000, ?, ?)
+        pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
+          VALUES ($1, $2, '3001234567', 'Bogotá', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba para producción', 'Asesor comercial aliado', 'Bancolombia', 'Ahorros', '****6789', 'ORJUELAPRUEBA', 1190000, $3, $4)
           ON CONFLICT(user_id) DO UPDATE SET
             document_id = excluded.document_id,
             phone = excluded.phone,
@@ -920,11 +949,24 @@ function seedProductionAllyDemoData(allyUserId) {
       [3009, networkIds['camila.red@orjuela.com'], 'Sofía Parra', '1020304059', '3002221144', 'sofia@example.com', 'Barranquilla', 'Comercial', 'Acompañamiento en constitución y contratos comerciales.', 'Red de aliado', 'Baja', 'Nuevo referido', '2026-05-13T09:45:00.000Z']
     ];
 
-    const referralStmt = db.prepare(`INSERT OR REPLACE INTO referrals
-      (id, ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, urgency, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    [...directReferrals, ...networkReferrals].forEach((item) => referralStmt.run(...item, item[12]));
-    referralStmt.finalize();
+    [...directReferrals, ...networkReferrals].forEach((item) => {
+      pgRun(`INSERT INTO referrals
+        (id, ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, urgency, status, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        ON CONFLICT (id) DO UPDATE SET
+          ally_id = excluded.ally_id,
+          referred_full_name = excluded.referred_full_name,
+          client_identification = excluded.client_identification,
+          referred_phone = excluded.referred_phone,
+          referred_email = excluded.referred_email,
+          referred_city = excluded.referred_city,
+          legal_area = excluded.legal_area,
+          case_description = excluded.case_description,
+          referral_channel = excluded.referral_channel,
+          urgency = excluded.urgency,
+          status = excluded.status,
+          updated_at = excluded.updated_at`, [...item, item[12]]);
+    });
 
     const commissionRows = [
       [4001, allyUserId, 3001, allyUserId, 'direct', 10, 180000, 'approved', '2026-05-08T09:05:00.000Z', null],
@@ -936,35 +978,55 @@ function seedProductionAllyDemoData(allyUserId) {
       [4007, allyUserId, 3008, networkIds['andres.red@orjuela.com'], 'indirect_level_1', 3, 60000, 'paid', '2026-04-25T13:35:00.000Z', '2026-05-02T10:00:00.000Z'],
       [4008, allyUserId, 3009, networkIds['camila.red@orjuela.com'], 'indirect_level_1', 3, 45000, 'pending', '2026-05-13T09:50:00.000Z', null]
     ];
-    const commissionStmt = db.prepare(`INSERT OR REPLACE INTO commissions
-      (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at, paid_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    commissionRows.forEach((item) => commissionStmt.run(...item));
-    commissionStmt.finalize();
+    commissionRows.forEach((item) => {
+      pgRun(`INSERT INTO commissions
+        (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at, paid_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        ON CONFLICT (id) DO UPDATE SET
+          ally_id = excluded.ally_id,
+          referral_id = excluded.referral_id,
+          source_ally_id = excluded.source_ally_id,
+          commission_type = excluded.commission_type,
+          percentage = excluded.percentage,
+          amount = excluded.amount,
+          status = excluded.status,
+          paid_at = excluded.paid_at`, item);
+    });
 
-    db.run(`INSERT OR REPLACE INTO ally_goals (id, ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
-      VALUES (2001, ?, ?, 8, 2, 700000, 1, ?)`, [allyUserId, month, now]);
+    pgRun(`INSERT INTO ally_goals (id, ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
+      VALUES (2001, $1, $2, 8, 2, 700000, 1, $3)
+      ON CONFLICT (id) DO UPDATE SET
+        ally_id = excluded.ally_id,
+        month = excluded.month,
+        referral_goal = excluded.referral_goal,
+        converted_goal = excluded.converted_goal,
+        commission_goal = excluded.commission_goal,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at`, [allyUserId, month, now]);
 
-    db.run(`DELETE FROM ally_notifications WHERE ally_id = ?`, [allyUserId], () => {
-      const notificationStmt = db.prepare(`INSERT INTO ally_notifications (ally_id, notification_type, title, description, is_read, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)`);
+    pgRun(`DELETE FROM ally_notifications WHERE ally_id = $1`, [allyUserId], () => {
       [
         ['Comision aprobada', 'Comisión aprobada', 'Tu comisión por María Rodríguez fue aprobada para pago.', 0, '2026-05-13T08:00:00.000Z'],
         ['Nuevo aliado registrado', 'Nuevo aliado en tu red', 'Camila Red Aliada ya aparece activa dentro de tu red.', 0, '2026-05-12T12:00:00.000Z'],
         ['Cambio de estado', 'Referido actualizado', 'Empresa Andina SAS pasó a Cliente activo.', 1, '2026-05-10T09:00:00.000Z']
-      ].forEach((item) => notificationStmt.run(allyUserId, ...item));
-      notificationStmt.finalize();
+      ].forEach((item) => {
+        pgRun(`INSERT INTO ally_notifications (ally_id, notification_type, title, description, is_read, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6)`, [allyUserId, ...item]);
+      });
     });
 
-    db.all(`SELECT id, title FROM ally_academy_modules ORDER BY sort_order LIMIT 4`, (moduleErr, modules) => {
+    pgAll(`SELECT id, title FROM ally_academy_modules ORDER BY sort_order LIMIT 4`, (moduleErr, modules) => {
       if (moduleErr) return;
-      const progressStmt = db.prepare(`INSERT OR REPLACE INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
-        VALUES (?, ?, ?, ?, ?)`);
       modules.forEach((module, index) => {
         const progress = index < 2 ? 100 : index === 2 ? 65 : 25;
-        progressStmt.run(allyUserId, module.id, progress === 100 ? 'completado' : 'pendiente', progress, now);
+        pgRun(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (ally_id, module_id) DO UPDATE SET
+            status = excluded.status,
+            progress = excluded.progress,
+            updated_at = excluded.updated_at`,
+          [allyUserId, module.id, progress === 100 ? 'completado' : 'pendiente', progress, now]);
       });
-      progressStmt.finalize();
     });
   };
 
@@ -976,8 +1038,8 @@ function seedProductionAllyDemoData(allyUserId) {
         return;
       }
       networkIds[user.email] = userId;
-      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'Independiente', 'Red de aliados Orjuela', 'Invitado por usuario de prueba', 'Referidor aliado', ?, ?, ?, ?, ?)
+      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'Independiente', 'Red de aliados Orjuela', 'Invitado por usuario de prueba', 'Referidor aliado', $5, $6, $7, $8, $9)
         ON CONFLICT(user_id) DO UPDATE SET
           document_id = excluded.document_id,
           phone = excluded.phone,
@@ -1007,13 +1069,13 @@ function generateReferralCode(fullName = 'ALIADO', documentId = '') {
 }
 
 function ensurePartnerReferralCode(userId, fullName, callback) {
-  db.get(`SELECT referral_code, document_id FROM partners WHERE user_id = ?`, [userId], (err, partner) => {
+  pgGet(`SELECT referral_code, document_id FROM partners WHERE user_id = $1`, [userId], (err, partner) => {
     if (err || !partner) return callback(err || new Error('Partner not found'));
     if (partner.referral_code) return callback(null, partner.referral_code);
 
     const attempt = () => {
       const code = generateReferralCode(fullName, partner.document_id);
-      db.run(`UPDATE partners SET referral_code = ? WHERE user_id = ? AND (referral_code IS NULL OR referral_code = '')`, [code, userId], (updateErr) => {
+      pgRun(`UPDATE partners SET referral_code = $1 WHERE user_id = $2 AND (referral_code IS NULL OR referral_code = '')`, [code, userId], (updateErr) => {
         if (updateErr) {
           if (String(updateErr.message).includes('UNIQUE')) return attempt();
           return callback(updateErr);
@@ -1026,16 +1088,16 @@ function ensurePartnerReferralCode(userId, fullName, callback) {
 }
 
 function getActiveCommissionSettings(callback) {
-  db.get(`SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`, (err, row) => {
+  pgGet(`SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`, (err, row) => {
     callback(err, row || { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 });
   });
 }
 
 function getPartnerProfile(userId, callback) {
-  db.get(`SELECT p.*, u.full_name, u.email, u.status
+  pgGet(`SELECT p.*, u.full_name, u.email, u.status
     FROM partners p
     JOIN users u ON u.id = p.user_id
-    WHERE p.user_id = ?`, [userId], callback);
+    WHERE p.user_id = $1`, [userId], callback);
 }
 
 function money(value) {
@@ -1093,10 +1155,17 @@ function createCommissionRows(referralId, sourceAllyId, callback) {
     getPartnerProfile(sourceAllyId, (profileErr, partner) => {
       if (profileErr) return callback(profileErr);
       const finish = () => {
-        const stmt = db.prepare(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
-          VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`);
-        rows.forEach((row) => stmt.run(row.allyId, referralId, row.sourceAllyId, row.type, row.percentage, createdAt));
-        stmt.finalize(callback);
+        let pending = rows.length;
+        let firstErr = null;
+        rows.forEach((row) => {
+          pgRun(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+            VALUES ($1, $2, $3, $4, $5, 0, 'pending', $6)`,
+            [row.allyId, referralId, row.sourceAllyId, row.type, row.percentage, createdAt], (insertErr) => {
+              if (insertErr && !firstErr) firstErr = insertErr;
+              pending -= 1;
+              if (pending === 0) callback(firstErr);
+            });
+        });
       };
 
       if (!partner?.invited_by_partner_id) return finish();
@@ -1125,107 +1194,61 @@ function createCommissionRows(referralId, sourceAllyId, callback) {
 function seedQaData() {
   const now = getTimestamp();
   const demoUsers = [
-    { fullName: 'Aliado Demo Orjuela', email: 'aliado@orjuela.demo', password: 'Aliado123!', role: 'ally' },
-    { fullName: 'Cliente Demo Orjuela', email: 'cliente@orjuela.demo', password: 'Cliente123!', role: 'client' },
-    { fullName: 'Admin Demo Orjuela', email: 'admin@orjuela.demo', password: 'Admin123!', role: 'admin' }
+    { id: 1, fullName: 'Aliado Demo Orjuela', email: 'aliado@orjuela.demo', password: 'Aliado123!', role: 'ally' },
+    { id: 2, fullName: 'Cliente Demo Orjuela', email: 'cliente@orjuela.demo', password: 'Cliente123!', role: 'client' },
+    { id: 3, fullName: 'Admin Demo Orjuela', email: 'admin@orjuela.demo', password: 'Admin123!', role: 'admin' }
   ];
 
-  db.serialize(() => {
-    const userStmt = db.prepare(`INSERT OR IGNORE INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'active', ?, ?)`);
-    demoUsers.forEach((user) => {
-      userStmt.run(user.fullName, user.email, hashPassword(user.password), user.role, now, now);
-    });
-    userStmt.finalize();
-
-    db.get(`SELECT id FROM users WHERE email = ?`, ['aliado@orjuela.demo'], (err, partnerUser) => {
-      if (!err && partnerUser) {
-        db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, commission_balance)
-          VALUES (?, '900111222', '300 111 2233', 'Bogota', 'Independiente', 'Orjuela QA', 'Ambiente QA', 320000)`, [partnerUser.id]);
-        db.run(`UPDATE partners SET referral_code = COALESCE(referral_code, 'ORJUELAQA'), occupation = COALESCE(occupation, 'Asesor comercial') WHERE user_id = ?`, [partnerUser.id]);
-        db.run(`UPDATE partners SET invited_by_partner_id = ? WHERE user_id IN (9101, 9102)`, [partnerUser.id]);
-      }
-    });
-
-    const networkUsers = [
-      { id: 9101, fullName: 'Camila Red Aliada', email: 'camila.red@orjuela.demo', password: 'Aliado123!', document: '900333111', phone: '300 333 1111', city: 'Medellin', code: 'CAMILAQA' },
-      { id: 9102, fullName: 'Andres Red Aliado', email: 'andres.red@orjuela.demo', password: 'Aliado123!', document: '900333222', phone: '300 333 2222', city: 'Cali', code: 'ANDRESQA' }
-    ];
-
-    networkUsers.forEach((item) => {
-      db.run(`INSERT OR IGNORE INTO users (id, full_name, email, password_hash, role, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'ally', 'active', ?, ?)`, [item.id, item.fullName, item.email, hashPassword(item.password), now, now]);
-      db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
-        VALUES (?, ?, ?, ?, 'Independiente', 'Aliado comercial', ?, 1, 0)`, [item.id, item.document, item.phone, item.city, item.code]);
-    });
-
-    db.get(`SELECT id FROM users WHERE email = ?`, ['cliente@orjuela.demo'], (err, clientUser) => {
-      if (!err && clientUser) {
-        db.run(`INSERT OR IGNORE INTO auth_clients (user_id, document_id, assigned_lawyer)
-          VALUES (?, '1020304050', 'Equipo inmobiliario')`, [clientUser.id]);
-      }
-    });
-
-    db.run(`INSERT OR IGNORE INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, status, created_at, updated_at)
-      VALUES ('Aliado Demo Orjuela', '900111222', '300 111 2233', 'aliado@orjuela.demo', 'Bogota', 'independiente', 'Ambiente QA', 'active', ?, ?)`, [now, now]);
-
-    db.run(`INSERT OR IGNORE INTO clients (id, name, document_id, phone, email, created_at)
-      VALUES (1, 'Cliente Demo Orjuela', '1020304050', '310 222 3344', 'cliente@orjuela.demo', ?)`, [now]);
-
-    const leadStmt = db.prepare(`INSERT OR IGNORE INTO leads (id, name, phone, email, case_type, source, status, assigned_to, notes, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-    [
-      [1, 'Laura Mendez', '300 456 7890', 'laura@example.com', 'Derecho civil', 'Web', 'Nuevo', 'Comercial', 'Llamar hoy antes de las 5:00 p. m.'],
-      [2, 'Inmobiliaria Norte', '311 222 3344', 'contacto@inmobiliaria.test', 'Contratos', 'Aliado', 'Contactado', 'Asistente', 'Enviar propuesta de revision contractual'],
-      [3, 'Jorge Salinas', '315 987 1122', 'jorge@example.com', 'Cobro de cartera', 'WhatsApp', 'Agendado', 'Abogado civil', 'Preparar cita y documentos requeridos'],
-      [4, 'Maria Fernanda Ruiz', '302 555 8844', 'maria@example.com', 'Derecho inmobiliario', 'Organico', 'Propuesta enviada', 'Equipo inmobiliario', 'Hacer seguimiento a aceptacion de propuesta']
-    ].forEach((lead) => leadStmt.run(...lead, now, now));
-    leadStmt.finalize();
-
-    const caseStmt = db.prepare(`INSERT OR IGNORE INTO cases (id, client_id, case_type, description, status, assigned_lawyer, next_action, created_at)
-      VALUES (?, 1, ?, ?, ?, ?, ?, ?)`);
-    [
-      [1, 'Contrato de compraventa', 'Revision de documentos para compra de inmueble.', 'En revision', 'Equipo inmobiliario', 'Enviar certificado actualizado'],
-      [2, 'Sucesion', 'Organizacion documental de sucesion familiar.', 'Documentos solicitados', 'Area civil y familia', 'Cargar registros civiles']
-    ].forEach((caseItem) => caseStmt.run(...caseItem, now));
-    caseStmt.finalize();
-
-    db.get(`SELECT id FROM allies WHERE document_number = '900111222'`, (err, ally) => {
-      if (!err && ally) {
-        const referralStmt = db.prepare(`INSERT OR IGNORE INTO referrals (id, ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-        [
-          [1, ally.id, 'Maria Rodriguez', '301 444 7788', 'maria.rodriguez@example.com', 'Bogota', 'derecho_inmobiliario', 'Revision de promesa de compraventa.', 'Media', 'in_progress'],
-          [2, ally.id, 'Carlos Perez', '312 456 8899', 'carlos.perez@example.com', 'Medellin', 'cobranza', 'Cobro de cartera comercial.', 'Alta', 'contacted'],
-          [3, ally.id, 'Empresa Andina', '310 987 6543', 'legal@andina.test', 'Cali', 'contratos', 'Revision de contrato de suministro.', 'Baja', 'commission_approved']
-        ].forEach((referral) => referralStmt.run(...referral, now, now));
-        referralStmt.finalize();
-      }
-    });
-
-    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
-      VALUES (1, 1, 1, 1, 'direct', 10, 180000, 'approved', ?)`, [now]);
-    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at, paid_at)
-      VALUES (2, 1, 2, 1, 'direct', 10, 120000, 'paid', ?, ?)`, [now, now]);
-    db.run(`INSERT OR IGNORE INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
-      VALUES (3, 1, 3, 9101, 'indirect_level_1', 3, 90000, 'pending', ?)`, [now]);
-
-    console.log('[qa] Demo data enabled. Users: aliado@orjuela.demo, cliente@orjuela.demo, admin@orjuela.demo');
+  demoUsers.forEach((user) => {
+    pgRun(`INSERT INTO users (id, full_name, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
+      ON CONFLICT (id) DO UPDATE SET full_name = excluded.full_name, email = excluded.email, password_hash = excluded.password_hash, role = excluded.role, status = excluded.status, updated_at = excluded.updated_at`,
+      [user.id, user.fullName, user.email, hashPassword(user.password), user.role, now, now]);
   });
-}
 
-if (QA_DEMO_DATA) {
-  seedQaData();
-}
+  pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, commission_balance, created_at, updated_at)
+    VALUES (1, '900111222', '300 111 2233', 'Bogota', 'Independiente', 'Orjuela QA', 'Ambiente QA', 'Asesor comercial', 'ORJUELAQA', 320000, $1, $2)
+    ON CONFLICT (user_id) DO UPDATE SET phone = excluded.phone, city = excluded.city, referral_code = excluded.referral_code, commission_balance = excluded.commission_balance, updated_at = excluded.updated_at`, [now, now]);
 
-if (SEED_ACCESS_USERS) {
-  seedProductionAccessUsers();
-}
+  pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer)
+    VALUES (2, '1020304050', 'Equipo inmobiliario')
+    ON CONFLICT (user_id) DO UPDATE SET document_id = excluded.document_id, assigned_lawyer = excluded.assigned_lawyer`);
 
+  pgRun(`INSERT INTO allies (id, full_name, document_number, phone, email, city, ally_type, how_known, status, created_at, updated_at)
+    VALUES (1, 'Aliado Demo Orjuela', '900111222', '300 111 2233', 'aliado@orjuela.demo', 'Bogota', 'independiente', 'Ambiente QA', 'active', $1, $2)
+    ON CONFLICT (id) DO UPDATE SET full_name = excluded.full_name, phone = excluded.phone, email = excluded.email, city = excluded.city, status = excluded.status, updated_at = excluded.updated_at`, [now, now]);
+
+  pgRun(`INSERT INTO clients (id, name, document_id, phone, email, created_at, updated_at)
+    VALUES (1, 'Cliente Demo Orjuela', '1020304050', '310 222 3344', 'cliente@orjuela.demo', $1, $2)
+    ON CONFLICT (id) DO UPDATE SET name = excluded.name, document_id = excluded.document_id, phone = excluded.phone, email = excluded.email, updated_at = excluded.updated_at`, [now, now]);
+
+  [
+    [1, 'Laura Mendez', '300 456 7890', 'laura@example.com', 'Derecho civil', 'Web', 'Nuevo', 'Comercial', 'Llamar hoy antes de las 5:00 p. m.'],
+    [2, 'Inmobiliaria Norte', '311 222 3344', 'contacto@inmobiliaria.test', 'Contratos', 'Aliado', 'Contactado', 'Asistente', 'Enviar propuesta de revision contractual']
+  ].forEach((lead) => {
+    pgRun(`INSERT INTO leads (id, name, phone, email, case_type, source, status, assigned_to, notes, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (id) DO NOTHING`, [...lead, now, now]);
+  });
+
+  pgRun(`INSERT INTO cases (id, client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
+    VALUES (1, 1, 'Contrato de compraventa', 'Revision de documentos para compra de inmueble.', 'En revision', 'Equipo inmobiliario', 'Enviar certificado actualizado', $1, $2)
+    ON CONFLICT (id) DO NOTHING`, [now, now]);
+
+  pgRun(`INSERT INTO referrals (id, ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, status, created_at, updated_at)
+    VALUES (1, 1, 'Maria Rodriguez', '301 444 7788', 'maria.rodriguez@example.com', 'Bogota', 'derecho_inmobiliario', 'Revision de promesa de compraventa.', 'Media', 'in_progress', $1, $2)
+    ON CONFLICT (id) DO NOTHING`, [now, now]);
+
+  pgRun(`INSERT INTO commissions (id, ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+    VALUES (1, 1, 1, 1, 'direct', 10, 180000, 'approved', $1)
+    ON CONFLICT (id) DO NOTHING`, [now]);
+
+  console.log('[qa] Demo data enabled. Users: aliado@orjuela.demo, cliente@orjuela.demo, admin@orjuela.demo');
+}
 function auditAdminAction(req, action, entityType, entityId, summary = '') {
   const actor = req.user || {};
-  db.run(`INSERT INTO audit_logs (actor_id, actor_name, action, entity_type, entity_id, summary, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`, [
+  pgRun(`INSERT INTO audit_logs (actor_id, actor_name, action, entity_type, entity_id, summary, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)`, [
     actor.id || null,
     actor.full_name || actor.email || 'Administrador',
     action,
@@ -1266,17 +1289,18 @@ app.post('/api/auth/register-client', (req, res) => {
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('CLIENTE', payload.email);
 
-  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, documentId], (existingErr, existing) => {
+  pgGet(`SELECT id FROM users WHERE email = $1 OR document_id = $2`, [payload.email, documentId], (existingErr, existing) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
     if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
 
-    db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'client', 'active', ?, ?)`,
+    pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'client', 'active', $5, $6)
+      RETURNING id`,
       [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
         if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta de cliente.' });
         const userId = this.lastID;
-        db.run(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES (?, ?, 'Equipo Orjuela')`, [userId, documentId]);
-        db.run(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES (?, ?, ?, ?, ?)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
+        pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES ($1, $2, 'Equipo Orjuela')`, [userId, documentId]);
+        pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES ($1, $2, $3, $4, $5)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
         res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
       });
   });
@@ -1309,12 +1333,13 @@ app.post('/api/auth/register-admin', (req, res) => {
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('ADMIN', payload.email);
 
-  db.get(`SELECT id FROM users WHERE email = ? OR document_id = ?`, [payload.email, documentId], (existingErr, existing) => {
+  pgGet(`SELECT id FROM users WHERE email = $1 OR document_id = $2`, [payload.email, documentId], (existingErr, existing) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
     if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
 
-    db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'admin', 'active', ?, ?)`,
+    pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'admin', 'active', $5, $6)
+      RETURNING id`,
       [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
         if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta administrativa.' });
         res.status(201).json(createAuthResponse({ id: this.lastID, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'admin', status: 'active', auth_provider: 'password' }));
@@ -1350,14 +1375,14 @@ app.post('/api/auth/register-partner', (req, res) => {
   payload.document_id = payload.document_id || generatedDocumentId('ALIADO', payload.email);
 
   const createdAt = getTimestamp();
-  db.get(`SELECT user_id FROM partners WHERE referral_code = ?`, [payload.ref], (refErr, referrer) => {
+  pgGet(`SELECT user_id FROM partners WHERE referral_code = $1`, [payload.ref], (refErr, referrer) => {
     if (refErr) {
       console.error(refErr);
       return res.status(500).json({ error: 'Error al validar el codigo de invitacion.' });
     }
-    db.get(`SELECT u.id FROM users u
+    pgGet(`SELECT u.id FROM users u
       LEFT JOIN partners p ON p.user_id = u.id
-      WHERE u.email = ? OR p.document_id = ? OR (? <> '' AND p.phone = ?)`, [payload.email, payload.document_id, payload.phone, payload.phone], (dupErr, duplicate) => {
+      WHERE u.email = $1 OR p.document_id = $2 OR ($3 <> '' AND p.phone = $4)`, [payload.email, payload.document_id, payload.phone, payload.phone], (dupErr, duplicate) => {
       if (dupErr) {
         console.error(dupErr);
         return res.status(500).json({ error: 'Error al validar duplicados.' });
@@ -1366,10 +1391,10 @@ app.post('/api/auth/register-partner', (req, res) => {
         return res.status(409).json({ error: 'Ya existe un aliado registrado con ese correo, cedula o telefono.' });
       }
 
-      db.serialize(() => {
-    const stmt = db.prepare(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, 'ally', 'active', ?, ?)`);
-    stmt.run(payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt, function (err) {
+      pgRun(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+        VALUES ($1, $2, $3, 'ally', 'active', $4, $5)
+        RETURNING id`,
+        [payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt], function (err) {
       if (err) {
         if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Ya existe una cuenta con este correo.' });
         console.error(err);
@@ -1378,8 +1403,8 @@ app.post('/api/auth/register-partner', (req, res) => {
 
       const userId = this.lastID;
       const referralCode = generateReferralCode(payload.full_name, payload.document_id);
-      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
+      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
         if (partnerErr) {
           console.error(partnerErr);
           return res.status(500).json({ error: 'Error al crear perfil de aliado.' });
@@ -1389,8 +1414,6 @@ app.post('/api/auth/register-partner', (req, res) => {
         res.status(201).json({ message: 'Tu cuenta de aliado fue creada exitosamente.', token: signToken(user), user });
       });
     });
-    stmt.finalize();
-      });
     });
   });
 });
@@ -1407,7 +1430,7 @@ app.post('/api/auth/google', (req, res) => {
       return res.status(401).json({ error: googleValidationMessage(verifyErr) });
     }
 
-    db.get(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = ?`, [googleProfile.email], (selectErr, existingUser) => {
+    pgGet(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = $1`, [googleProfile.email], (selectErr, existingUser) => {
       if (selectErr) return res.status(500).json({ error: 'Error validando usuario.' });
 
       if (existingUser) {
@@ -1432,7 +1455,7 @@ app.post('/api/auth/google', (req, res) => {
           avatar_url: googleProfile.avatar_url || existingUser.avatar_url,
           auth_provider: existingUser.auth_provider === 'password' ? 'password,google' : (existingUser.auth_provider || 'google')
         };
-        db.run(`UPDATE users SET full_name = ?, google_sub = COALESCE(google_sub, ?), avatar_url = ?, auth_provider = ?, updated_at = ? WHERE id = ?`,
+        pgRun(`UPDATE users SET full_name = $1, google_sub = COALESCE(google_sub, $2), avatar_url = $3, auth_provider = $4, updated_at = $5 WHERE id = $6`,
           [updatedUser.full_name, googleProfile.google_sub, updatedUser.avatar_url, updatedUser.auth_provider, getTimestamp(), existingUser.id], (updateErr) => {
             if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la cuenta.' });
             ensureRoleProfile(updatedUser, (profileErr) => {
@@ -1450,8 +1473,9 @@ app.post('/api/auth/google', (req, res) => {
       const now = getTimestamp();
       const documentId = generatedDocumentId(documentPrefixForRole(requestedRole), googleProfile.email);
       const passwordHash = hashPassword(crypto.randomBytes(24).toString('hex'));
-      db.run(`INSERT INTO users (full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'google', ?, ?, ?, 'active', ?, ?)`,
+      pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'google', $5, $6, $7, 'active', $8, $9)
+        RETURNING id`,
         [googleProfile.full_name, documentId, googleProfile.email, passwordHash, googleProfile.google_sub, googleProfile.avatar_url, requestedRole, now, now], function insertGoogleUser(insertErr) {
           if (insertErr) return res.status(500).json({ error: 'No fue posible crear la cuenta con Google.' });
           const user = {
@@ -1482,7 +1506,7 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
   }
 
-  db.get(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = ?`, [email], (err, user) => {
+  pgGet(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = $1`, [email], (err, user) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al validar credenciales.' });
@@ -1512,19 +1536,19 @@ app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
 
 app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const reports = {};
-  db.get(`SELECT COUNT(*) AS total FROM leads`, (leadErr, leadCount) => {
+  pgGet(`SELECT COUNT(*) AS total FROM leads`, (leadErr, leadCount) => {
     if (leadErr) return res.status(500).json({ error: 'No fue posible cargar dashboard.' });
-    db.get(`SELECT COUNT(*) AS total FROM cases`, (caseErr, caseCount) => {
+    pgGet(`SELECT COUNT(*) AS total FROM cases`, (caseErr, caseCount) => {
       if (caseErr) return res.status(500).json({ error: 'No fue posible cargar casos.' });
-      db.get(`SELECT COUNT(*) AS total FROM clients`, (clientErr, clientCount) => {
+      pgGet(`SELECT COUNT(*) AS total FROM clients`, (clientErr, clientCount) => {
         if (clientErr) return res.status(500).json({ error: 'No fue posible cargar clientes.' });
-        db.get(`SELECT COUNT(*) AS total FROM referrals`, (refErr, refCount) => {
+        pgGet(`SELECT COUNT(*) AS total FROM referrals`, (refErr, refCount) => {
           if (refErr) return res.status(500).json({ error: 'No fue posible cargar referidos.' });
-          db.get(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
+          pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
             if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
-            db.get(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
+            pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
               if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
-              db.all(`SELECT * FROM leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
+              pgAll(`SELECT * FROM leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
                 if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
                 reports.leads = leadCount.total || 0;
                 reports.cases = caseCount.total || 0;
@@ -1557,7 +1581,7 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
 });
 
 app.get('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT * FROM leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
+  pgAll(`SELECT * FROM leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: 'No fue posible cargar leads.' });
     res.json(rows);
   });
@@ -1578,8 +1602,9 @@ app.post('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (re
   if (!payload.name || !payload.phone || !payload.case_type) return res.status(400).json({ error: 'Nombre, teléfono y tipo de caso son obligatorios.' });
   if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'Nuevo', ?, ?, ?, ?, ?, ?)`,
+  pgRun(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, 'Nuevo', $6, $7, $8, $9, $10, $11)
+    RETURNING id`,
     [payload.name, payload.phone, payload.email, payload.case_type, payload.source, payload.assigned_to, payload.notes, payload.priority, payload.next_action, now, now], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible crear el lead.' });
       res.status(201).json({ id: this.lastID, ...payload, status: 'Nuevo', created_at: now, updated_at: now });
@@ -1592,12 +1617,12 @@ app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente'])
   const assignedTo = cleanText(req.body.assigned_to, 100);
   const nextAction = cleanText(req.body.next_action, 180);
   if (!id) return res.status(400).json({ error: 'Lead inválido.' });
-  db.run(`UPDATE leads SET
-      status = COALESCE(NULLIF(?, ''), status),
-      assigned_to = COALESCE(NULLIF(?, ''), assigned_to),
-      next_action = COALESCE(NULLIF(?, ''), next_action),
-      updated_at = ?
-    WHERE id = ?`, [status, assignedTo, nextAction, getTimestamp(), id], function (err) {
+  pgRun(`UPDATE leads SET
+      status = COALESCE(NULLIF($1, ''), status),
+      assigned_to = COALESCE(NULLIF($2, ''), assigned_to),
+      next_action = COALESCE(NULLIF($3, ''), next_action),
+      updated_at = $4
+    WHERE id = $5`, [status, assignedTo, nextAction, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el lead.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Lead no encontrado.' });
     res.json({ message: 'Lead actualizado.' });
@@ -1607,24 +1632,26 @@ app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente'])
 app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Lead inválido.' });
-  db.get(`SELECT * FROM leads WHERE id = ?`, [id], (leadErr, lead) => {
+  pgGet(`SELECT * FROM leads WHERE id = $1`, [id], (leadErr, lead) => {
     if (leadErr) return res.status(500).json({ error: 'No fue posible cargar el lead.' });
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado.' });
     const now = getTimestamp();
-    db.get(`SELECT id FROM clients WHERE email = ? OR phone = ?`, [lead.email, lead.phone], (clientErr, existingClient) => {
+    pgGet(`SELECT id FROM clients WHERE email = $1 OR phone = $2`, [lead.email, lead.phone], (clientErr, existingClient) => {
       if (clientErr) return res.status(500).json({ error: 'No fue posible validar cliente.' });
       const createCase = (clientId) => {
-        db.run(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
-          VALUES (?, ?, ?, 'Recibido', ?, ?, ?, ?)`,
+        pgRun(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
+          VALUES ($1, $2, $3, 'Recibido', $4, $5, $6, $7)
+          RETURNING id`,
           [clientId, lead.case_type, lead.notes || '', lead.assigned_to || 'Equipo Orjuela', lead.next_action || 'Revisar documentación inicial', now, now], function (caseErr) {
             if (caseErr) return res.status(500).json({ error: 'No fue posible crear el caso.' });
-            db.run(`UPDATE leads SET status = 'Convertido en caso', updated_at = ? WHERE id = ?`, [now, id]);
+            pgRun(`UPDATE leads SET status = 'Convertido en caso', updated_at = $1 WHERE id = $2`, [now, id]);
             res.status(201).json({ message: 'Lead convertido en caso.', case_id: this.lastID, client_id: clientId });
           });
       };
       if (existingClient) return createCase(existingClient.id);
-      db.run(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified)
-        VALUES (?, ?, ?, '', ?, ?, 0)`, [lead.name, lead.phone, lead.email, now, now], function (insertErr) {
+      pgRun(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified)
+        VALUES ($1, $2, $3, '', $4, $5, 0)
+        RETURNING id`, [lead.name, lead.phone, lead.email, now, now], function (insertErr) {
         if (insertErr) return res.status(500).json({ error: 'No fue posible crear el cliente.' });
         createCase(this.lastID);
       });
@@ -1633,7 +1660,7 @@ app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asist
 });
 
 app.get('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT * FROM clients WHERE COALESCE(status, 'Activo') <> 'Archivado' ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
+  pgAll(`SELECT * FROM clients WHERE COALESCE(status, 'Activo') <> 'Archivado' ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
 });
 
 app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -1649,8 +1676,9 @@ app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (
   if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
   if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'Activo', ?, ?)`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.verified, now, now], function (err) {
+  pgRun(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'Activo', $8, $9)
+    RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.verified, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear cliente.' });
     auditAdminAction(req, 'crear', 'cliente', this.lastID, payload.name);
     res.status(201).json({ id: this.lastID, ...payload, status: 'Activo', created_at: now, updated_at: now });
@@ -1670,17 +1698,17 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
     verified: req.body.verified === undefined ? null : req.body.verified ? 1 : 0
   };
   if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
-  db.run(`UPDATE clients SET
-      name = COALESCE(NULLIF(?, ''), name),
-      document_id = COALESCE(NULLIF(?, ''), document_id),
-      phone = COALESCE(NULLIF(?, ''), phone),
-      email = COALESCE(NULLIF(?, ''), email),
-      city = COALESCE(NULLIF(?, ''), city),
-      address = COALESCE(NULLIF(?, ''), address),
-      status = COALESCE(NULLIF(?, ''), status),
-      verified = COALESCE(?, verified),
-      updated_at = ?
-    WHERE id = ?`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.status, payload.verified, getTimestamp(), id], function (err) {
+  pgRun(`UPDATE clients SET
+      name = COALESCE(NULLIF($1, ''), name),
+      document_id = COALESCE(NULLIF($2, ''), document_id),
+      phone = COALESCE(NULLIF($3, ''), phone),
+      email = COALESCE(NULLIF($4, ''), email),
+      city = COALESCE(NULLIF($5, ''), city),
+      address = COALESCE(NULLIF($6, ''), address),
+      status = COALESCE(NULLIF($7, ''), status),
+      verified = COALESCE($8, verified),
+      updated_at = $9
+    WHERE id = $10`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.status, payload.verified, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar cliente.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
     auditAdminAction(req, 'actualizar', 'cliente', id, payload.name || 'Cliente actualizado');
@@ -1691,7 +1719,7 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
 app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
-  db.run(`UPDATE clients SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+  pgRun(`UPDATE clients SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar cliente.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
     auditAdminAction(req, 'archivar', 'cliente', id, 'Cliente archivado');
@@ -1700,7 +1728,7 @@ app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente
 });
 
 app.get('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT ca.*, cl.name AS client_name, cl.email AS client_email, cl.phone AS client_phone
+  pgAll(`SELECT ca.*, cl.name AS client_name, cl.email AS client_email, cl.phone AS client_phone
     FROM cases ca JOIN clients cl ON cl.id = ca.client_id
     WHERE ca.archived_at IS NULL
     ORDER BY COALESCE(ca.updated_at, ca.created_at) DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar casos.' }) : res.json(rows));
@@ -1719,11 +1747,13 @@ app.post('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (re
   };
   if (!payload.client_name || !payload.client_phone || !payload.case_type) return res.status(400).json({ error: 'Cliente, teléfono y tipo de caso son obligatorios.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified) VALUES (?, ?, ?, '', ?, ?, 0)`,
+  pgRun(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified) VALUES ($1, $2, $3, '', $4, $5, 0)
+    RETURNING id`,
     [payload.client_name, payload.client_phone, payload.client_email, now, now], function (clientErr) {
       if (clientErr) return res.status(500).json({ error: 'No fue posible crear cliente.' });
-      db.run(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      pgRun(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id`,
         [this.lastID, payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, now, now], function (caseErr) {
           if (caseErr) return res.status(500).json({ error: 'No fue posible crear caso.' });
           res.status(201).json({ message: 'Caso creado.', id: this.lastID });
@@ -1741,14 +1771,14 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
     next_action: cleanText(req.body.next_action, 180)
   };
   if (!id) return res.status(400).json({ error: 'Caso inválido.' });
-  db.run(`UPDATE cases SET
-      case_type = COALESCE(NULLIF(?, ''), case_type),
-      description = COALESCE(NULLIF(?, ''), description),
-      status = COALESCE(NULLIF(?, ''), status),
-      assigned_lawyer = COALESCE(NULLIF(?, ''), assigned_lawyer),
-      next_action = COALESCE(NULLIF(?, ''), next_action),
-      updated_at = ?
-    WHERE id = ?`, [payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, getTimestamp(), id], function (err) {
+  pgRun(`UPDATE cases SET
+      case_type = COALESCE(NULLIF($1, ''), case_type),
+      description = COALESCE(NULLIF($2, ''), description),
+      status = COALESCE(NULLIF($3, ''), status),
+      assigned_lawyer = COALESCE(NULLIF($4, ''), assigned_lawyer),
+      next_action = COALESCE(NULLIF($5, ''), next_action),
+      updated_at = $6
+    WHERE id = $7`, [payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar caso.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
     auditAdminAction(req, 'actualizar', 'caso', id, payload.case_type || payload.status || 'Caso actualizado');
@@ -1759,7 +1789,7 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
 app.delete('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Caso inválido.' });
-  db.run(`UPDATE cases SET archived_at = ?, status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), getTimestamp(), id], function (err) {
+  pgRun(`UPDATE cases SET archived_at = $1, status = 'Archivado', updated_at = $2 WHERE id = $3`, [getTimestamp(), getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar caso.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
     auditAdminAction(req, 'archivar', 'caso', id, 'Caso archivado');
@@ -1768,7 +1798,7 @@ app.delete('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']
 });
 
 app.get('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT * FROM payments ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar pagos.' }) : res.json(rows));
+  pgAll(`SELECT * FROM payments ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar pagos.' }) : res.json(rows));
 });
 
 app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -1785,8 +1815,9 @@ app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), 
   if (!payload.related_id || Number.isNaN(payload.amount) || payload.amount < 0) return res.status(400).json({ error: 'Relacionado y monto son obligatorios.' });
   if (!['Nequi 3144278339', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no válido.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_method, payment_date, support_url, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.related_type, payload.related_id, payload.concept, payload.amount, payload.status, payload.payment_method, payload.payment_date, payload.support_url, now, now], function (err) {
+  pgRun(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_method, payment_date, support_url, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING id`, [payload.related_type, payload.related_id, payload.concept, payload.amount, payload.status, payload.payment_method, payload.payment_date, payload.support_url, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear pago.' });
     auditAdminAction(req, 'crear', 'pago', this.lastID, payload.concept || String(payload.amount));
     res.status(201).json({ id: this.lastID, ...payload, created_at: now, updated_at: now });
@@ -1797,15 +1828,15 @@ app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente
   const id = parseInt(req.params.id, 10);
   const amount = req.body.amount === undefined ? null : Number(req.body.amount);
   if (!id) return res.status(400).json({ error: 'Pago inválido.' });
-  db.run(`UPDATE payments SET
-      concept = COALESCE(NULLIF(?, ''), concept),
-      amount = COALESCE(?, amount),
-      status = COALESCE(NULLIF(?, ''), status),
-      payment_method = COALESCE(NULLIF(?, ''), payment_method),
-      payment_date = COALESCE(NULLIF(?, ''), payment_date),
-      support_url = COALESCE(NULLIF(?, ''), support_url),
-      updated_at = ?
-    WHERE id = ?`, [
+  pgRun(`UPDATE payments SET
+      concept = COALESCE(NULLIF($1, ''), concept),
+      amount = COALESCE($2, amount),
+      status = COALESCE(NULLIF($3, ''), status),
+      payment_method = COALESCE(NULLIF($4, ''), payment_method),
+      payment_date = COALESCE(NULLIF($5, ''), payment_date),
+      support_url = COALESCE(NULLIF($6, ''), support_url),
+      updated_at = $7
+    WHERE id = $8`, [
     cleanText(req.body.concept, 140),
     amount !== null && !Number.isNaN(amount) ? amount : null,
     cleanText(req.body.status, 40),
@@ -1825,7 +1856,7 @@ app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente
 app.delete('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Pago inválido.' });
-  db.run(`UPDATE payments SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+  pgRun(`UPDATE payments SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar pago.' });
     auditAdminAction(req, 'archivar', 'pago', id, 'Pago archivado');
     res.json({ message: 'Pago archivado.' });
@@ -1833,7 +1864,7 @@ app.delete('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistent
 });
 
 app.get('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT d.*, ca.case_type, cl.name AS client_name
+  pgAll(`SELECT d.*, ca.case_type, cl.name AS client_name
     FROM case_documents d
     JOIN cases ca ON ca.id = d.case_id
     JOIN clients cl ON cl.id = ca.client_id
@@ -1850,8 +1881,9 @@ app.post('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']),
     observations: cleanText(req.body.observations, 500)
   };
   if (!caseId || !payload.file_name) return res.status(400).json({ error: 'Caso y nombre de documento son obligatorios.' });
-  db.run(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.status, payload.observations, getTimestamp()], function (err) {
+  pgRun(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING id`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.status, payload.observations, getTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear documento.' });
     auditAdminAction(req, 'crear', 'documento', this.lastID, payload.file_name);
     res.status(201).json({ id: this.lastID, case_id: caseId, ...payload });
@@ -1861,12 +1893,12 @@ app.post('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']),
 app.patch('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Documento inválido.' });
-  db.run(`UPDATE case_documents SET
-      file_name = COALESCE(NULLIF(?, ''), file_name),
-      document_type = COALESCE(NULLIF(?, ''), document_type),
-      status = COALESCE(NULLIF(?, ''), status),
-      observations = COALESCE(NULLIF(?, ''), observations)
-    WHERE id = ?`, [cleanText(req.body.file_name, 180), cleanText(req.body.document_type, 80), cleanText(req.body.status, 40), cleanText(req.body.observations, 500), id], function (err) {
+  pgRun(`UPDATE case_documents SET
+      file_name = COALESCE(NULLIF($1, ''), file_name),
+      document_type = COALESCE(NULLIF($2, ''), document_type),
+      status = COALESCE(NULLIF($3, ''), status),
+      observations = COALESCE(NULLIF($4, ''), observations)
+    WHERE id = $5`, [cleanText(req.body.file_name, 180), cleanText(req.body.document_type, 80), cleanText(req.body.status, 40), cleanText(req.body.observations, 500), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar documento.' });
     auditAdminAction(req, 'actualizar', 'documento', id, 'Documento actualizado');
     res.json({ message: 'Documento actualizado.' });
@@ -1876,7 +1908,7 @@ app.patch('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistent
 app.delete('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Documento inválido.' });
-  db.run(`UPDATE case_documents SET status = 'Archivado' WHERE id = ?`, [id], function (err) {
+  pgRun(`UPDATE case_documents SET status = 'Archivado' WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar documento.' });
     auditAdminAction(req, 'archivar', 'documento', id, 'Documento archivado');
     res.json({ message: 'Documento archivado.' });
@@ -1884,13 +1916,13 @@ app.delete('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asisten
 });
 
 app.get('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT id, title, client_name, related_type, related_id, assigned_to, scheduled_at AS date, status, notes
+  pgAll(`SELECT id, title, client_name, related_type, related_id, assigned_to, scheduled_at AS date, status, notes
     FROM admin_agenda
     WHERE status <> 'Archivado'
     ORDER BY scheduled_at DESC LIMIT 40`, (agendaErr, agendaRows) => {
     if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
     if (agendaRows.length) return res.json(agendaRows);
-    db.all(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, 'case' AS related_type, ca.id AS related_id,
+    pgAll(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, 'case' AS related_type, ca.id AS related_id,
         ca.assigned_lawyer AS assigned_to, ca.status, COALESCE(ca.updated_at, ca.created_at) AS date
       FROM cases ca JOIN clients cl ON cl.id = ca.client_id
       WHERE ca.status <> 'Finalizado' AND ca.archived_at IS NULL
@@ -1911,8 +1943,9 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
   };
   if (!payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Título y fecha son obligatorios.' });
   const now = getTimestamp();
-  db.run(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [payload.title, payload.client_name, payload.related_type, payload.related_id, payload.assigned_to, payload.scheduled_at, payload.status, payload.notes, now, now], function (err) {
+  pgRun(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    RETURNING id`, [payload.title, payload.client_name, payload.related_type, payload.related_id, payload.assigned_to, payload.scheduled_at, payload.status, payload.notes, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear agenda.' });
     auditAdminAction(req, 'crear', 'agenda', this.lastID, payload.title);
     res.status(201).json({ id: this.lastID, ...payload });
@@ -1922,15 +1955,15 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
 app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Agenda inválida.' });
-  db.run(`UPDATE admin_agenda SET
-      title = COALESCE(NULLIF(?, ''), title),
-      client_name = COALESCE(NULLIF(?, ''), client_name),
-      assigned_to = COALESCE(NULLIF(?, ''), assigned_to),
-      scheduled_at = COALESCE(NULLIF(?, ''), scheduled_at),
-      status = COALESCE(NULLIF(?, ''), status),
-      notes = COALESCE(NULLIF(?, ''), notes),
-      updated_at = ?
-    WHERE id = ?`, [cleanText(req.body.title, 160), cleanText(req.body.client_name, 140), cleanText(req.body.assigned_to, 100), cleanText(req.body.scheduled_at, 60), cleanText(req.body.status, 40), cleanText(req.body.notes, 500), getTimestamp(), id], function (err) {
+  pgRun(`UPDATE admin_agenda SET
+      title = COALESCE(NULLIF($1, ''), title),
+      client_name = COALESCE(NULLIF($2, ''), client_name),
+      assigned_to = COALESCE(NULLIF($3, ''), assigned_to),
+      scheduled_at = COALESCE(NULLIF($4, ''), scheduled_at),
+      status = COALESCE(NULLIF($5, ''), status),
+      notes = COALESCE(NULLIF($6, ''), notes),
+      updated_at = $7
+    WHERE id = $8`, [cleanText(req.body.title, 160), cleanText(req.body.client_name, 140), cleanText(req.body.assigned_to, 100), cleanText(req.body.scheduled_at, 60), cleanText(req.body.status, 40), cleanText(req.body.notes, 500), getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar agenda.' });
     auditAdminAction(req, 'actualizar', 'agenda', id, 'Agenda actualizada');
     res.json({ message: 'Agenda actualizada.' });
@@ -1940,7 +1973,7 @@ app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']
 app.delete('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Agenda inválida.' });
-  db.run(`UPDATE admin_agenda SET status = 'Archivado', updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+  pgRun(`UPDATE admin_agenda SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar agenda.' });
     auditAdminAction(req, 'archivar', 'agenda', id, 'Agenda archivada');
     res.json({ message: 'Agenda archivada.' });
@@ -1948,11 +1981,11 @@ app.delete('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente'
 });
 
 app.get('/api/admin/reports', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.get(`SELECT COUNT(*) AS leads FROM leads`, (leadErr, leads) => {
+  pgGet(`SELECT COUNT(*) AS leads FROM leads`, (leadErr, leads) => {
     if (leadErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
-    db.get(`SELECT COUNT(*) AS cases FROM cases`, (caseErr, casesRow) => {
+    pgGet(`SELECT COUNT(*) AS cases FROM cases`, (caseErr, casesRow) => {
       if (caseErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
-      db.get(`SELECT COALESCE(SUM(amount), 0) AS pending_payments FROM payments WHERE status <> 'Pagado'`, (payErr, paymentsRow) => {
+      pgGet(`SELECT COALESCE(SUM(amount), 0) AS pending_payments FROM payments WHERE status <> 'Pagado'`, (payErr, paymentsRow) => {
         if (payErr) return res.status(500).json({ error: 'No fue posible cargar reportes.' });
         res.json({
           leads: leads.leads || 0,
@@ -1966,13 +1999,13 @@ app.get('/api/admin/reports', requireAuth(['admin', 'abogado', 'asistente']), (r
 });
 
 app.get('/api/client/profile', requireAuth(['client']), (req, res) => {
-  db.get(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
+  pgGet(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
       c.phone, c.city, c.address, c.created_at, c.updated_at, c.verified,
       ac.assigned_lawyer
     FROM users u
     LEFT JOIN clients c ON c.email = u.email OR c.document_id = u.document_id
     LEFT JOIN auth_clients ac ON ac.user_id = u.id
-    WHERE u.id = ?`, [req.user.id], (err, row) => {
+    WHERE u.id = $1`, [req.user.id], (err, row) => {
     if (err) return res.status(500).json({ error: 'No fue posible cargar tu perfil.' });
     if (!row) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
     res.json({
@@ -2006,19 +2039,18 @@ app.patch('/api/client/profile', requireAuth(['client']), (req, res) => {
   }
 
   const updatedAt = getTimestamp();
-  db.serialize(() => {
-    db.run(`UPDATE users SET full_name = ?, updated_at = ? WHERE id = ?`, [payload.full_name, updatedAt, req.user.id]);
-    db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (selectErr, client) => {
+  pgRun(`UPDATE users SET full_name = $1, updated_at = $2 WHERE id = $3`, [payload.full_name, updatedAt, req.user.id]);
+  pgGet(`SELECT id FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (selectErr, client) => {
       if (selectErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
 
       const finish = () => {
-        db.get(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
+        pgGet(`SELECT u.full_name, u.document_id, u.email, u.created_at AS user_created_at,
             c.phone, c.city, c.address, c.created_at, c.updated_at, c.verified,
             ac.assigned_lawyer
           FROM users u
           LEFT JOIN clients c ON c.email = u.email OR c.document_id = u.document_id
           LEFT JOIN auth_clients ac ON ac.user_id = u.id
-          WHERE u.id = ?`, [req.user.id], (profileErr, row) => {
+          WHERE u.id = $1`, [req.user.id], (profileErr, row) => {
           if (profileErr || !row) return res.status(500).json({ error: 'Perfil actualizado, pero no fue posible recargarlo.' });
           res.json({
             full_name: row.full_name,
@@ -2036,61 +2068,61 @@ app.patch('/api/client/profile', requireAuth(['client']), (req, res) => {
       };
 
       if (client) {
-        return db.run(`UPDATE clients SET name = ?, phone = ?, city = ?, address = ?, updated_at = ? WHERE id = ?`,
+        return pgRun(`UPDATE clients SET name = $1, phone = $2, city = $3, address = $4, updated_at = $5 WHERE id = $6`,
           [payload.full_name, payload.phone, payload.city, payload.address, updatedAt, client.id], (updateErr) => {
             if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
             finish();
           });
       }
 
-      db.run(`INSERT INTO clients (name, document_id, phone, email, city, address, created_at, updated_at, verified)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+      pgRun(`INSERT INTO clients (name, document_id, phone, email, city, address, created_at, updated_at, verified)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)`,
         [payload.full_name, req.user.document_id || '', payload.phone, req.user.email, payload.city, payload.address, updatedAt, updatedAt], (insertErr) => {
           if (insertErr) return res.status(500).json({ error: 'No fue posible crear tu perfil.' });
           finish();
         });
     });
-  });
 });
 
 app.get('/api/client/portal', requireAuth(['client']), (req, res) => {
-  db.get(`SELECT id, name FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+  pgGet(`SELECT id, name FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible cargar tu expediente.' });
     if (!client) return res.json({ cases: [], documents: [], payments: [], appointments: [], messages: [], notifications: [] });
-    db.all(`SELECT * FROM cases WHERE client_id = ? AND archived_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC`, [client.id], (caseErr, cases) => {
+    pgAll(`SELECT * FROM cases WHERE client_id = $1 AND archived_at IS NULL ORDER BY COALESCE(updated_at, created_at) DESC`, [client.id], (caseErr, cases) => {
       if (caseErr) return res.status(500).json({ error: 'No fue posible cargar tus casos.' });
       const caseIds = cases.map((item) => item.id);
-      const placeholders = caseIds.map(() => '?').join(',') || 'NULL';
-      db.all(`SELECT d.*, ca.case_type
+      const placeholders = caseIds.map((_, index) => `$${index + 1}`).join(',') || 'NULL';
+      const casePlaceholdersAfterClient = caseIds.map((_, index) => `$${index + 2}`).join(',') || 'NULL';
+      pgAll(`SELECT d.*, ca.case_type
         FROM case_documents d
         JOIN cases ca ON ca.id = d.case_id
         WHERE d.case_id IN (${placeholders}) AND COALESCE(d.status, 'Recibido') <> 'Archivado'
         ORDER BY d.uploaded_at DESC`, caseIds, (docErr, documents) => {
         if (docErr) return res.status(500).json({ error: 'No fue posible cargar documentos.' });
-        db.all(`SELECT * FROM payments
-          WHERE (related_type = 'client' AND related_id = ?) OR (related_type = 'case' AND related_id IN (${placeholders}))
+        pgAll(`SELECT * FROM payments
+          WHERE (related_type = 'client' AND related_id = $1) OR (related_type = 'case' AND related_id IN (${casePlaceholdersAfterClient}))
           ORDER BY created_at DESC`, [client.id, ...caseIds], (payErr, payments) => {
           if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
-          db.all(`SELECT * FROM admin_agenda
-            WHERE (related_type = 'client' AND related_id = ?) OR (related_type = 'case' AND related_id IN (${placeholders}))
+          pgAll(`SELECT * FROM admin_agenda
+            WHERE (related_type = 'client' AND related_id = $1) OR (related_type = 'case' AND related_id IN (${casePlaceholdersAfterClient}))
             ORDER BY scheduled_at DESC`, [client.id, ...caseIds], (agendaErr, appointments) => {
             if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
-            db.all(`SELECT m.*, ca.case_type
+            pgAll(`SELECT m.*, ca.case_type
               FROM client_messages m
               LEFT JOIN cases ca ON ca.id = m.case_id
-              WHERE m.client_id = ?
+              WHERE m.client_id = $1
               ORDER BY m.created_at DESC
               LIMIT 100`, [client.id], (messageErr, messages) => {
               if (messageErr) return res.status(500).json({ error: 'No fue posible cargar mensajes.' });
-              db.all(`SELECT *
+              pgAll(`SELECT *
                 FROM client_service_requests
-                WHERE client_id = ?
+                WHERE client_id = $1
                 ORDER BY created_at DESC
                 LIMIT 50`, [client.id], (serviceErr, serviceRequests) => {
                 if (serviceErr) return res.status(500).json({ error: 'No fue posible cargar solicitudes.' });
-                db.all(`SELECT *
+                pgAll(`SELECT *
                   FROM client_notifications
-                  WHERE client_id = ?
+                  WHERE client_id = $1
                   ORDER BY created_at DESC
                   LIMIT 100`, [client.id], (notificationErr, notifications) => {
                   if (notificationErr) return res.status(500).json({ error: 'No fue posible cargar notificaciones.' });
@@ -2159,11 +2191,12 @@ app.post('/api/client/documents', requireAuth(['client']), (req, res) => {
     observations: cleanText(req.body.observations, 500)
   };
   if (!caseId || !payload.file_name) return res.status(400).json({ error: 'Caso y archivo son obligatorios.' });
-  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+  pgGet(`SELECT ca.id, ca.case_type, cl.id AS client_id FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = $1 AND (cl.email = $2 OR cl.document_id = $3)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
     if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
     if (!legalCase) return res.status(403).json({ error: 'No puedes cargar documentos a este caso.' });
-    db.run(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
-      VALUES (?, ?, ?, ?, 'Recibido', ?, ?)`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.observations, getTimestamp()], function (err) {
+    pgRun(`INSERT INTO case_documents (case_id, file_name, file_url, document_type, status, observations, uploaded_at)
+      VALUES ($1, $2, $3, $4, 'Recibido', $5, $6)
+      RETURNING id`, [caseId, payload.file_name, payload.file_url, payload.document_type, payload.observations, getTimestamp()], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible registrar documento.' });
       createClientNotification(legalCase.client_id, 'Documentos', 'Documento recibido', `Registramos ${payload.file_name} en tu caso ${legalCase.case_type}.`);
       res.status(201).json({ id: this.lastID, case_id: caseId, ...payload, status: 'Recibido' });
@@ -2179,12 +2212,13 @@ app.post('/api/client/appointments', requireAuth(['client']), (req, res) => {
     notes: cleanText(req.body.notes || req.body.reason, 500)
   };
   if (!caseId || !payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Caso, motivo y fecha son obligatorios.' });
-  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
+  pgGet(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name FROM cases ca JOIN clients cl ON cl.id = ca.client_id WHERE ca.id = $1 AND (cl.email = $2 OR cl.document_id = $3)`, [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
     if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
     if (!legalCase) return res.status(403).json({ error: 'No puedes solicitar cita para este caso.' });
     const now = getTimestamp();
-    db.run(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
-      VALUES (?, ?, 'case', ?, 'Equipo Orjuela', ?, 'Solicitada', ?, ?, ?)`, [payload.title, legalCase.name, caseId, payload.scheduled_at, payload.notes, now, now], function (err) {
+    pgRun(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
+      VALUES ($1, $2, 'case', $3, 'Equipo Orjuela', $4, 'Solicitada', $5, $6, $7)
+      RETURNING id`, [payload.title, legalCase.name, caseId, payload.scheduled_at, payload.notes, now, now], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible solicitar cita.' });
       createClientNotification(legalCase.client_id, 'Citas', 'Cita solicitada', `Recibimos tu solicitud de cita para ${legalCase.case_type}.`);
       res.status(201).json({ id: this.lastID, message: 'Cita solicitada.' });
@@ -2200,17 +2234,17 @@ app.patch('/api/client/appointments/:id/reschedule', requireAuth(['client']), (r
   };
   if (!appointmentId || !payload.scheduled_at) return res.status(400).json({ error: 'Cita y nueva fecha son obligatorias.' });
 
-  db.get(`SELECT ag.*, ca.case_type, cl.id AS client_id
+  pgGet(`SELECT ag.*, ca.case_type, cl.id AS client_id
     FROM admin_agenda ag
     LEFT JOIN cases ca ON ca.id = ag.related_id AND ag.related_type = 'case'
     LEFT JOIN clients cl ON (ag.related_type = 'client' AND cl.id = ag.related_id) OR (ag.related_type = 'case' AND cl.id = ca.client_id)
-    WHERE ag.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    WHERE ag.id = $1 AND (cl.email = $2 OR cl.document_id = $3)`,
     [appointmentId, req.user.email, req.user.document_id], (agendaErr, appointment) => {
       if (agendaErr) return res.status(500).json({ error: 'No fue posible validar la cita.' });
       if (!appointment) return res.status(403).json({ error: 'No puedes reprogramar esta cita.' });
       if (['Cancelada', 'Archivado', 'Realizada'].includes(appointment.status)) return res.status(400).json({ error: 'Esta cita ya no se puede reprogramar.' });
 
-      db.run(`UPDATE admin_agenda SET scheduled_at = ?, status = 'Reprogramación solicitada', notes = COALESCE(NULLIF(?, ''), notes), updated_at = ? WHERE id = ?`,
+      pgRun(`UPDATE admin_agenda SET scheduled_at = $1, status = 'Reprogramación solicitada', notes = COALESCE(NULLIF($2, ''), notes), updated_at = $3 WHERE id = $4`,
         [payload.scheduled_at, payload.notes, getTimestamp(), appointmentId], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible reprogramar la cita.' });
           createClientNotification(appointment.client_id, 'Citas', 'Reprogramación solicitada', `Recibimos tu nueva fecha para ${appointment.case_type || appointment.title}.`);
@@ -2231,18 +2265,18 @@ app.post('/api/client/appointments/:id/cancel', requireAuth(['client']), (req, r
   const reason = cleanText(req.body.reason || 'Cancelada por el cliente', 500);
   if (!appointmentId) return res.status(400).json({ error: 'Cita inválida.' });
 
-  db.get(`SELECT ag.*, ca.case_type, cl.id AS client_id
+  pgGet(`SELECT ag.*, ca.case_type, cl.id AS client_id
     FROM admin_agenda ag
     LEFT JOIN cases ca ON ca.id = ag.related_id AND ag.related_type = 'case'
     LEFT JOIN clients cl ON (ag.related_type = 'client' AND cl.id = ag.related_id) OR (ag.related_type = 'case' AND cl.id = ca.client_id)
-    WHERE ag.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    WHERE ag.id = $1 AND (cl.email = $2 OR cl.document_id = $3)`,
     [appointmentId, req.user.email, req.user.document_id], (agendaErr, appointment) => {
       if (agendaErr) return res.status(500).json({ error: 'No fue posible validar la cita.' });
       if (!appointment) return res.status(403).json({ error: 'No puedes cancelar esta cita.' });
       if (['Cancelada', 'Archivado', 'Realizada'].includes(appointment.status)) return res.status(400).json({ error: 'Esta cita ya no se puede cancelar.' });
 
       const notes = [appointment.notes, `Cancelada por cliente: ${reason}`].filter(Boolean).join('\n');
-      db.run(`UPDATE admin_agenda SET status = 'Cancelada', notes = ?, updated_at = ? WHERE id = ?`,
+      pgRun(`UPDATE admin_agenda SET status = 'Cancelada', notes = $1, updated_at = $2 WHERE id = $3`,
         [notes, getTimestamp(), appointmentId], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible cancelar la cita.' });
           createClientNotification(appointment.client_id, 'Citas', 'Cita cancelada', `Cancelamos tu cita ${appointment.title}.`);
@@ -2270,21 +2304,21 @@ app.post('/api/client/payments/:id/support', requireAuth(['client']), (req, res)
     return res.status(400).json({ error: 'Medio de pago no válido.' });
   }
 
-  db.get(`SELECT id, name FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+  pgGet(`SELECT id, name FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
 
-    db.get(`SELECT p.*
+    pgGet(`SELECT p.*
       FROM payments p
       LEFT JOIN cases ca ON ca.id = p.related_id AND p.related_type = 'case'
-      WHERE p.id = ? AND (
-        (p.related_type = 'client' AND p.related_id = ?)
-        OR (p.related_type = 'case' AND ca.client_id = ?)
+      WHERE p.id = $1 AND (
+        (p.related_type = 'client' AND p.related_id = $2)
+        OR (p.related_type = 'case' AND ca.client_id = $3)
       )`, [paymentId, client.id, client.id], (paymentErr, payment) => {
       if (paymentErr) return res.status(500).json({ error: 'No fue posible validar el pago.' });
       if (!payment) return res.status(403).json({ error: 'No puedes registrar soporte para este pago.' });
 
-      db.run(`UPDATE payments SET support_url = ?, payment_method = ?, payment_date = COALESCE(NULLIF(?, ''), payment_date), status = 'Soporte enviado', updated_at = ? WHERE id = ?`,
+      pgRun(`UPDATE payments SET support_url = $1, payment_method = $2, payment_date = COALESCE(NULLIF($3, ''), payment_date), status = 'Soporte enviado', updated_at = $4 WHERE id = $5`,
         [payload.support_url, payload.payment_method, payload.payment_date, getTimestamp(), paymentId], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible registrar el soporte.' });
           createClientNotification(client.id, 'Pagos', 'Soporte de pago enviado', `Recibimos el soporte para ${payment.concept || 'tu pago'}.`);
@@ -2312,18 +2346,19 @@ app.post('/api/client/messages', requireAuth(['client']), (req, res) => {
     return res.status(400).json({ error: 'Caso y mensaje son obligatorios.' });
   }
 
-  db.get(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name AS client_name
+  pgGet(`SELECT ca.id, ca.case_type, cl.id AS client_id, cl.name AS client_name
     FROM cases ca
     JOIN clients cl ON cl.id = ca.client_id
-    WHERE ca.id = ? AND (cl.email = ? OR cl.document_id = ?)`,
+    WHERE ca.id = $1 AND (cl.email = $2 OR cl.document_id = $3)`,
     [caseId, req.user.email, req.user.document_id], (caseErr, legalCase) => {
       if (caseErr) return res.status(500).json({ error: 'No fue posible validar el caso.' });
       if (!legalCase) return res.status(403).json({ error: 'No puedes enviar mensajes a este caso.' });
 
       const now = getTimestamp();
-      db.run(`INSERT INTO client_messages
+      pgRun(`INSERT INTO client_messages
         (client_id, case_id, sender_id, sender_role, sender_name, message, attachment_name, attachment_url, is_read_by_client, is_read_by_admin, created_at)
-        VALUES (?, ?, ?, 'client', ?, ?, ?, ?, 1, 0, ?)`,
+        VALUES ($1, $2, $3, 'client', $4, $5, $6, $7, 1, 0, $8)
+        RETURNING id`,
         [legalCase.client_id, caseId, req.user.id, req.user.full_name || legalCase.client_name, payload.message, payload.attachment_name, payload.attachment_url, now], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible enviar el mensaje.' });
           createClientNotification(legalCase.client_id, 'Mensajes', 'Mensaje enviado', `Tu mensaje sobre ${legalCase.case_type} fue enviado a la firma.`);
@@ -2369,7 +2404,7 @@ app.post('/api/client/service-requests', requireAuth(['client']), (req, res) => 
   }
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Ingresa un correo electrónico válido.' });
 
-  db.get(`SELECT id, name, phone, email, city FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+  pgGet(`SELECT id, name, phone, email, city FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
 
@@ -2381,48 +2416,48 @@ app.post('/api/client/service-requests', requireAuth(['client']), (req, res) => 
       `Solicitud enviada desde portal cliente #${client.id}`
     ].filter(Boolean).join('\n');
 
-    db.serialize(() => {
-      db.run(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'Portal cliente', 'Nuevo', 'Comercial', ?, ?, 'Contactar al cliente y abrir caso si aplica', ?, ?)`,
-        [client.name || req.user.full_name, payload.phone, payload.email, payload.service_type, leadNotes, payload.urgency === 'Alta' ? 'Alta' : 'Media', now, now], function (leadErr) {
-          if (leadErr) return res.status(500).json({ error: 'No fue posible registrar la solicitud.' });
-          const leadId = this.lastID;
-          db.run(`INSERT INTO client_service_requests
-            (client_id, lead_id, service_type, description, urgency, documents, city, email, phone, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Enviada', ?, ?)`,
-            [client.id, leadId, payload.service_type, payload.description, payload.urgency, payload.documents, payload.city, payload.email, payload.phone, now, now], function (requestErr) {
+    pgRun(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'Portal cliente', 'Nuevo', 'Comercial', $5, $6, 'Contactar al cliente y abrir caso si aplica', $7, $8)
+      RETURNING id`,
+      [client.name || req.user.full_name, payload.phone, payload.email, payload.service_type, leadNotes, payload.urgency === 'Alta' ? 'Alta' : 'Media', now, now], function (leadErr) {
+        if (leadErr) return res.status(500).json({ error: 'No fue posible registrar la solicitud.' });
+        const leadId = this.lastID;
+        pgRun(`INSERT INTO client_service_requests
+          (client_id, lead_id, service_type, description, urgency, documents, city, email, phone, status, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Enviada', $10, $11)
+          RETURNING id`,
+          [client.id, leadId, payload.service_type, payload.description, payload.urgency, payload.documents, payload.city, payload.email, payload.phone, now, now], function (requestErr) {
           if (requestErr) return res.status(500).json({ error: 'No fue posible guardar la solicitud.' });
-              createClientNotification(client.id, 'Servicios', 'Solicitud enviada', `Recibimos tu solicitud de ${payload.service_type}.`);
-              sendNotificationEmail('Nueva solicitud de servicio desde portal cliente', `
-                <h2>Nueva solicitud de servicio legal</h2>
-                <p><strong>Cliente:</strong> ${escapeHtml(client.name || req.user.full_name)}</p>
-                <p><strong>Servicio:</strong> ${escapeHtml(payload.service_type)}</p>
-                <p><strong>Urgencia:</strong> ${escapeHtml(payload.urgency)}</p>
-                <p>${escapeHtml(payload.description)}</p>
-                ${payload.documents ? `<p><strong>Documento inicial:</strong> ${escapeHtml(payload.documents)}</p>` : ''}
-              `);
-              res.status(201).json({
-                id: this.lastID,
-                lead_id: leadId,
-                client_id: client.id,
-                ...payload,
-                status: 'Enviada',
-                created_at: now,
-                updated_at: now
-              });
-            });
+          createClientNotification(client.id, 'Servicios', 'Solicitud enviada', `Recibimos tu solicitud de ${payload.service_type}.`);
+          sendNotificationEmail('Nueva solicitud de servicio desde portal cliente', `
+            <h2>Nueva solicitud de servicio legal</h2>
+            <p><strong>Cliente:</strong> ${escapeHtml(client.name || req.user.full_name)}</p>
+            <p><strong>Servicio:</strong> ${escapeHtml(payload.service_type)}</p>
+            <p><strong>Urgencia:</strong> ${escapeHtml(payload.urgency)}</p>
+            <p>${escapeHtml(payload.description)}</p>
+            ${payload.documents ? `<p><strong>Documento inicial:</strong> ${escapeHtml(payload.documents)}</p>` : ''}
+          `);
+          res.status(201).json({
+            id: this.lastID,
+            lead_id: leadId,
+            client_id: client.id,
+            ...payload,
+            status: 'Enviada',
+            created_at: now,
+            updated_at: now
+          });
         });
-    });
+      });
   });
 });
 
 app.post('/api/client/notifications/:id/read', requireAuth(['client']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Notificación inválida.' });
-  db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+  pgGet(`SELECT id FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
-    db.run(`UPDATE client_notifications SET is_read = 1 WHERE client_id = ? AND id = ?`, [client.id, id], function (err) {
+    pgRun(`UPDATE client_notifications SET is_read = 1 WHERE client_id = $1 AND id = $2`, [client.id, id], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificación.' });
       res.json({ message: 'Notificación marcada como leída.' });
     });
@@ -2430,10 +2465,10 @@ app.post('/api/client/notifications/:id/read', requireAuth(['client']), (req, re
 });
 
 app.post('/api/client/notifications/read-all', requireAuth(['client']), (req, res) => {
-  db.get(`SELECT id FROM clients WHERE email = ? OR document_id = ?`, [req.user.email, req.user.document_id], (clientErr, client) => {
+  pgGet(`SELECT id FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
-    db.run(`UPDATE client_notifications SET is_read = 1 WHERE client_id = ?`, [client.id], function (err) {
+    pgRun(`UPDATE client_notifications SET is_read = 1 WHERE client_id = $1`, [client.id], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar notificaciones.' });
       res.json({ message: 'Notificaciones marcadas como leídas.' });
     });
@@ -2450,40 +2485,40 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
       const baseUrl = getBaseUrl(req);
       const inviteLink = `${baseUrl}/aliados/registro?ref=${encodeURIComponent(referralCode)}`;
 
-      db.all(`SELECT r.*, c.amount AS commission_amount, c.status AS commission_status
+      pgAll(`SELECT r.*, c.amount AS commission_amount, c.status AS commission_status
         FROM referrals r
-        LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = ? AND c.commission_type = 'direct'
-        WHERE r.ally_id = ?
+        LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = $1 AND c.commission_type = 'direct'
+        WHERE r.ally_id = $2
         ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (refErr, directReferrals) => {
         if (refErr) return res.status(500).json({ error: 'Error al cargar tus referidos.' });
 
-        db.all(`SELECT p.user_id, p.city, p.referral_code, p.created_at, u.full_name, u.status,
+        pgAll(`SELECT p.user_id, p.city, p.referral_code, p.created_at, u.full_name, u.status,
             COUNT(r.id) AS referrals_count,
             COALESCE(SUM(c.amount), 0) AS generated_commissions
           FROM partners p
           JOIN users u ON u.id = p.user_id
           LEFT JOIN referrals r ON r.ally_id = p.user_id
-          LEFT JOIN commissions c ON c.source_ally_id = p.user_id AND c.ally_id = ?
-          WHERE p.invited_by_partner_id = ?
-          GROUP BY p.user_id
+          LEFT JOIN commissions c ON c.source_ally_id = p.user_id AND c.ally_id = $1
+          WHERE p.invited_by_partner_id = $2
+          GROUP BY p.user_id, p.city, p.referral_code, p.created_at, u.full_name, u.status
           ORDER BY p.user_id DESC`, [req.user.id, req.user.id], (teamErr, team) => {
           if (teamErr) return res.status(500).json({ error: 'Error al cargar tu equipo.' });
 
-          db.all(`SELECT r.id, r.ally_id AS source_ally_id, r.referred_full_name, r.legal_area, r.status, r.created_at,
+          pgAll(`SELECT r.id, r.ally_id AS source_ally_id, r.referred_full_name, r.legal_area, r.status, r.created_at,
               u.full_name AS source_ally_name, c.amount AS commission_amount, c.status AS commission_status
             FROM referrals r
             JOIN users u ON u.id = r.ally_id
             JOIN partners p ON p.user_id = r.ally_id
-            LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = ?
-            WHERE p.invited_by_partner_id = ?
+            LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = $1
+            WHERE p.invited_by_partner_id = $2
             ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (networkErr, networkReferrals) => {
             if (networkErr) return res.status(500).json({ error: 'Error al cargar referidos de tu red.' });
 
-            db.all(`SELECT c.*, r.referred_full_name, r.legal_area, u.full_name AS source_ally_name
+            pgAll(`SELECT c.*, r.referred_full_name, r.legal_area, u.full_name AS source_ally_name
               FROM commissions c
               JOIN referrals r ON r.id = c.referral_id
               JOIN users u ON u.id = c.source_ally_id
-              WHERE c.ally_id = ?
+              WHERE c.ally_id = $1
               ORDER BY c.created_at DESC`, [req.user.id], (commissionErr, commissions) => {
               if (commissionErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
 
@@ -2646,14 +2681,15 @@ app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => 
     return res.status(400).json({ error: 'El correo del referido no tiene un formato valido.' });
   }
 
-  db.get(`SELECT id FROM referrals WHERE client_identification = ? OR referred_phone = ? OR referred_email = ?`, [payload.client_identification, payload.client_phone, payload.client_email], (dupErr, duplicate) => {
+  pgGet(`SELECT id FROM referrals WHERE client_identification = $1 OR referred_phone = $2 OR referred_email = $3`, [payload.client_identification, payload.client_phone, payload.client_email], (dupErr, duplicate) => {
     if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
     if (duplicate) return res.status(409).json({ error: 'Este referido ya existe por cedula, telefono o correo.' });
 
     const createdAt = getTimestamp();
-    const stmt = db.prepare(`INSERT INTO referrals (ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Nuevo referido', ?, ?)`);
-    stmt.run(req.user.id, payload.client_name, payload.client_identification, payload.client_phone, payload.client_email, payload.city, payload.legal_area, payload.description, payload.referral_channel, createdAt, createdAt, function (insertErr) {
+    pgRun(`INSERT INTO referrals (ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Nuevo referido', $10, $11)
+      RETURNING id`,
+      [req.user.id, payload.client_name, payload.client_identification, payload.client_phone, payload.client_email, payload.city, payload.legal_area, payload.description, payload.referral_channel, createdAt, createdAt], function (insertErr) {
       if (insertErr) return res.status(500).json({ error: 'No fue posible guardar el referido.' });
       const referralId = this.lastID;
       createCommissionRows(referralId, req.user.id, (commissionErr) => {
@@ -2661,7 +2697,6 @@ app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => 
         res.status(201).json({ message: 'Referido enviado correctamente. Quedo asociado a tu cuenta de aliado.', id: referralId });
       });
     });
-    stmt.finalize();
   });
 });
 
@@ -2670,8 +2705,7 @@ app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
   const month = currentMonthKey();
   const response = {};
 
-  db.serialize(() => {
-    getPartnerProfile(allyId, (profileErr, partner) => {
+  getPartnerProfile(allyId, (profileErr, partner) => {
       if (!profileErr && partner) {
         const referralCode = partner.referral_code || 'ORJUELAPRUEBA';
         response.profile = {
@@ -2696,44 +2730,44 @@ app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
       }
     });
 
-    db.all(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type, title`, (resourceErr, resources) => {
+    pgAll(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type, title`, (resourceErr, resources) => {
       if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
       response.resources = resources;
 
-      db.all(`SELECT * FROM ally_notifications WHERE ally_id = ? ORDER BY created_at DESC`, [allyId], (notificationErr, notifications) => {
+      pgAll(`SELECT * FROM ally_notifications WHERE ally_id = $1 ORDER BY created_at DESC`, [allyId], (notificationErr, notifications) => {
         if (notificationErr) return res.status(500).json({ error: 'Error al cargar notificaciones.' });
         response.notifications = notifications;
 
-        db.all(`SELECT m.*, COALESCE(p.status, 'pendiente') AS progress_status, COALESCE(p.progress, 0) AS progress
+        pgAll(`SELECT m.*, COALESCE(p.status, 'pendiente') AS progress_status, COALESCE(p.progress, 0) AS progress
           FROM ally_academy_modules m
-          LEFT JOIN ally_academy_progress p ON p.module_id = m.id AND p.ally_id = ?
+          LEFT JOIN ally_academy_progress p ON p.module_id = m.id AND p.ally_id = $1
           WHERE m.is_active = 1
           ORDER BY m.sort_order`, [allyId], (academyErr, academy) => {
           if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
           response.academy = academy;
 
-          db.get(`SELECT * FROM ally_kyc_verifications WHERE ally_id = ?`, [allyId], (kycErr, kyc) => {
+          pgGet(`SELECT * FROM ally_kyc_verifications WHERE ally_id = $1`, [allyId], (kycErr, kyc) => {
             if (kycErr) return res.status(500).json({ error: 'Error al cargar verificacion.' });
             response.kyc = kyc || { status: 'Sin verificar', phone_validated: 0, email_validated: 0 };
 
-            db.all(`SELECT * FROM ally_legal_acceptances WHERE ally_id = ? ORDER BY document_type`, [allyId], (legalErr, legalDocuments) => {
+            pgAll(`SELECT * FROM ally_legal_acceptances WHERE ally_id = $1 ORDER BY document_type`, [allyId], (legalErr, legalDocuments) => {
               if (legalErr) return res.status(500).json({ error: 'Error al cargar documentos legales.' });
               response.legal_documents = legalDocuments;
 
-              db.get(`SELECT * FROM ally_goals WHERE (ally_id = ? OR ally_id IS NULL) AND month = ? AND is_active = 1 ORDER BY ally_id DESC LIMIT 1`, [allyId, month], (goalErr, goal) => {
+              pgGet(`SELECT * FROM ally_goals WHERE (ally_id = $1 OR ally_id IS NULL) AND month = $2 AND is_active = 1 ORDER BY ally_id DESC LIMIT 1`, [allyId, month], (goalErr, goal) => {
                 if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
                 const activeGoal = goal || { month, referral_goal: 5, converted_goal: 1, commission_goal: 500000 };
 
-                db.all(`SELECT r.status, r.created_at FROM referrals r WHERE r.ally_id = ?`, [allyId], (refErr, refs) => {
+                pgAll(`SELECT r.status, r.created_at FROM referrals r WHERE r.ally_id = $1`, [allyId], (refErr, refs) => {
                   if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
-                  db.all(`SELECT commission_type, amount, status, created_at FROM commissions WHERE ally_id = ?`, [allyId], (commErr, commissions) => {
+                  pgAll(`SELECT commission_type, amount, status, created_at FROM commissions WHERE ally_id = $1`, [allyId], (commErr, commissions) => {
                     if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
-                    db.all(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
+                    pgAll(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
                       if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
 
                       const converted = refs.filter((item) => ['Cliente activo', 'Cliente vinculado', 'won'].includes(item.status)).length;
                       const totalCommissions = commissions.reduce((sum, item) => sum + money(item.amount), 0);
-                      db.all(`SELECT user_id FROM partners WHERE invited_by_partner_id = ?`, [allyId], (teamErr, team) => {
+                      pgAll(`SELECT user_id FROM partners WHERE invited_by_partner_id = $1`, [allyId], (teamErr, team) => {
                         if (teamErr) return res.status(500).json({ error: 'Error al cargar red.' });
                         const activeAllies = team.length;
                         const currentLevel = [...levels].reverse().find((level) =>
@@ -2792,17 +2826,16 @@ app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
         });
       });
     });
-  });
 });
 
 app.post('/api/partner/notifications/:id/read', requireAuth(['ally']), (req, res) => {
-  db.run(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = ? AND id = ?`, [req.user.id, parseInt(req.params.id, 10)], () => {
+  pgRun(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = $1 AND id = $2`, [req.user.id, parseInt(req.params.id, 10)], () => {
     res.json({ message: 'Notificacion marcada como leida.' });
   });
 });
 
 app.post('/api/partner/notifications/read-all', requireAuth(['ally']), (req, res) => {
-  db.run(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = ?`, [req.user.id], () => {
+  pgRun(`UPDATE ally_notifications SET is_read = 1 WHERE ally_id = $1`, [req.user.id], () => {
     res.json({ message: 'Notificaciones marcadas como leidas.' });
   });
 });
@@ -2811,8 +2844,9 @@ app.post('/api/partner/legal-acceptances', requireAuth(['ally']), (req, res) => 
   const documentType = cleanText(req.body.document_type, 80);
   const version = cleanText(req.body.version || 'v1.0', 20);
   if (!documentType) return res.status(400).json({ error: 'Tipo de documento obligatorio.' });
-  db.run(`INSERT INTO ally_legal_acceptances (ally_id, document_type, accepted_at, ip_address, version, status)
-    VALUES (?, ?, ?, ?, ?, 'accepted')`, [req.user.id, documentType, getTimestamp(), req.ip || '', version], function (err) {
+  pgRun(`INSERT INTO ally_legal_acceptances (ally_id, document_type, accepted_at, ip_address, version, status)
+    VALUES ($1, $2, $3, $4, $5, 'accepted')
+    RETURNING id`, [req.user.id, documentType, getTimestamp(), req.ip || '', version], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible registrar la aceptacion.' });
     res.status(201).json({ message: 'Documento aceptado correctamente.', id: this.lastID });
   });
@@ -2826,8 +2860,9 @@ app.post('/api/partner/electronic-signatures', requireAuth(['ally']), (req, res)
     version: cleanText(req.body.version || 'v1.0', 20)
   };
   if (!payload.document_type || !payload.full_name || !payload.document_number) return res.status(400).json({ error: 'Datos de firma incompletos.' });
-  db.run(`INSERT INTO ally_electronic_signatures (ally_id, document_type, full_name, document_number, version, signed_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'accepted')`, [req.user.id, payload.document_type, payload.full_name, payload.document_number, payload.version, getTimestamp()], function (err) {
+  pgRun(`INSERT INTO ally_electronic_signatures (ally_id, document_type, full_name, document_number, version, signed_at, status)
+    VALUES ($1, $2, $3, $4, $5, $6, 'accepted')
+    RETURNING id`, [req.user.id, payload.document_type, payload.full_name, payload.document_number, payload.version, getTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible registrar la firma.' });
     res.status(201).json({ message: 'Firma electronica registrada.', id: this.lastID });
   });
@@ -2847,12 +2882,12 @@ app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
   if (!payload.phone || !payload.city || !payload.partner_type) {
     return res.status(400).json({ error: 'Teléfono, ciudad y tipo de aliado son obligatorios.' });
   }
-  db.run(`UPDATE partners SET phone = ?, city = ?, partner_type = ?, company = ?, occupation = ?,
-      bank_name = COALESCE(NULLIF(?, ''), bank_name),
-      account_type = COALESCE(NULLIF(?, ''), account_type),
-      account_number = COALESCE(NULLIF(?, ''), account_number),
-      updated_at = ?
-    WHERE user_id = ?`,
+  pgRun(`UPDATE partners SET phone = $1, city = $2, partner_type = $3, company = $4, occupation = $5,
+      bank_name = COALESCE(NULLIF($6, ''), bank_name),
+      account_type = COALESCE(NULLIF($7, ''), account_type),
+      account_number = COALESCE(NULLIF($8, ''), account_number),
+      updated_at = $9
+    WHERE user_id = $10`,
     [payload.phone, payload.city, payload.partner_type, payload.company, payload.occupation, payload.bank_name, payload.account_type, payload.account_number, getTimestamp(), req.user.id],
     function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
@@ -2864,8 +2899,8 @@ app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
 app.post('/api/partner/academy/:id/complete', requireAuth(['ally']), (req, res) => {
   const moduleId = parseInt(req.params.id, 10);
   if (!moduleId) return res.status(400).json({ error: 'Módulo inválido.' });
-  db.run(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
-      VALUES (?, ?, 'completado', 100, ?)
+  pgRun(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
+      VALUES ($1, $2, 'completado', 100, $3)
       ON CONFLICT(ally_id, module_id) DO UPDATE SET status = 'completado', progress = 100, updated_at = excluded.updated_at`,
     [req.user.id, moduleId, getTimestamp()], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar el módulo.' });
@@ -2883,8 +2918,8 @@ app.post('/api/partner/kyc', requireAuth(['ally']), (req, res) => {
     account_number: cleanText(req.body.account_number, 80)
   };
   const now = getTimestamp();
-  db.run(`INSERT INTO ally_kyc_verifications (ally_id, front_document_url, back_document_url, selfie_url, bank_name, account_type, account_number, status, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'En revision', ?)
+  pgRun(`INSERT INTO ally_kyc_verifications (ally_id, front_document_url, back_document_url, selfie_url, bank_name, account_type, account_number, status, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'En revision', $8)
     ON CONFLICT(ally_id) DO UPDATE SET front_document_url = excluded.front_document_url, back_document_url = excluded.back_document_url,
       selfie_url = excluded.selfie_url, bank_name = excluded.bank_name, account_type = excluded.account_type, account_number = excluded.account_number,
       status = 'En revision', updated_at = excluded.updated_at`, [req.user.id, payload.front_document_url, payload.back_document_url, payload.selfie_url, payload.bank_name, payload.account_type, payload.account_number, now], (err) => {
@@ -2909,20 +2944,21 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
   }
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo invalido.' });
 
-  db.get(`SELECT u.id FROM users u
+  pgGet(`SELECT u.id FROM users u
     LEFT JOIN partners p ON p.user_id = u.id
-    WHERE u.email = ? OR p.document_id = ? OR p.phone = ?`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
+    WHERE u.email = $1 OR p.document_id = $2 OR p.phone = $3`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
     if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
     if (duplicate) return res.status(409).json({ error: 'Ya existe un aliado con ese correo, cedula o telefono.' });
 
     const createdAt = getTimestamp();
     const tempPassword = crypto.randomBytes(10).toString('hex');
-    db.run(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, 'ally', 'pending', ?, ?)`, [payload.full_name, payload.email, hashPassword(tempPassword), createdAt, createdAt], function (userErr) {
+    pgRun(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, 'ally', 'pending', $4, $5)
+      RETURNING id`, [payload.full_name, payload.email, hashPassword(tempPassword), createdAt, createdAt], function (userErr) {
       if (userErr) return res.status(500).json({ error: 'No fue posible crear la invitacion.' });
       const invitedUserId = this.lastID;
-      db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
-        VALUES (?, ?, ?, ?, 'Invitado', ?, ?, ?, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), req.user.id], (partnerErr) => {
+      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, invited_by_partner_id, commission_balance)
+        VALUES ($1, $2, $3, $4, 'Invitado', $5, $6, $7, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), req.user.id], (partnerErr) => {
         if (partnerErr) return res.status(500).json({ error: 'No fue posible asociar el aliado invitado.' });
         sendNotificationEmail('Nuevo aliado invitado', `<p>${escapeHtml(req.user.full_name)} invito a ${escapeHtml(payload.full_name)} (${escapeHtml(payload.email)}).</p>`);
         res.status(201).json({ message: 'Invitacion registrada correctamente. El nuevo aliado quedo asociado a tu red.' });
@@ -2932,7 +2968,7 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
 });
 
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  db.all(`SELECT p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
+  pgAll(`SELECT p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
       u.full_name, u.email, u.status,
       inviter.full_name AS invited_by_name,
       COUNT(DISTINCT r.id) AS referrals_count,
@@ -2942,17 +2978,18 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
     LEFT JOIN referrals r ON r.ally_id = p.user_id
     LEFT JOIN commissions c ON c.ally_id = p.user_id
-    GROUP BY p.user_id
+    GROUP BY p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
+      u.full_name, u.email, u.status, u.created_at, inviter.full_name
     ORDER BY u.created_at DESC`, (allyErr, allies) => {
     if (allyErr) return res.status(500).json({ error: 'Error al cargar aliados.' });
 
-    db.all(`SELECT r.*, u.full_name AS ally_name
+    pgAll(`SELECT r.*, u.full_name AS ally_name
       FROM referrals r
       JOIN users u ON u.id = r.ally_id
       ORDER BY r.created_at DESC`, (refErr, referralsRows) => {
       if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
 
-      db.all(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
+      pgAll(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
         FROM commissions c
         JOIN users receiver ON receiver.id = c.ally_id
         JOIN users source ON source.id = c.source_ally_id
@@ -2962,17 +2999,17 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
 
         getActiveCommissionSettings((settingsErr, settings) => {
           if (settingsErr) return res.status(500).json({ error: 'Error al cargar configuracion.' });
-          db.all(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
+          pgAll(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
             if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
-            db.all(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`, (resourceErr, resources) => {
+            pgAll(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`, (resourceErr, resources) => {
               if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
-              db.all(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
+              pgAll(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
                 if (kycErr) return res.status(500).json({ error: 'Error al cargar KYC.' });
-                db.all(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id WHERE f.status <> 'archived' ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
+                pgAll(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id WHERE f.status <> 'archived' ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
                   if (fraudErr) return res.status(500).json({ error: 'Error al cargar alertas.' });
-                  db.all(`SELECT * FROM ally_academy_modules WHERE is_active = 1 ORDER BY sort_order`, (academyErr, academy) => {
+                  pgAll(`SELECT * FROM ally_academy_modules WHERE is_active = 1 ORDER BY sort_order`, (academyErr, academy) => {
                     if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
-                    db.all(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
+                    pgAll(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
                       if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
                       res.json({ allies, referrals: referralsRows, commissions, settings, levels, resources, kyc, fraudAlerts, academy, goals });
                     });
@@ -2991,7 +3028,7 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
   const id = parseInt(req.params.id, 10);
   const status = cleanText(req.body.status, 40);
   if (!id || !NETWORK_REFERRAL_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado no valido.' });
-  db.run(`UPDATE referrals SET status = ?, updated_at = ? WHERE id = ?`, [status, getTimestamp(), id], function (err) {
+  pgRun(`UPDATE referrals SET status = $1, updated_at = $2 WHERE id = $3`, [status, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el referido.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Referido no encontrado.' });
     res.json({ message: 'Estado actualizado correctamente.' });
@@ -3013,12 +3050,13 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   const now = getTimestamp();
   const password = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
-  db.run(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'ally', ?, ?, ?)`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
+  pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, 'ally', $5, $6, $7)
+    RETURNING id`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
     if (userErr) return res.status(500).json({ error: 'No fue posible crear el usuario aliado.' });
     const userId = this.lastID;
-    db.run(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
+    pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
       if (partnerErr) return res.status(500).json({ error: 'No fue posible crear aliado.' });
       auditAdminAction(req, 'crear', 'aliado', userId, payload.full_name);
       res.status(201).json({ message: 'Aliado creado.', user_id: userId });
@@ -3037,10 +3075,10 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
     occupation: cleanText(req.body.occupation, 100),
     status: cleanText(req.body.status, 20)
   };
-  db.run(`UPDATE users SET full_name = COALESCE(NULLIF(?, ''), full_name), status = COALESCE(NULLIF(?, ''), status), updated_at = ? WHERE id = ? AND role = 'ally'`,
+  pgRun(`UPDATE users SET full_name = COALESCE(NULLIF($1, ''), full_name), status = COALESCE(NULLIF($2, ''), status), updated_at = $3 WHERE id = $4 AND role = 'ally'`,
     [payload.full_name, payload.status, getTimestamp(), id], function (userErr) {
     if (userErr) return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
-    db.run(`UPDATE partners SET phone = COALESCE(NULLIF(?, ''), phone), city = COALESCE(NULLIF(?, ''), city), partner_type = COALESCE(NULLIF(?, ''), partner_type), occupation = COALESCE(NULLIF(?, ''), occupation), updated_at = ? WHERE user_id = ?`,
+    pgRun(`UPDATE partners SET phone = COALESCE(NULLIF($1, ''), phone), city = COALESCE(NULLIF($2, ''), city), partner_type = COALESCE(NULLIF($3, ''), partner_type), occupation = COALESCE(NULLIF($4, ''), occupation), updated_at = $5 WHERE user_id = $6`,
       [payload.phone, payload.city, payload.partner_type, payload.occupation, getTimestamp(), id], (partnerErr) => {
       if (partnerErr) return res.status(500).json({ error: 'No fue posible actualizar perfil de aliado.' });
       auditAdminAction(req, 'actualizar', 'aliado', id, payload.full_name || 'Aliado actualizado');
@@ -3052,7 +3090,7 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
 app.delete('/api/admin/partner-network/allies/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
-  db.run(`UPDATE users SET status = 'archived', updated_at = ? WHERE id = ? AND role = 'ally'`, [getTimestamp(), id], function (err) {
+  pgRun(`UPDATE users SET status = 'archived', updated_at = $1 WHERE id = $2 AND role = 'ally'`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar aliado.' });
     auditAdminAction(req, 'archivar', 'aliado', id, 'Aliado archivado');
     res.json({ message: 'Aliado archivado.' });
@@ -3069,9 +3107,9 @@ app.patch('/api/admin/commissions/:id/status', requireAuth(['admin', 'abogado', 
     ? [status, amount, paidAt, id]
     : [status, paidAt, id];
   const sql = amount !== null && !Number.isNaN(amount)
-    ? `UPDATE commissions SET status = ?, amount = ?, paid_at = ? WHERE id = ?`
-    : `UPDATE commissions SET status = ?, paid_at = ? WHERE id = ?`;
-  db.run(sql, params, function (err) {
+    ? `UPDATE commissions SET status = $1, amount = $2, paid_at = $3 WHERE id = $4`
+    : `UPDATE commissions SET status = $1, paid_at = $2 WHERE id = $3`;
+  pgRun(sql, params, function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar la comision.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Comision no encontrada.' });
     res.json({ message: 'Comision actualizada correctamente.' });
@@ -3086,9 +3124,10 @@ app.patch('/api/admin/commission-settings', requireAuth(['admin']), (req, res) =
     return res.status(400).json({ error: 'Porcentajes no validos.' });
   }
   const now = getTimestamp();
-  db.run(`UPDATE commission_settings SET is_active = 0 WHERE is_active = 1`);
-  db.run(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
-    VALUES (?, ?, ?, 1, ?, ?)`, [direct, level1, level2, now, now], function (err) {
+  pgRun(`UPDATE commission_settings SET is_active = 0 WHERE is_active = 1`);
+  pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
+    VALUES ($1, $2, $3, 1, $4, $5)
+    RETURNING id`, [direct, level1, level2, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible guardar la configuracion.' });
     res.json({ message: 'Configuracion actualizada.', id: this.lastID });
   });
@@ -3106,8 +3145,9 @@ app.post('/api/admin/partner-network/levels', requireAuth(['admin']), (req, res)
   if (!payload.name || [payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies].some((value) => Number.isNaN(value) || value < 0)) {
     return res.status(400).json({ error: 'Completa los requisitos del nivel con valores válidos.' });
   }
-  db.run(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order, is_active)
-    VALUES (?, ?, ?, ?, ?, ?, 1)`, [payload.name, payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies, payload.benefits, payload.sort_order], function (err) {
+  pgRun(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order, is_active)
+    VALUES ($1, $2, $3, $4, $5, $6, 1)
+    RETURNING id`, [payload.name, payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies, payload.benefits, payload.sort_order], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear el nivel.' });
     auditAdminAction(req, 'crear', 'nivel_aliado', this.lastID, payload.name);
     res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
@@ -3125,14 +3165,14 @@ app.patch('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req,
     sort_order: req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10)
   };
   if (!id) return res.status(400).json({ error: 'Nivel inválido.' });
-  db.run(`UPDATE ally_levels SET
-      name = COALESCE(NULLIF(?, ''), name),
-      min_converted_referrals = COALESCE(?, min_converted_referrals),
-      min_commissions = COALESCE(?, min_commissions),
-      min_active_allies = COALESCE(?, min_active_allies),
-      benefits = COALESCE(NULLIF(?, ''), benefits),
-      sort_order = COALESCE(?, sort_order)
-    WHERE id = ?`, [
+  pgRun(`UPDATE ally_levels SET
+      name = COALESCE(NULLIF($1, ''), name),
+      min_converted_referrals = COALESCE($2, min_converted_referrals),
+      min_commissions = COALESCE($3, min_commissions),
+      min_active_allies = COALESCE($4, min_active_allies),
+      benefits = COALESCE(NULLIF($5, ''), benefits),
+      sort_order = COALESCE($6, sort_order)
+    WHERE id = $7`, [
     payload.name,
     payload.min_converted_referrals !== null && !Number.isNaN(payload.min_converted_referrals) ? payload.min_converted_referrals : null,
     payload.min_commissions !== null && !Number.isNaN(payload.min_commissions) ? payload.min_commissions : null,
@@ -3151,7 +3191,7 @@ app.patch('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req,
 app.delete('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Nivel inválido.' });
-  db.run(`UPDATE ally_levels SET is_active = 0 WHERE id = ?`, [id], function (err) {
+  pgRun(`UPDATE ally_levels SET is_active = 0 WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar el nivel.' });
     auditAdminAction(req, 'archivar', 'nivel_aliado', id, 'Nivel archivado');
     res.json({ message: 'Nivel archivado.' });
@@ -3169,8 +3209,9 @@ app.post('/api/admin/partner-network/goals', requireAuth(['admin']), (req, res) 
   if (!payload.month || [payload.referral_goal, payload.converted_goal, payload.commission_goal].some((value) => Number.isNaN(value) || value < 0)) {
     return res.status(400).json({ error: 'Completa la meta con valores válidos.' });
   }
-  db.run(`INSERT INTO ally_goals (ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?)`, [payload.ally_id, payload.month, payload.referral_goal, payload.converted_goal, payload.commission_goal, getTimestamp()], function (err) {
+  pgRun(`INSERT INTO ally_goals (ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
+    VALUES ($1, $2, $3, $4, $5, 1, $6)
+    RETURNING id`, [payload.ally_id, payload.month, payload.referral_goal, payload.converted_goal, payload.commission_goal, getTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear la meta.' });
     auditAdminAction(req, 'crear', 'meta_aliado', this.lastID, payload.month);
     res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
@@ -3187,14 +3228,14 @@ app.patch('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, 
     commission_goal: req.body.commission_goal === undefined ? null : Number(req.body.commission_goal)
   };
   if (!id) return res.status(400).json({ error: 'Meta inválida.' });
-  db.run(`UPDATE ally_goals SET
-      ally_id = CASE WHEN ? = '__KEEP__' THEN ally_id ELSE ? END,
-      month = COALESCE(NULLIF(?, ''), month),
-      referral_goal = COALESCE(?, referral_goal),
-      converted_goal = COALESCE(?, converted_goal),
-      commission_goal = COALESCE(?, commission_goal),
-      updated_at = ?
-    WHERE id = ?`, [
+  pgRun(`UPDATE ally_goals SET
+      ally_id = CASE WHEN $1 = '__KEEP__' THEN ally_id ELSE $2 END,
+      month = COALESCE(NULLIF($3, ''), month),
+      referral_goal = COALESCE($4, referral_goal),
+      converted_goal = COALESCE($5, converted_goal),
+      commission_goal = COALESCE($6, commission_goal),
+      updated_at = $7
+    WHERE id = $8`, [
     payload.ally_id === undefined ? '__KEEP__' : '',
     payload.ally_id === undefined || Number.isNaN(payload.ally_id) ? null : payload.ally_id,
     payload.month,
@@ -3214,7 +3255,7 @@ app.patch('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, 
 app.delete('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Meta inválida.' });
-  db.run(`UPDATE ally_goals SET is_active = 0, updated_at = ? WHERE id = ?`, [getTimestamp(), id], function (err) {
+  pgRun(`UPDATE ally_goals SET is_active = 0, updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar la meta.' });
     auditAdminAction(req, 'archivar', 'meta_aliado', id, 'Meta archivada');
     res.json({ message: 'Meta archivada.' });
@@ -3230,8 +3271,9 @@ app.post('/api/admin/partner-network/resources', requireAuth(['admin']), (req, r
     content: cleanText(req.body.content, 2000)
   };
   if (!payload.title || !payload.resource_type) return res.status(400).json({ error: 'Título y tipo son obligatorios.' });
-  db.run(`INSERT INTO ally_resources (title, resource_type, description, url, content, is_active, created_at)
-    VALUES (?, ?, ?, ?, ?, 1, ?)`, [payload.title, payload.resource_type, payload.description, payload.url, payload.content, getTimestamp()], function (err) {
+  pgRun(`INSERT INTO ally_resources (title, resource_type, description, url, content, is_active, created_at)
+    VALUES ($1, $2, $3, $4, $5, 1, $6)
+    RETURNING id`, [payload.title, payload.resource_type, payload.description, payload.url, payload.content, getTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear el recurso.' });
     auditAdminAction(req, 'crear', 'recurso_aliado', this.lastID, payload.title);
     res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
@@ -3241,13 +3283,13 @@ app.post('/api/admin/partner-network/resources', requireAuth(['admin']), (req, r
 app.patch('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Recurso inválido.' });
-  db.run(`UPDATE ally_resources SET
-      title = COALESCE(NULLIF(?, ''), title),
-      resource_type = COALESCE(NULLIF(?, ''), resource_type),
-      description = COALESCE(NULLIF(?, ''), description),
-      url = COALESCE(NULLIF(?, ''), url),
-      content = COALESCE(NULLIF(?, ''), content)
-    WHERE id = ?`, [
+  pgRun(`UPDATE ally_resources SET
+      title = COALESCE(NULLIF($1, ''), title),
+      resource_type = COALESCE(NULLIF($2, ''), resource_type),
+      description = COALESCE(NULLIF($3, ''), description),
+      url = COALESCE(NULLIF($4, ''), url),
+      content = COALESCE(NULLIF($5, ''), content)
+    WHERE id = $6`, [
     cleanText(req.body.title, 140),
     cleanText(req.body.resource_type, 60),
     cleanText(req.body.description, 500),
@@ -3265,7 +3307,7 @@ app.patch('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (r
 app.delete('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Recurso inválido.' });
-  db.run(`UPDATE ally_resources SET is_active = 0 WHERE id = ?`, [id], function (err) {
+  pgRun(`UPDATE ally_resources SET is_active = 0 WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar el recurso.' });
     auditAdminAction(req, 'archivar', 'recurso_aliado', id, 'Recurso archivado');
     res.json({ message: 'Recurso archivado.' });
@@ -3281,8 +3323,9 @@ app.post('/api/admin/partner-network/academy', requireAuth(['admin']), (req, res
     sort_order: parseInt(req.body.sort_order, 10) || 1
   };
   if (!payload.title || !payload.description) return res.status(400).json({ error: 'Título y descripción son obligatorios.' });
-  db.run(`INSERT INTO ally_academy_modules (title, description, content, video_url, sort_order, is_active)
-    VALUES (?, ?, ?, ?, ?, 1)`, [payload.title, payload.description, payload.content, payload.video_url, payload.sort_order], function (err) {
+  pgRun(`INSERT INTO ally_academy_modules (title, description, content, video_url, sort_order, is_active)
+    VALUES ($1, $2, $3, $4, $5, 1)
+    RETURNING id`, [payload.title, payload.description, payload.content, payload.video_url, payload.sort_order], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear el módulo.' });
     auditAdminAction(req, 'crear', 'academia_aliado', this.lastID, payload.title);
     res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
@@ -3293,13 +3336,13 @@ app.patch('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req
   const id = parseInt(req.params.id, 10);
   const sortOrder = req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10);
   if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
-  db.run(`UPDATE ally_academy_modules SET
-      title = COALESCE(NULLIF(?, ''), title),
-      description = COALESCE(NULLIF(?, ''), description),
-      content = COALESCE(NULLIF(?, ''), content),
-      video_url = COALESCE(NULLIF(?, ''), video_url),
-      sort_order = COALESCE(?, sort_order)
-    WHERE id = ?`, [
+  pgRun(`UPDATE ally_academy_modules SET
+      title = COALESCE(NULLIF($1, ''), title),
+      description = COALESCE(NULLIF($2, ''), description),
+      content = COALESCE(NULLIF($3, ''), content),
+      video_url = COALESCE(NULLIF($4, ''), video_url),
+      sort_order = COALESCE($5, sort_order)
+    WHERE id = $6`, [
     cleanText(req.body.title, 140),
     cleanText(req.body.description, 500),
     cleanText(req.body.content, 4000),
@@ -3317,7 +3360,7 @@ app.patch('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req
 app.delete('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
-  db.run(`UPDATE ally_academy_modules SET is_active = 0 WHERE id = ?`, [id], function (err) {
+  pgRun(`UPDATE ally_academy_modules SET is_active = 0 WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar el módulo.' });
     auditAdminAction(req, 'archivar', 'academia_aliado', id, 'Módulo archivado');
     res.json({ message: 'Módulo archivado.' });
@@ -3334,8 +3377,9 @@ app.post('/api/admin/partner-network/fraud-alerts', requireAuth(['admin']), (req
     status: cleanText(req.body.status || 'open', 30)
   };
   if (!payload.alert_type || !payload.description) return res.status(400).json({ error: 'Tipo y descripción son obligatorios.' });
-  db.run(`INSERT INTO ally_fraud_alerts (ally_id, referral_id, risk_level, alert_type, description, status, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)`, [payload.ally_id, payload.referral_id, payload.risk_level, payload.alert_type, payload.description, payload.status, getTimestamp()], function (err) {
+  pgRun(`INSERT INTO ally_fraud_alerts (ally_id, referral_id, risk_level, alert_type, description, status, created_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    RETURNING id`, [payload.ally_id, payload.referral_id, payload.risk_level, payload.alert_type, payload.description, payload.status, getTimestamp()], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear la alerta.' });
     auditAdminAction(req, 'crear', 'alerta_antifraude', this.lastID, payload.alert_type);
     res.status(201).json({ id: this.lastID, ...payload });
@@ -3345,12 +3389,12 @@ app.post('/api/admin/partner-network/fraud-alerts', requireAuth(['admin']), (req
 app.patch('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
-  db.run(`UPDATE ally_fraud_alerts SET
-      risk_level = COALESCE(NULLIF(?, ''), risk_level),
-      alert_type = COALESCE(NULLIF(?, ''), alert_type),
-      description = COALESCE(NULLIF(?, ''), description),
-      status = COALESCE(NULLIF(?, ''), status)
-    WHERE id = ?`, [
+  pgRun(`UPDATE ally_fraud_alerts SET
+      risk_level = COALESCE(NULLIF($1, ''), risk_level),
+      alert_type = COALESCE(NULLIF($2, ''), alert_type),
+      description = COALESCE(NULLIF($3, ''), description),
+      status = COALESCE(NULLIF($4, ''), status)
+    WHERE id = $5`, [
     cleanText(req.body.risk_level, 20),
     cleanText(req.body.alert_type, 80),
     cleanText(req.body.description, 700),
@@ -3367,7 +3411,7 @@ app.patch('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']),
 app.delete('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
-  db.run(`UPDATE ally_fraud_alerts SET status = 'archived' WHERE id = ?`, [id], function (err) {
+  pgRun(`UPDATE ally_fraud_alerts SET status = 'archived' WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar la alerta.' });
     auditAdminAction(req, 'archivar', 'alerta_antifraude', id, 'Alerta archivada');
     res.json({ message: 'Alerta archivada.' });
@@ -3378,7 +3422,7 @@ app.post('/api/auth/recovery/request', (req, res) => {
   const email = normalizeEmail(req.body.email);
   if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Ingresa un correo válido.' });
 
-  db.get(`SELECT id, full_name, email, role, status FROM users WHERE email = ?`, [email], (selectErr, user) => {
+  pgGet(`SELECT id, full_name, email, role, status FROM users WHERE email = $1`, [email], (selectErr, user) => {
     if (selectErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
     if (!user || user.status !== 'active') {
       return res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
@@ -3389,7 +3433,7 @@ app.post('/api/auth/recovery/request', (req, res) => {
     const expiresAt = new Date(Date.now() + 1000 * 60 * 30).toISOString();
     const resetUrl = `${getBaseUrl(req)}/restablecer-contrasena?codigo=${encodeURIComponent(rawCode)}`;
 
-    db.run(`UPDATE users SET reset_token_hash = ?, reset_token_expires_at = ?, updated_at = ? WHERE id = ?`, [tokenHash, expiresAt, getTimestamp(), user.id], (updateErr) => {
+    pgRun(`UPDATE users SET reset_token_hash = $1, reset_token_expires_at = $2, updated_at = $3 WHERE id = $4`, [tokenHash, expiresAt, getTimestamp(), user.id], (updateErr) => {
       if (updateErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
 
       const sent = sendTransactionalEmail(user.email, 'Restablece tu contraseña Orjuela Abogados', `
@@ -3418,14 +3462,14 @@ app.post('/api/auth/recovery/reset', (req, res) => {
   if (!code || passwordError) return res.status(400).json({ error: passwordError || 'Código no válido.' });
 
   const tokenHash = crypto.createHash('sha256').update(code).digest('hex');
-  db.get(`SELECT id, reset_token_expires_at FROM users WHERE reset_token_hash = ?`, [tokenHash], (err, user) => {
+  pgGet(`SELECT id, reset_token_expires_at FROM users WHERE reset_token_hash = $1`, [tokenHash], (err, user) => {
     if (err || !user || new Date(user.reset_token_expires_at).getTime() < Date.now()) {
       return res.status(400).json({ error: 'Código inválido o vencido.' });
     }
 
-    db.run(`UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = ? WHERE id = ?`, [hashPassword(password), getTimestamp(), user.id], (updateErr) => {
+    pgRun(`UPDATE users SET password_hash = $1, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = $2 WHERE id = $3`, [hashPassword(password), getTimestamp(), user.id], (updateErr) => {
       if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la contraseña.' });
-      db.get(`SELECT id, full_name, document_id, email, auth_provider, avatar_url, role, status FROM users WHERE id = ?`, [user.id], (userErr, updatedUser) => {
+      pgGet(`SELECT id, full_name, document_id, email, auth_provider, avatar_url, role, status FROM users WHERE id = $1`, [user.id], (userErr, updatedUser) => {
         if (userErr || !updatedUser) return res.status(500).json({ error: 'Contraseña actualizada, pero no fue posible iniciar sesión automáticamente.' });
         res.json({
           message: 'Contraseña actualizada correctamente.',
@@ -3463,10 +3507,10 @@ app.post('/api/allies', (req, res) => {
   }
 
   const createdAt = getTimestamp();
-  const stmt = db.prepare(`INSERT INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, bank_name, account_type, account_number, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`);
-
-  stmt.run(payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, payload.how_known, payload.bank_name, payload.account_type, payload.account_number, createdAt, createdAt, function (err) {
+  pgRun(`INSERT INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, bank_name, account_type, account_number, status, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11, $12)
+    RETURNING id`,
+    [payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, payload.how_known, payload.bank_name, payload.account_type, payload.account_number, createdAt, createdAt], function (err) {
     if (err) {
       if (err.message.includes('UNIQUE')) {
         return res.status(409).json({ error: 'Ya existe un aliado registrado con esa cédula.' });
@@ -3476,12 +3520,14 @@ app.post('/api/allies', (req, res) => {
     }
 
     const tempPassword = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
-    db.run(`INSERT OR IGNORE INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'ally', ?, ?, ?)`, [payload.full_name, payload.document_number, payload.email, tempPassword, payload.status === 'active' ? 'active' : 'pending', createdAt, createdAt], function () {
-      db.get(`SELECT id FROM users WHERE email = ?`, [payload.email], (userErr, user) => {
+    pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'ally', 'pending', $5, $6)
+      ON CONFLICT (email) DO NOTHING`, [payload.full_name, payload.document_number, payload.email, tempPassword, createdAt, createdAt], function () {
+      pgGet(`SELECT id FROM users WHERE email = $1`, [payload.email], (userErr, user) => {
         if (!userErr && user) {
-          db.run(`INSERT OR IGNORE INTO partners (user_id, document_id, phone, city, partner_type, how_known, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`, [
+          pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, how_known, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12)
+            ON CONFLICT (user_id) DO NOTHING`, [
             user.id,
             payload.document_number,
             payload.phone,
@@ -3513,7 +3559,6 @@ app.post('/api/allies', (req, res) => {
 
     res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Pronto nuestro equipo validará tu información.' });
   });
-  stmt.finalize();
 });
 
 app.post('/api/referrals', (req, res) => {
@@ -3541,11 +3586,11 @@ app.post('/api/referrals', (req, res) => {
     return res.status(400).json({ error: 'El área legal seleccionada no es válida.' });
   }
 
-  db.get(`SELECT id, full_name, status FROM allies WHERE document_number = ? AND email = ?
+  pgGet(`SELECT id, full_name, status FROM allies WHERE document_number = $1 AND email = $2
     UNION
     SELECT u.id, u.full_name, u.status
     FROM partners p JOIN users u ON u.id = p.user_id
-    WHERE p.document_id = ? AND u.email = ?`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
+    WHERE p.document_id = $3 AND u.email = $4`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error interno al verificar el aliado.' });
@@ -3558,10 +3603,9 @@ app.post('/api/referrals', (req, res) => {
     }
 
     const createdAt = getTimestamp();
-    const stmt = db.prepare(`INSERT INTO referrals (ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, file_notes, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', ?, ?)`);
-
-    stmt.run(ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, payload.urgency, payload.file_notes, createdAt, createdAt, function (insertErr) {
+    pgRun(`INSERT INTO referrals (ally_id, referred_full_name, referred_phone, referred_email, referred_city, legal_area, case_description, urgency, file_notes, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'new', $10, $11)`,
+      [ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, payload.urgency, payload.file_notes, createdAt, createdAt], function (insertErr) {
       if (insertErr) {
         console.error(insertErr);
         return res.status(500).json({ error: 'Error interno al guardar el referido.' });
@@ -3582,7 +3626,6 @@ app.post('/api/referrals', (req, res) => {
 
       res.status(201).json({ message: 'Referido enviado correctamente. El equipo de Orjuela Abogados se pondrá en contacto con la persona referida.' });
     });
-    stmt.finalize();
   });
 });
 
@@ -3606,10 +3649,9 @@ app.post('/api/leads', (req, res) => {
   }
 
   const createdAt = getTimestamp();
-  const stmt = db.prepare(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, referrer_id, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'Nuevo', ?, ?, ?, ?, ?)`);
-
-  stmt.run(payload.name, payload.phone, payload.email, payload.case_type, payload.source, payload.assigned_to, payload.notes, payload.referrer_id, createdAt, createdAt, function (err) {
+  pgRun(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, referrer_id, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, 'Nuevo', $6, $7, $8, $9, $10)`,
+    [payload.name, payload.phone, payload.email, payload.case_type, payload.source, payload.assigned_to, payload.notes, payload.referrer_id, createdAt, createdAt], function (err) {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error interno al guardar el lead.' });
@@ -3627,7 +3669,6 @@ app.post('/api/leads', (req, res) => {
 
     res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactará pronto.' });
   });
-  stmt.finalize();
 });
 
 const distFolder = path.join(__dirname, 'dist', 'abogados-asociados');
@@ -3651,7 +3692,24 @@ if (fs.existsSync(staticFolder)) {
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`API server listening on http://localhost:${PORT}`);
-});
+dbReady
+  .then(() => {
+    if (QA_DEMO_DATA) {
+      seedQaData();
+    }
+
+    if (SEED_ACCESS_USERS) {
+      seedProductionAccessUsers();
+    }
+
+    app.listen(PORT, () => {
+      console.log(`API server listening on http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error('[db] No fue posible inicializar PostgreSQL:', error);
+    process.exit(1);
+  });
+
+
 
