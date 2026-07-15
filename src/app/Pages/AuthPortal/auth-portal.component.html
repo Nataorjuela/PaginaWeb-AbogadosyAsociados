@@ -311,7 +311,13 @@
           <span class="secure-pill">{{ kind === 'partner' ? 'Cuenta activa' : kind === 'client' ? 'Caso protegido' : 'Acceso interno seguro' }}</span>
           <h1>{{ kind === 'partner' ? 'Mi red de referidores' : kind === 'client' ? 'Portal clientes' : 'CRM jurídico administrativo' }}</h1>
         </div>
-        <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
+        <div class="dashboard-actions">
+          <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
+          <button class="logout-button" type="button" (click)="logout()" aria-label="Cerrar sesión">
+            <i class="bi bi-box-arrow-right"></i>
+            <span>Cerrar sesión</span>
+          </button>
+        </div>
       </header>
 
       <div class="metric-grid" *ngIf="(kind === 'partner' && partnerSection === 'overview') || kind === 'admin' || (kind === 'client' && clientSection === 'dashboard')">

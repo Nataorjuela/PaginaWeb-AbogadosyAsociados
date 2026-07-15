@@ -77,7 +77,7 @@ export class AlliesProgramComponent implements OnInit {
       email: ['', [Validators.required, Validators.email]],
       city: ['', Validators.required],
       ally_type: ['', Validators.required],
-      how_known: ['', Validators.required],
+      how_known: [''],
       bank_name: [''],
       account_type: [''],
       account_number: [''],
@@ -134,7 +134,7 @@ export class AlliesProgramComponent implements OnInit {
   isRegisterStepValid(): boolean {
     const controlsByStep: Record<number, string[]> = {
       1: ['full_name', 'document_number', 'phone', 'email', 'city'],
-      2: ['ally_type', 'how_known'],
+      2: ['ally_type'],
       3: [],
       4: ['accept_program_terms', 'accept_terms']
     };
