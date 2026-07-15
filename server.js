@@ -1778,32 +1778,42 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
         if (clientErr) return res.status(500).json({ error: 'No fue posible cargar clientes.' });
         pgGet(`SELECT COUNT(*) AS total FROM referrals`, (refErr, refCount) => {
           if (refErr) return res.status(500).json({ error: 'No fue posible cargar referidos.' });
-          pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
-            if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
-            pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
-              if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
-              pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
-                if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
-                reports.leads = leadCount.total || 0;
-                reports.cases = caseCount.total || 0;
-                reports.clients = clientCount.total || 0;
-                reports.referrals = refCount.total || 0;
-                reports.pending_commissions = comm.total || 0;
-                reports.pending_payments = pendingPayments.total || 0;
-                reports.conversion_rate = reports.leads ? Math.round((reports.cases / reports.leads) * 100) : 0;
-                res.json({
-                  reports,
-                  recentLeads,
-                  deadlines: [],
-                  appointments: [],
-                  metrics: [
-                    { label: 'Nuevos leads', value: String(reports.leads) },
-                    { label: 'Casos activos', value: String(reports.cases) },
-                    { label: 'Referidos del mes', value: String(reports.referrals) },
-                    { label: 'Clientes activos', value: String(reports.clients) },
-                    { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
-                    { label: 'Pagos pendientes', value: formatMoney(reports.pending_payments) }
-                  ]
+          pgGet(`SELECT COUNT(*) AS total FROM (
+              SELECT email, document_id, created_at FROM users WHERE role = 'ally'
+              UNION
+              SELECT email, document_number AS document_id, created_at FROM allies
+            ) monthly_allies
+            WHERE created_at >= date_trunc('month', CURRENT_DATE)::text`, (allyErr, allyCount) => {
+            if (allyErr) return res.status(500).json({ error: 'No fue posible cargar aliados.' });
+            pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
+              if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
+              pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
+                if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
+                pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
+                  if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
+                  reports.leads = leadCount.total || 0;
+                  reports.cases = caseCount.total || 0;
+                  reports.clients = clientCount.total || 0;
+                  reports.referrals = refCount.total || 0;
+                  reports.monthly_allies = allyCount.total || 0;
+                  reports.pending_commissions = comm.total || 0;
+                  reports.pending_payments = pendingPayments.total || 0;
+                  reports.conversion_rate = reports.leads ? Math.round((reports.cases / reports.leads) * 100) : 0;
+                  res.json({
+                    reports,
+                    recentLeads,
+                    deadlines: [],
+                    appointments: [],
+                    metrics: [
+                      { label: 'Nuevos leads', value: String(reports.leads) },
+                      { label: 'Aliados del mes', value: String(reports.monthly_allies) },
+                      { label: 'Casos activos', value: String(reports.cases) },
+                      { label: 'Referidos del mes', value: String(reports.referrals) },
+                      { label: 'Clientes activos', value: String(reports.clients) },
+                      { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
+                      { label: 'Pagos pendientes', value: formatMoney(reports.pending_payments) }
+                    ]
+                  });
                 });
               });
             });
@@ -3288,137 +3298,148 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
   });
 });
 
-app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT * FROM (
-      SELECT u.id AS user_id,
-        COALESCE(NULLIF(p.document_id, ''), NULLIF(u.document_id, ''), a.document_number, '') AS document_id,
-        COALESCE(NULLIF(p.phone, ''), a.phone, '') AS phone,
-        COALESCE(NULLIF(p.city, ''), a.city, '') AS city,
-        COALESCE(NULLIF(p.occupation, ''), NULLIF(p.partner_type, ''), a.ally_type, '') AS occupation,
-        COALESCE(NULLIF(p.referral_code, ''), '') AS referral_code,
-        COALESCE(p.commission_percentage, 10) AS commission_percentage,
-        p.invited_by_partner_id,
-        u.full_name,
-        u.email,
-        u.status,
-        inviter.full_name AS invited_by_name,
-        COUNT(DISTINCT r.id) AS referrals_count,
-        COALESCE(SUM(DISTINCT c.amount), 0) AS commissions_total,
-        u.created_at AS sort_date,
-        u.created_at,
-        0 AS legacy_only
-      FROM users u
-      LEFT JOIN partners p ON p.user_id = u.id
-      LEFT JOIN allies a ON a.email = u.email OR a.document_number = u.document_id
-      LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
-      LEFT JOIN referrals r ON r.ally_id = u.id OR (a.id IS NOT NULL AND r.ally_id = a.id)
-      LEFT JOIN commissions c ON c.ally_id = u.id
-      WHERE u.role = 'ally'
-      GROUP BY u.id, p.document_id, u.document_id, a.document_number, p.phone, a.phone, p.city, a.city,
-        p.occupation, p.partner_type, a.ally_type, p.referral_code, p.commission_percentage, p.invited_by_partner_id,
-        u.full_name, u.email, u.status, u.created_at, inviter.full_name
-      UNION ALL
-      SELECT -a.id AS user_id,
-        a.document_number AS document_id,
-        a.phone,
-        a.city,
-        a.ally_type AS occupation,
-        '' AS referral_code,
-        10 AS commission_percentage,
-        NULL AS invited_by_partner_id,
-        a.full_name,
-        a.email,
-        a.status,
-        'Principal' AS invited_by_name,
-        COUNT(DISTINCT r.id) AS referrals_count,
-        0 AS commissions_total,
-        a.created_at AS sort_date,
-        a.created_at,
-        1 AS legacy_only
-      FROM allies a
-      LEFT JOIN users u ON u.role = 'ally' AND (u.email = a.email OR u.document_id = a.document_number)
-      LEFT JOIN referrals r ON r.ally_id = a.id
-      WHERE u.id IS NULL
-      GROUP BY a.id, a.document_number, a.phone, a.city, a.ally_type, a.full_name, a.email, a.status, a.created_at
-    ) allies_unified
-    ORDER BY sort_date DESC`, (allyErr, allies) => {
-    if (allyErr) return res.status(500).json({ error: 'Error al cargar aliados.' });
-
-    pgAll(`SELECT r.id,
-        'referral' AS source_kind,
-        r.ally_id,
-        r.referred_full_name,
-        r.client_identification,
-        r.referred_phone,
-        r.referred_email,
-        r.referred_city,
-        r.legal_area,
-        r.case_description,
-        r.referral_channel,
-        r.urgency,
-        r.file_notes,
-        r.status,
-        r.created_at,
-        r.updated_at,
-        r.created_at AS referred_at,
-        r.referred_city AS city,
-        COALESCE(u.full_name, legacy.full_name, 'Aliado no identificado') AS ally_name
-      FROM referrals r
-      LEFT JOIN users u ON u.id = r.ally_id
-      LEFT JOIN allies legacy ON legacy.id = r.ally_id AND u.id IS NULL
-      UNION ALL
-      SELECT l.id,
-        'lead' AS source_kind,
-        l.referrer_id AS ally_id,
-        l.name AS referred_full_name,
-        '' AS client_identification,
-        l.phone AS referred_phone,
-        l.email AS referred_email,
-        '' AS referred_city,
-        l.case_type AS legal_area,
-        l.notes AS case_description,
-        l.source AS referral_channel,
-        l.priority AS urgency,
-        '' AS file_notes,
-        l.status,
-        l.created_at,
-        l.updated_at,
-        l.created_at AS referred_at,
-        '' AS city,
-        COALESCE(u.full_name, 'Aliado no identificado') AS ally_name
-      FROM leads l
-      LEFT JOIN users u ON u.id = l.referrer_id
-      WHERE l.referrer_id IS NOT NULL
-      ORDER BY created_at DESC`, (refErr, referralsRows) => {
-      if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
-
-      pgAll(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
+app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
+  try {
+    const [
+      usersResult,
+      partnersResult,
+      legacyAlliesResult,
+      referralsResult,
+      leadsResult,
+      commissionsResult,
+      settingsResult,
+      resourcesResult,
+      kycResult,
+      goalsResult
+    ] = await Promise.all([
+      pool.query(`SELECT id, full_name, document_id, email, status, created_at FROM users WHERE role = 'ally' ORDER BY created_at DESC`),
+      pool.query(`SELECT * FROM partners`),
+      pool.query(`SELECT * FROM allies ORDER BY created_at DESC`),
+      pool.query(`SELECT * FROM referrals ORDER BY created_at DESC`),
+      pool.query(`SELECT * FROM leads WHERE referrer_id IS NOT NULL ORDER BY created_at DESC`),
+      pool.query(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
         FROM commissions c
-        JOIN users receiver ON receiver.id = c.ally_id
-        JOIN users source ON source.id = c.source_ally_id
-        JOIN referrals r ON r.id = c.referral_id
-        ORDER BY c.created_at DESC`, (commErr, commissions) => {
-        if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
+        LEFT JOIN users receiver ON receiver.id = c.ally_id
+        LEFT JOIN users source ON source.id = c.source_ally_id
+        LEFT JOIN referrals r ON r.id = c.referral_id
+        ORDER BY c.created_at DESC`),
+      pool.query(`SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`),
+      pool.query(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`),
+      pool.query(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`),
+      pool.query(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`)
+    ]);
 
-        getActiveCommissionSettings((settingsErr, settings) => {
-          if (settingsErr) return res.status(500).json({ error: 'Error al cargar configuracion.' });
-          pgAll(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
-            if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
-            pgAll(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`, (resourceErr, resources) => {
-              if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
-              pgAll(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
-                if (kycErr) return res.status(500).json({ error: 'Error al cargar KYC.' });
-                pgAll(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
-                  if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
-                  res.json({ allies, referrals: referralsRows, commissions, settings, levels, resources, kyc, goals });
-                });
-              });
-            });
-          });
-        });
+    const users = usersResult.rows || [];
+    const partners = partnersResult.rows || [];
+    const legacyAllies = legacyAlliesResult.rows || [];
+    const referrals = referralsResult.rows || [];
+    const leads = leadsResult.rows || [];
+    const commissions = commissionsResult.rows || [];
+    const userById = new Map(users.map((user) => [Number(user.id), user]));
+    const partnerByUserId = new Map(partners.map((partner) => [Number(partner.user_id), partner]));
+    const legacyById = new Map(legacyAllies.map((ally) => [Number(ally.id), ally]));
+    const legacyByEmail = new Map(legacyAllies.map((ally) => [normalizeEmail(ally.email), ally]));
+    const legacyByDocument = new Map(legacyAllies.map((ally) => [normalizeDocument(ally.document_number), ally]));
+    const resolveAllyName = (allyId) => {
+      const numericId = Number(allyId);
+      const user = userById.get(numericId);
+      if (user) return user.full_name;
+      return legacyById.get(numericId)?.full_name || 'Aliado no identificado';
+    };
+    const resolveLegacyForUser = (user) => legacyByEmail.get(normalizeEmail(user.email)) || legacyByDocument.get(normalizeDocument(user.document_id));
+    const referralBelongsToUser = (referral, user, legacy) => Number(referral.ally_id) === Number(user.id) || (legacy && Number(referral.ally_id) === Number(legacy.id));
+
+    const allies = users.map((user) => {
+      const partner = partnerByUserId.get(Number(user.id)) || {};
+      const legacy = resolveLegacyForUser(user) || {};
+      const userReferrals = referrals.filter((referral) => referralBelongsToUser(referral, user, legacy));
+      const userCommissions = commissions.filter((commission) => Number(commission.ally_id) === Number(user.id));
+      return {
+        user_id: user.id,
+        document_id: partner.document_id || user.document_id || legacy.document_number || '',
+        phone: partner.phone || legacy.phone || '',
+        city: partner.city || legacy.city || '',
+        occupation: partner.occupation || partner.partner_type || legacy.ally_type || '',
+        referral_code: partner.referral_code || '',
+        commission_percentage: partner.commission_percentage ?? 10,
+        invited_by_partner_id: partner.invited_by_partner_id || null,
+        full_name: user.full_name,
+        email: user.email,
+        status: user.status || legacy.status || 'active',
+        invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
+        referrals_count: userReferrals.length,
+        commissions_total: userCommissions.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        created_at: user.created_at || partner.created_at || legacy.created_at,
+        legacy_only: 0
+      };
+    });
+
+    legacyAllies.forEach((legacy) => {
+      const linkedUser = users.find((user) => normalizeEmail(user.email) === normalizeEmail(legacy.email) || normalizeDocument(user.document_id) === normalizeDocument(legacy.document_number));
+      if (linkedUser) return;
+      const legacyReferrals = referrals.filter((referral) => Number(referral.ally_id) === Number(legacy.id));
+      allies.push({
+        user_id: -Number(legacy.id),
+        document_id: legacy.document_number,
+        phone: legacy.phone,
+        city: legacy.city,
+        occupation: legacy.ally_type,
+        referral_code: '',
+        commission_percentage: 10,
+        invited_by_partner_id: null,
+        full_name: legacy.full_name,
+        email: legacy.email,
+        status: legacy.status,
+        invited_by_name: 'Principal',
+        referrals_count: legacyReferrals.length,
+        commissions_total: 0,
+        created_at: legacy.created_at,
+        legacy_only: 1
       });
     });
-  });
+
+    const referralsRows = referrals.map((referral) => ({
+      ...referral,
+      source_kind: 'referral',
+      referred_at: referral.created_at,
+      city: referral.referred_city,
+      ally_name: resolveAllyName(referral.ally_id)
+    })).concat(leads.map((lead) => ({
+      id: lead.id,
+      source_kind: 'lead',
+      ally_id: lead.referrer_id,
+      referred_full_name: lead.name,
+      client_identification: '',
+      referred_phone: lead.phone,
+      referred_email: lead.email,
+      referred_city: '',
+      legal_area: lead.case_type,
+      case_description: lead.notes,
+      referral_channel: lead.source,
+      urgency: lead.priority,
+      file_notes: '',
+      status: lead.status,
+      created_at: lead.created_at,
+      updated_at: lead.updated_at,
+      referred_at: lead.created_at,
+      city: '',
+      ally_name: resolveAllyName(lead.referrer_id)
+    }))).sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+    allies.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    res.json({
+      allies,
+      referrals: referralsRows,
+      commissions,
+      settings: settingsResult.rows?.[0] || { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 },
+      resources: resourcesResult.rows || [],
+      kyc: kycResult.rows || [],
+      goals: goalsResult.rows || []
+    });
+  } catch (err) {
+    console.error('[admin/partner-network] load failed:', err);
+    res.status(500).json({ error: 'Error al cargar red de aliados.' });
+  }
 });
 
 app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
