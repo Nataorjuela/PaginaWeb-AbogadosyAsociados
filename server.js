@@ -633,6 +633,18 @@ function createClientNotification(clientId, type, title, description) {
   ], () => {});
 }
 
+function createAllyNotification(allyId, type, title, description) {
+  if (!allyId || !title || !description) return;
+  pgRun(`INSERT INTO ally_notifications (ally_id, notification_type, title, description, is_read, created_at)
+    VALUES ($1, $2, $3, $4, 0, $5)`, [
+    allyId,
+    cleanText(type || 'Portal', 60),
+    cleanText(title, 160),
+    cleanText(description, 500),
+    getTimestamp()
+  ], createPgErrorLogger('create ally notification'));
+}
+
 function whatsappLink(phone, message = '') {
   const digits = String(phone || '').replace(/\D/g, '');
   if (!digits) return '';
@@ -3214,10 +3226,64 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
   const id = parseInt(req.params.id, 10);
   const status = cleanText(req.body.status, 40);
   if (!id || !NETWORK_REFERRAL_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado no valido.' });
-  pgRun(`UPDATE referrals SET status = $1, updated_at = $2 WHERE id = $3`, [status, getTimestamp(), id], function (err) {
+  const updatedAt = getTimestamp();
+  pgRun(`UPDATE referrals SET status = $1, updated_at = $2 WHERE id = $3`, [status, updatedAt, id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el referido.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Referido no encontrado.' });
-    res.json({ message: 'Estado actualizado correctamente.' });
+
+    if (status !== 'Cliente vinculado') {
+      return res.json({ message: 'Estado actualizado correctamente.' });
+    }
+
+    pgGet(`SELECT r.*, u.full_name AS ally_name, u.email AS ally_email
+      FROM referrals r
+      JOIN users u ON u.id = r.ally_id
+      WHERE r.id = $1`, [id], (refErr, referral) => {
+      if (refErr || !referral) return res.json({ message: 'Estado actualizado correctamente, pero no fue posible cargar datos para notificar.' });
+
+      const registerUrl = `${getBaseUrl(req)}/clientes/registro`;
+      const referredName = referral.referred_full_name || 'cliente';
+      const emailSent = sendTransactionalEmail(referral.referred_email, 'Crea tu cuenta de cliente en Orjuela Abogados', `
+        <h2>Tu proceso ya puede continuar como cliente</h2>
+        <p>Hola ${escapeHtml(referredName)},</p>
+        <p>Orjuela Abogados y Asociados confirmó tu vinculación como cliente. Crea tu cuenta para consultar el seguimiento, documentos, pagos y mensajes de tu proceso.</p>
+        <p><a href="${escapeHtml(registerUrl)}">Crear cuenta de cliente</a></p>
+        <p>Si el botón no funciona, copia este enlace:</p>
+        <p>${escapeHtml(registerUrl)}</p>
+      `);
+
+      const whatsappMessage = `Hola ${referredName}, te contactamos de Orjuela Abogados. Tu proceso ya fue vinculado como cliente. Crea tu cuenta aquí: ${registerUrl}`;
+      const whatsappUrl = whatsappLink(referral.referred_phone, whatsappMessage);
+
+      createAdminNotification({
+        notification_type: 'client_invite',
+        title: 'Enviar acceso de cliente al referido',
+        description: `${referredName} fue marcado como Cliente vinculado. Usa WhatsApp o correo para enviarle el enlace de registro.`,
+        entity_type: 'referral',
+        entity_id: referral.id,
+        contact_name: referredName,
+        contact_phone: referral.referred_phone,
+        contact_email: referral.referred_email,
+        whatsapp_message: whatsappMessage
+      });
+
+      pgRun(`UPDATE commissions SET status = 'approved' WHERE referral_id = $1 AND status = 'pending'`, [id], (commissionErr) => {
+        if (commissionErr) console.error('[commissions] No fue posible aprobar comisiones:', commissionErr);
+        createAllyNotification(
+          referral.ally_id,
+          'Comision aprobada',
+          'Referido convertido en cliente',
+          `${referredName} ya fue marcado como cliente vinculado. Tu comisión quedó aprobada y pendiente de pago.`
+        );
+        res.json({
+          message: emailSent
+            ? 'Referido marcado como cliente. Se notificó al aliado y se envió correo de registro al referido.'
+            : 'Referido marcado como cliente. Se notificó al aliado y quedó lista la acción de contacto por WhatsApp/correo.',
+          whatsapp_url: whatsappUrl,
+          register_url: registerUrl
+        });
+      });
+    });
   });
 });
 

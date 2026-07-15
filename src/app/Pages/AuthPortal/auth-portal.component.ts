@@ -1346,8 +1346,17 @@ export class AuthPortalComponent implements OnInit {
   }
 
   updateNetworkReferralStatus(id: number, status: string): void {
-    this.http.patch(this.apiUrl(`/api/admin/network-referrals/${id}/status`), { status }, { headers: this.authHeaders() }).subscribe({
-      next: () => this.loadAdminNetwork()
+    this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${id}/status`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: (response) => {
+        this.formMessage = response?.message || 'Estado actualizado correctamente.';
+        if (status === 'Cliente vinculado' && response?.whatsapp_url) {
+          window.open(response.whatsapp_url, '_blank', 'noopener');
+        }
+        this.loadAdminNetwork();
+      },
+      error: (err) => {
+        this.formError = err?.error?.error || 'No fue posible actualizar el estado del referido.';
+      }
     });
   }
 
