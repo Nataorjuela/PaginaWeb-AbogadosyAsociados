@@ -3217,6 +3217,8 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
   });
 });
 
+});
+
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
   let debugSnapshot = {};
   try {
@@ -3858,7 +3860,6 @@ app.post('/api/auth/recovery/request', (req, res) => {
       }
       res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
     });
-  });
   });
 });
 
