@@ -690,6 +690,54 @@ function createAdminNotification(data = {}) {
   ], createPgErrorLogger('create admin notification'));
 }
 
+const ADMIN_LEADS_SQL = `
+  SELECT
+    CAST(l.id AS TEXT) AS id,
+    l.id AS raw_id,
+    'lead' AS source_kind,
+    l.name,
+    l.phone,
+    l.email,
+    l.case_type,
+    l.source,
+    l.status,
+    l.assigned_to,
+    l.notes,
+    l.priority,
+    l.next_action,
+    '' AS city,
+    '' AS ally_name,
+    l.created_at,
+    l.updated_at
+  FROM leads l
+  UNION ALL
+  SELECT
+    'referral-' || CAST(r.id AS TEXT) AS id,
+    r.id AS raw_id,
+    'referral' AS source_kind,
+    r.referred_full_name AS name,
+    r.referred_phone AS phone,
+    r.referred_email AS email,
+    r.legal_area AS case_type,
+    COALESCE(NULLIF(r.referral_channel, ''), 'Aliado') AS source,
+    r.status,
+    COALESCE(u.full_name, 'Equipo aliados') AS assigned_to,
+    CONCAT(
+      'Referido por: ', COALESCE(u.full_name, 'Aliado no identificado'),
+      '. Ciudad: ', COALESCE(r.referred_city, ''),
+      '. Descripción: ', COALESCE(r.case_description, ''),
+      CASE WHEN COALESCE(r.file_notes, '') <> '' THEN CONCAT('. Notas: ', r.file_notes) ELSE '' END
+    ) AS notes,
+    COALESCE(NULLIF(r.urgency, ''), 'Media') AS priority,
+    'Contactar al referido y calificar necesidad legal' AS next_action,
+    r.referred_city AS city,
+    COALESCE(u.full_name, '') AS ally_name,
+    r.created_at,
+    r.updated_at
+  FROM referrals r
+  LEFT JOIN users u ON u.id = r.ally_id
+`;
+
 function cleanText(value, maxLength = 180) {
   return String(value || '')
     .replace(/[<>]/g, '')
@@ -1552,6 +1600,17 @@ app.post('/api/auth/register-partner', (req, res) => {
           }
 
           const user = { id: userId, full_name: payload.full_name, email: payload.email, role: 'ally', status: 'active' };
+          createAdminNotification({
+            notification_type: 'new_ally',
+            title: 'Nuevo aliado registrado',
+            description: `${payload.full_name} creó cuenta de aliado en el portal. Ciudad: ${payload.city}. Tipo: ${payload.partner_type}.`,
+            entity_type: 'ally',
+            entity_id: userId,
+            contact_name: payload.full_name,
+            contact_phone: payload.phone,
+            contact_email: payload.email,
+            whatsapp_message: `Hola ${payload.full_name}, bienvenido al programa de aliados de Orjuela Abogados. Queremos confirmar tu registro.`
+          });
           res.status(201).json({ message: 'Tu cuenta de aliado fue creada exitosamente.', token: signToken(user), user });
         });
       });
@@ -1708,7 +1767,7 @@ app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
 
 app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const reports = {};
-  pgGet(`SELECT COUNT(*) AS total FROM leads`, (leadErr, leadCount) => {
+  pgGet(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads`, (leadErr, leadCount) => {
     if (leadErr) return res.status(500).json({ error: 'No fue posible cargar dashboard.' });
     pgGet(`SELECT COUNT(*) AS total FROM cases`, (caseErr, caseCount) => {
       if (caseErr) return res.status(500).json({ error: 'No fue posible cargar casos.' });
@@ -1720,7 +1779,7 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
             if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
             pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
               if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
-              pgAll(`SELECT * FROM leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
+              pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
                 if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
                 reports.leads = leadCount.total || 0;
                 reports.cases = caseCount.total || 0;
@@ -1776,7 +1835,7 @@ app.post('/api/admin/notifications/read-all', requireAuth(['admin', 'abogado', '
 });
 
 app.get('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT * FROM leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
+  pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: 'No fue posible cargar leads.' });
     res.json(rows);
   });
@@ -1920,6 +1979,56 @@ app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente
     auditAdminAction(req, 'archivar', 'cliente', id, 'Cliente archivado');
     res.json({ message: 'Cliente archivado.' });
   });
+});
+
+app.delete('/api/admin/clients/:id/permanent', requireAuth(['admin']), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const clientResult = await client.query(`SELECT * FROM clients WHERE id = $1`, [id]);
+    const clientRow = clientResult.rows[0];
+    if (!clientRow) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Cliente no encontrado.' });
+    }
+
+    const userResult = await client.query(`
+      SELECT id FROM users
+      WHERE role = 'client'
+        AND (
+          ($1 <> '' AND email = $1)
+          OR ($2 <> '' AND document_id = $2)
+        )`, [clientRow.email || '', clientRow.document_id || '']);
+    const userIds = userResult.rows.map((row) => row.id);
+
+    await client.query(`DELETE FROM client_notifications WHERE client_id = $1`, [id]);
+    await client.query(`DELETE FROM client_service_requests WHERE client_id = $1`, [id]);
+    await client.query(`DELETE FROM case_documents WHERE case_id IN (SELECT id FROM cases WHERE client_id = $1)`, [id]);
+    await client.query(`DELETE FROM client_messages WHERE client_id = $1 OR case_id IN (SELECT id FROM cases WHERE client_id = $1)`, [id]);
+    await client.query(`DELETE FROM payments WHERE (related_type = 'client' AND related_id = $1) OR (related_type = 'case' AND related_id IN (SELECT id FROM cases WHERE client_id = $1))`, [id]);
+    await client.query(`DELETE FROM admin_agenda WHERE (related_type = 'client' AND related_id = $1) OR (related_type = 'case' AND related_id IN (SELECT id FROM cases WHERE client_id = $1))`, [id]);
+    await client.query(`DELETE FROM cases WHERE client_id = $1`, [id]);
+    await client.query(`DELETE FROM clients WHERE id = $1`, [id]);
+
+    if (userIds.length) {
+      await client.query(`DELETE FROM auth_clients WHERE user_id = ANY($1::bigint[])`, [userIds]);
+      await client.query(`UPDATE client_messages SET sender_id = NULL WHERE sender_id = ANY($1::bigint[])`, [userIds]);
+      await client.query(`DELETE FROM users WHERE role = 'client' AND id = ANY($1::bigint[])`, [userIds]);
+    }
+
+    await client.query('COMMIT');
+    auditAdminAction(req, 'eliminar', 'cliente', id, clientRow.name || 'Cliente eliminado');
+    res.json({ message: 'Cliente eliminado permanentemente.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[admin/clients/permanent] delete failed:', err);
+    res.status(500).json({ error: 'No fue posible eliminar el cliente.' });
+  } finally {
+    client.release();
+  }
 });
 
 app.get('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -3159,6 +3268,17 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
         VALUES ($1, $2, $3, $4, 'Invitado', $5, $6, $7, 0)`, [invitedUserId, payload.document_id, payload.phone, payload.city, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), req.user.id], (partnerErr) => {
         if (partnerErr) return res.status(500).json({ error: 'No fue posible asociar el aliado invitado.' });
         sendNotificationEmail('Nuevo aliado invitado', `<p>${escapeHtml(req.user.full_name)} invito a ${escapeHtml(payload.full_name)} (${escapeHtml(payload.email)}).</p>`);
+        createAdminNotification({
+          notification_type: 'new_ally',
+          title: 'Nuevo aliado invitado',
+          description: `${req.user.full_name} invitó a ${payload.full_name} a la red de aliados. Ciudad: ${payload.city}.`,
+          entity_type: 'ally',
+          entity_id: invitedUserId,
+          contact_name: payload.full_name,
+          contact_phone: payload.phone,
+          contact_email: payload.email,
+          whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para confirmar tu invitación al programa de aliados.`
+        });
         res.status(201).json({ message: 'Invitacion registrada correctamente. El nuevo aliado quedo asociado a tu red.' });
       });
     });
@@ -3353,6 +3473,54 @@ app.delete('/api/admin/partner-network/allies/:id', requireAuth(['admin']), (req
     auditAdminAction(req, 'archivar', 'aliado', id, 'Aliado archivado');
     res.json({ message: 'Aliado archivado.' });
   });
+});
+
+app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admin']), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const allyResult = await client.query(`
+      SELECT u.id, u.full_name, u.email, u.document_id, p.referral_code
+      FROM users u
+      LEFT JOIN partners p ON p.user_id = u.id
+      WHERE u.id = $1 AND u.role = 'ally'`, [id]);
+    const ally = allyResult.rows[0];
+    if (!ally) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Aliado no encontrado.' });
+    }
+
+    await client.query(`DELETE FROM ally_academy_progress WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_fraud_alerts WHERE ally_id = $1 OR referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
+    await client.query(`DELETE FROM ally_electronic_signatures WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_kyc_verifications WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_legal_acceptances WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_notifications WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_activity_logs WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM ally_goals WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM commissions WHERE ally_id = $1 OR source_ally_id = $1 OR referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
+    await client.query(`DELETE FROM referral_status_history WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
+    await client.query(`DELETE FROM referrals WHERE ally_id = $1`, [id]);
+    await client.query(`UPDATE partners SET invited_by_partner_id = NULL WHERE invited_by_partner_id = $1`, [id]);
+    await client.query(`DELETE FROM partners WHERE user_id = $1`, [id]);
+    await client.query(`DELETE FROM allies WHERE ($1 <> '' AND email = $1) OR ($2 <> '' AND document_number = $2)`, [ally.email || '', ally.document_id || '']);
+    await client.query(`DELETE FROM admin_notifications WHERE entity_type IN ('ally', 'partner') AND entity_id = $1`, [id]);
+    await client.query(`UPDATE client_messages SET sender_id = NULL WHERE sender_id = $1`, [id]);
+    await client.query(`DELETE FROM users WHERE id = $1 AND role = 'ally'`, [id]);
+
+    await client.query('COMMIT');
+    auditAdminAction(req, 'eliminar', 'aliado', id, ally.full_name || 'Aliado eliminado');
+    res.json({ message: 'Aliado eliminado permanentemente.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[admin/allies/permanent] delete failed:', err);
+    res.status(500).json({ error: 'No fue posible eliminar el aliado.' });
+  } finally {
+    client.release();
+  }
 });
 
 app.patch('/api/admin/commissions/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {

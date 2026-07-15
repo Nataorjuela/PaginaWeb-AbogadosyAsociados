@@ -709,6 +709,31 @@ h2 {
   gap: 1rem;
 }
 
+.profile-completion-alert {
+  align-items: center;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-left: 8px solid #f97316;
+  border-radius: 18px;
+  box-shadow: 0 18px 45px rgba(249, 115, 22, 0.13);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1.25rem;
+}
+
+.profile-completion-alert h2 {
+  color: #9a3412;
+  font-size: 1.35rem;
+  margin: 0.65rem 0 0.35rem;
+}
+
+.profile-completion-alert p {
+  color: #7c2d12;
+  margin: 0;
+  max-width: 780px;
+}
+
 .partner-hero-card {
   align-items: center;
   background: linear-gradient(135deg, #0b1624, #1e3650);
@@ -756,6 +781,15 @@ h2 {
   color: #1e3650;
   display: block;
   font-size: 1.45rem;
+}
+
+.icon-action {
+  align-items: center;
+  display: inline-flex;
+  height: 32px;
+  justify-content: center;
+  min-width: 36px;
+  padding: 0.25rem 0.45rem;
 }
 
 .partner-code-card code,

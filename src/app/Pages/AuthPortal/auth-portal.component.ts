@@ -993,6 +993,16 @@ export class AuthPortalComponent implements OnInit {
     ];
   }
 
+  get allyProfileNeedsPhone(): boolean {
+    const phone = String(this.partnerAdvanced?.profile?.phone || this.partnerNetwork?.partner?.phone || '').trim();
+    return this.mode === 'partner-dashboard' && !phone;
+  }
+
+  openAllyProfileCompletion(): void {
+    this.setPartnerSection('ally-profile');
+    this.startAllyProfileEdit();
+  }
+
   get partnerReferralStatuses(): string[] {
     const rows = [...(this.partnerNetwork.direct_referrals || []), ...(this.partnerAdvanced.crm_referrals || [])];
     return ['Todos', ...Array.from(new Set(rows.map((item: any) => item.status || item.current_status).filter(Boolean)))];
@@ -1874,6 +1884,19 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  deleteAdminClient(id: number): void {
+    const confirmed = confirm('Esta acción eliminará permanentemente el cliente, sus casos, mensajes y datos relacionados. ¿Deseas continuar?');
+    if (!confirmed) return;
+    this.http.delete(this.apiUrl(`/api/admin/clients/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Cliente eliminado permanentemente.';
+        this.loadAdminSectionData('clients');
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el cliente.'
+    });
+  }
+
   editAdminCase(item: any): void {
     this.editingAdminCaseId = item.id;
     this.adminCaseForm.patchValue({
@@ -1947,6 +1970,19 @@ export class AuthPortalComponent implements OnInit {
         this.loadAdminNetwork();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el aliado.'
+    });
+  }
+
+  deleteAdminAlly(id: number): void {
+    const confirmed = confirm('Esta acción eliminará permanentemente el aliado, sus referidos, comisiones y datos relacionados. ¿Deseas continuar?');
+    if (!confirmed) return;
+    this.http.delete(this.apiUrl(`/api/admin/partner-network/allies/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Aliado eliminado permanentemente.';
+        this.loadAdminNetwork();
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el aliado.'
     });
   }
 
