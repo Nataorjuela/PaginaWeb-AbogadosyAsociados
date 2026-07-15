@@ -3230,7 +3230,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       }
     };
 
-    const usersResult = await safeQuery('users', `SELECT id, full_name, document_id, email, status, created_at FROM users WHERE role = 'ally' ORDER BY created_at DESC`);
+    const usersResult = await safeQuery('users', `SELECT id, full_name, document_id, email, status, created_at FROM users WHERE role = 'ally' OR id IN (SELECT user_id FROM partners) ORDER BY created_at DESC`);
     const partnersResult = await safeQuery('partners', `SELECT * FROM partners`);
     const legacyAlliesResult = await safeQuery('allies', `SELECT * FROM allies ORDER BY created_at DESC`);
     const referralsResult = await safeQuery('referrals', `SELECT * FROM referrals ORDER BY created_at DESC`);
@@ -3261,10 +3261,13 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       const numericId = Number(allyId);
       const user = userById.get(numericId);
       if (user) return user.full_name;
+      const partner = partnerByUserId.get(numericId);
+      if (partner) return `Aliado #${partner.user_id}`;
       return legacyById.get(numericId)?.full_name || 'Aliado no identificado';
     };
     const resolveLegacyForUser = (user) => legacyByEmail.get(normalizeEmail(user.email)) || legacyByDocument.get(normalizeDocument(user.document_id));
     const referralBelongsToUser = (referral, user, legacy) => Number(referral.ally_id) === Number(user.id) || (legacy && Number(referral.ally_id) === Number(legacy.id));
+    const referralBelongsToLegacyOnly = (referral, legacy) => Number(referral.ally_id) === Number(legacy.id);
 
     const allies = users.map((user) => {
       const partner = partnerByUserId.get(Number(user.id)) || {};
@@ -3294,7 +3297,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     legacyAllies.forEach((legacy) => {
       const linkedUser = users.find((user) => normalizeEmail(user.email) === normalizeEmail(legacy.email) || normalizeDocument(user.document_id) === normalizeDocument(legacy.document_number));
       if (linkedUser) return;
-      const legacyReferrals = referrals.filter((referral) => Number(referral.ally_id) === Number(legacy.id));
+      const legacyReferrals = referrals.filter((referral) => referralBelongsToLegacyOnly(referral, legacy));
       allies.push({
         user_id: -Number(legacy.id),
         document_id: legacy.document_number,
@@ -3312,6 +3315,29 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         commissions_total: 0,
         created_at: legacy.created_at,
         legacy_only: 1
+      });
+    });
+
+    partners.forEach((partner) => {
+      if (users.some((user) => Number(user.id) === Number(partner.user_id))) return;
+      const partnerReferrals = referrals.filter((referral) => Number(referral.ally_id) === Number(partner.user_id));
+      allies.push({
+        user_id: partner.user_id,
+        document_id: partner.document_id || '',
+        phone: partner.phone || '',
+        city: partner.city || '',
+        occupation: partner.occupation || partner.partner_type || '',
+        referral_code: partner.referral_code || '',
+        commission_percentage: partner.commission_percentage ?? 10,
+        invited_by_partner_id: partner.invited_by_partner_id || null,
+        full_name: `Aliado #${partner.user_id}`,
+        email: '',
+        status: 'active',
+        invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
+        referrals_count: partnerReferrals.length,
+        commissions_total: commissions.filter((commission) => Number(commission.ally_id) === Number(partner.user_id)).reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        created_at: partner.created_at,
+        legacy_only: 0
       });
     });
 
@@ -3382,9 +3408,12 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
       return res.json({ message: 'Estado actualizado correctamente.' });
     }
 
-    pgGet(`SELECT r.*, u.full_name AS ally_name, u.email AS ally_email
+    pgGet(`SELECT r.*,
+        COALESCE(u.full_name, a.full_name, 'Aliado no identificado') AS ally_name,
+        COALESCE(u.email, a.email, '') AS ally_email
       FROM referrals r
-      JOIN users u ON u.id = r.ally_id
+      LEFT JOIN users u ON u.id = r.ally_id AND u.role = 'ally'
+      LEFT JOIN allies a ON a.id = r.ally_id
       WHERE r.id = $1`, [id], (refErr, referral) => {
       if (refErr || !referral) return res.json({ message: 'Estado actualizado correctamente, pero no fue posible cargar datos para notificar.' });
 
@@ -3972,15 +4001,23 @@ app.post('/api/referrals', (req, res) => {
     return res.status(400).json({ error: 'El área legal seleccionada no es válida.' });
   }
 
-  pgGet(`SELECT u.id, u.full_name, u.status
-    FROM partners p
-    JOIN users u ON u.id = p.user_id
-    WHERE p.document_id = $1 AND u.email = $2
-    UNION
-    SELECT u.id, u.full_name, u.status
-    FROM allies a
-    JOIN users u ON u.email = a.email AND u.role = 'ally'
-    WHERE a.document_number = $3 AND a.email = $4`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
+  pgGet(`SELECT id, full_name, email, status, source_kind FROM (
+      SELECT u.id, u.full_name, u.email, u.status, 'user' AS source_kind, 1 AS priority
+      FROM partners p
+      JOIN users u ON u.id = p.user_id
+      WHERE p.document_id = $1 AND u.email = $2
+      UNION ALL
+      SELECT u.id, u.full_name, u.email, u.status, 'user' AS source_kind, 2 AS priority
+      FROM allies a
+      JOIN users u ON u.email = a.email AND u.role = 'ally'
+      WHERE a.document_number = $3 AND a.email = $4
+      UNION ALL
+      SELECT a.id, a.full_name, a.email, a.status, 'legacy' AS source_kind, 3 AS priority
+      FROM allies a
+      WHERE a.document_number = $5 AND a.email = $6
+    ) found_ally
+    ORDER BY priority
+    LIMIT 1`, [payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email, payload.ally_document_number, payload.ally_email], (err, ally) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error interno al verificar el aliado.' });
@@ -3988,7 +4025,7 @@ app.post('/api/referrals', (req, res) => {
     if (!ally) {
       return res.status(404).json({ error: 'No se encontró un aliado registrado con la cédula y correo proporcionados.' });
     }
-    if (ally.status === 'inactive') {
+    if (['inactive', 'suspended'].includes(String(ally.status || '').toLowerCase())) {
       return res.status(403).json({ error: 'El aliado se encuentra inactivo. Comunícate con Orjuela Abogados.' });
     }
 
