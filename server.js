@@ -3218,6 +3218,7 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
 });
 
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
+  let debugSnapshot = {};
   try {
     const networkWarnings = [];
     const safeQuery = async (label, sql, fallbackRows = []) => {
@@ -3252,6 +3253,16 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     const referrals = referralsResult.rows || [];
     const leads = leadsResult.rows || [];
     const commissions = commissionsResult.rows || [];
+    debugSnapshot = {
+      users: users.length,
+      partners: partners.length,
+      legacy_allies: legacyAllies.length,
+      raw_referrals: referrals.length,
+      lead_referrals: leads.length,
+      commissions: commissions.length,
+      warnings: networkWarnings
+    };
+    console.info('[admin/partner-network] counts:', debugSnapshot);
     const userById = new Map(users.map((user) => [Number(user.id), user]));
     const partnerByUserId = new Map(partners.map((partner) => [Number(partner.user_id), partner]));
     const legacyById = new Map(legacyAllies.map((ally) => [Number(ally.id), ally]));
@@ -3379,11 +3390,12 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       kyc: kycResult.rows || [],
       goals: goalsResult.rows || [],
       debug: {
-        users: users.length,
-        partners: partners.length,
-        legacy_allies: legacyAllies.length,
-        raw_referrals: referrals.length,
-        lead_referrals: leads.length,
+        users: debugSnapshot.users,
+        partners: debugSnapshot.partners,
+        legacy_allies: debugSnapshot.legacy_allies,
+        raw_referrals: debugSnapshot.raw_referrals,
+        lead_referrals: debugSnapshot.lead_referrals,
+        commissions: debugSnapshot.commissions,
         returned_allies: allies.length,
         returned_referrals: referralsRows.length,
         warnings: networkWarnings
@@ -3391,7 +3403,11 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     });
   } catch (err) {
     console.error('[admin/partner-network] load failed:', err);
-    res.status(500).json({ error: 'Error al cargar red de aliados.' });
+    res.status(500).json({
+      error: 'Error al cargar red de aliados.',
+      detail: err?.message || String(err),
+      debug: debugSnapshot
+    });
   }
 });
 

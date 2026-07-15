@@ -1331,7 +1331,11 @@ export class AuthPortalComponent implements OnInit {
         }
       },
       error: (err) => {
-        this.formError = err?.error?.error || 'No fue posible cargar la red de aliados.';
+        const detail = err?.error?.detail ? ` Detalle: ${err.error.detail}.` : '';
+        const debug = err?.error?.debug
+          ? ` Conteos: usuarios aliados ${err.error.debug.users || 0}, partners ${err.error.debug.partners || 0}, registros landing ${err.error.debug.legacy_allies || 0}, referidos ${err.error.debug.raw_referrals || 0}, leads referidos ${err.error.debug.lead_referrals || 0}.`
+          : '';
+        this.formError = `${err?.error?.error || 'No fue posible cargar la red de aliados.'}${detail}${debug}`;
         if (this.environment.enableDemoData) {
           this.adminNetwork = this.demoAdminNetwork();
           this.commissionSettingsForm.patchValue(this.adminNetwork.settings);
