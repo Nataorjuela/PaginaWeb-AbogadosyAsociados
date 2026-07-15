@@ -3286,28 +3286,55 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
 });
 
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT u.id AS user_id,
-      COALESCE(NULLIF(p.document_id, ''), NULLIF(u.document_id, ''), a.document_number, '') AS document_id,
-      COALESCE(NULLIF(p.phone, ''), a.phone, '') AS phone,
-      COALESCE(NULLIF(p.city, ''), a.city, '') AS city,
-      COALESCE(NULLIF(p.occupation, ''), NULLIF(p.partner_type, ''), a.ally_type, '') AS occupation,
-      COALESCE(NULLIF(p.referral_code, ''), '') AS referral_code,
-      p.invited_by_partner_id,
-      u.full_name, u.email, u.status,
-      inviter.full_name AS invited_by_name,
-      COUNT(DISTINCT r.id) AS referrals_count,
-      COALESCE(SUM(c.amount), 0) AS commissions_total
-    FROM users u
-    LEFT JOIN partners p ON p.user_id = u.id
-    LEFT JOIN allies a ON a.email = u.email
-    LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
-    LEFT JOIN referrals r ON r.ally_id = u.id
-    LEFT JOIN commissions c ON c.ally_id = u.id
-    WHERE u.role = 'ally'
-    GROUP BY u.id, p.document_id, u.document_id, a.document_number, p.phone, a.phone, p.city, a.city,
-      p.occupation, p.partner_type, a.ally_type, p.referral_code, p.invited_by_partner_id,
-      u.full_name, u.email, u.status, u.created_at, inviter.full_name
-    ORDER BY u.created_at DESC`, (allyErr, allies) => {
+  pgAll(`SELECT * FROM (
+      SELECT u.id AS user_id,
+        COALESCE(NULLIF(p.document_id, ''), NULLIF(u.document_id, ''), a.document_number, '') AS document_id,
+        COALESCE(NULLIF(p.phone, ''), a.phone, '') AS phone,
+        COALESCE(NULLIF(p.city, ''), a.city, '') AS city,
+        COALESCE(NULLIF(p.occupation, ''), NULLIF(p.partner_type, ''), a.ally_type, '') AS occupation,
+        COALESCE(NULLIF(p.referral_code, ''), '') AS referral_code,
+        p.invited_by_partner_id,
+        u.full_name,
+        u.email,
+        u.status,
+        inviter.full_name AS invited_by_name,
+        COUNT(DISTINCT r.id) AS referrals_count,
+        COALESCE(SUM(DISTINCT c.amount), 0) AS commissions_total,
+        u.created_at AS sort_date,
+        0 AS legacy_only
+      FROM users u
+      LEFT JOIN partners p ON p.user_id = u.id
+      LEFT JOIN allies a ON a.email = u.email OR a.document_number = u.document_id
+      LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
+      LEFT JOIN referrals r ON r.ally_id = u.id OR (a.id IS NOT NULL AND r.ally_id = a.id)
+      LEFT JOIN commissions c ON c.ally_id = u.id
+      WHERE u.role = 'ally'
+      GROUP BY u.id, p.document_id, u.document_id, a.document_number, p.phone, a.phone, p.city, a.city,
+        p.occupation, p.partner_type, a.ally_type, p.referral_code, p.invited_by_partner_id,
+        u.full_name, u.email, u.status, u.created_at, inviter.full_name
+      UNION ALL
+      SELECT -a.id AS user_id,
+        a.document_number AS document_id,
+        a.phone,
+        a.city,
+        a.ally_type AS occupation,
+        '' AS referral_code,
+        NULL AS invited_by_partner_id,
+        a.full_name,
+        a.email,
+        a.status,
+        'Principal' AS invited_by_name,
+        COUNT(DISTINCT r.id) AS referrals_count,
+        0 AS commissions_total,
+        a.created_at AS sort_date,
+        1 AS legacy_only
+      FROM allies a
+      LEFT JOIN users u ON u.role = 'ally' AND (u.email = a.email OR u.document_id = a.document_number)
+      LEFT JOIN referrals r ON r.ally_id = a.id
+      WHERE u.id IS NULL
+      GROUP BY a.id, a.document_number, a.phone, a.city, a.ally_type, a.full_name, a.email, a.status, a.created_at
+    ) allies_unified
+    ORDER BY sort_date DESC`, (allyErr, allies) => {
     if (allyErr) return res.status(500).json({ error: 'Error al cargar aliados.' });
 
     pgAll(`SELECT r.id,
@@ -3326,9 +3353,10 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         r.status,
         r.created_at,
         r.updated_at,
-        COALESCE(u.full_name, 'Aliado no identificado') AS ally_name
+        COALESCE(u.full_name, legacy.full_name, 'Aliado no identificado') AS ally_name
       FROM referrals r
       LEFT JOIN users u ON u.id = r.ally_id
+      LEFT JOIN allies legacy ON legacy.id = r.ally_id AND u.id IS NULL
       UNION ALL
       SELECT l.id,
         'lead' AS source_kind,
