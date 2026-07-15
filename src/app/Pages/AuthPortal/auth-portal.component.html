@@ -308,7 +308,7 @@
     </aside>
     <div class="dashboard-main">
       <header class="dashboard-header">
-        <div>
+        <div *ngIf="kind !== 'admin' || adminSection === 'dashboard'">
           <span class="secure-pill">{{ kind === 'partner' ? 'Cuenta activa' : kind === 'client' ? 'Caso protegido' : 'Acceso interno seguro' }}</span>
           <h1>{{ kind === 'partner' ? 'Mi red de referidores' : kind === 'client' ? 'Portal clientes' : 'CRM jurídico administrativo' }}</h1>
         </div>
@@ -321,7 +321,7 @@
         </div>
       </header>
 
-      <div class="metric-grid" *ngIf="(kind === 'partner' && partnerSection === 'overview') || kind === 'admin' || (kind === 'client' && clientSection === 'dashboard')">
+      <div class="metric-grid" *ngIf="(kind === 'partner' && partnerSection === 'overview') || (kind === 'admin' && adminSection === 'dashboard') || (kind === 'client' && clientSection === 'dashboard')">
         <article class="metric-card" *ngFor="let metric of kind === 'partner' ? partnerNetworkMetrics : kind === 'client' ? clientDashboardMetrics : adminMetrics">
           <span>{{ metric.label }}</span><strong>{{ metric.value }}</strong>
         </article>
@@ -783,14 +783,6 @@
             </article>
           </div>
         </section>
-        <section class="data-card">
-          <h2>Resumen operativo</h2>
-          <div class="deadline-list">
-            <article><strong>{{ adminDashboard.reports?.conversion_rate || 0 }}%</strong><span>Conversión de leads a casos</span></article>
-            <article><strong>{{ formatCurrency(adminDashboard.reports?.pending_payments) }}</strong><span>Pagos pendientes</span></article>
-            <article><strong>{{ adminDashboard.reports?.documents || 0 }}</strong><span>Documentos registrados</span></article>
-          </div>
-        </section>
       </div>
       <div class="admin-page" *ngIf="kind === 'admin' && adminSection === 'leads'">
         <section class="lead-hero-card">
@@ -830,7 +822,7 @@
               <h2>Leads registrados</h2>
               <input class="form-control" placeholder="Buscar por nombre, teléfono o correo" [(ngModel)]="adminLeadSearch">
               <select class="form-select" [(ngModel)]="adminLeadStatus"><option>Todos los estados</option><option>Nuevo</option><option>Contactado</option><option>Agendado</option><option>Propuesta enviada</option></select>
-              <select class="form-select" [(ngModel)]="adminLeadSource"><option>Todas las fuentes</option><option>Web</option><option>WhatsApp</option><option>Aliado</option><option>Orgánico</option></select>
+              <select class="form-select" [(ngModel)]="adminLeadSource"><option>Todas las fuentes</option><option>Web</option><option>WhatsApp</option><option>Aliado</option><option>Referido directo</option><option>Orgánico</option></select>
             </div>
             <div class="table-responsive">
               <table class="table align-middle">
@@ -858,8 +850,11 @@
               <p><strong>Correo:</strong> {{ selectedLead.email }}</p>
               <p><strong>Tipo de caso:</strong> {{ selectedLead.caseType }}</p>
               <p><strong>Fuente:</strong> {{ selectedLead.source }}</p>
+              <p *ngIf="selectedLead.city"><strong>Ciudad:</strong> {{ selectedLead.city }}</p>
+              <p *ngIf="selectedLead.allyName"><strong>Aliado:</strong> {{ selectedLead.allyName }}</p>
               <p><strong>Estado:</strong> {{ selectedLead.status }}</p>
               <p><strong>Responsable:</strong> {{ selectedLead.owner }}</p>
+              <p *ngIf="selectedLead.notes"><strong>Detalle:</strong> {{ selectedLead.notes }}</p>
             </div>
             <div class="next-action-box">
               <span>Próxima acción</span>

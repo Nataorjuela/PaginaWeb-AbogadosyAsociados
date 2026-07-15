@@ -45,6 +45,9 @@ type ClientProfile = {
 };
 type PartnerNetworkSummary = Record<string, number>;
 type AdminLead = {
+  id?: string | number;
+  rawId?: number;
+  sourceKind?: 'lead' | 'referral';
   name: string;
   phone: string;
   email: string;
@@ -55,6 +58,9 @@ type AdminLead = {
   date: string;
   nextAction: string;
   priority: string;
+  notes?: string;
+  city?: string;
+  allyName?: string;
 };
 type PartnerNetwork = {
   partner?: any;
@@ -944,6 +950,7 @@ export class AuthPortalComponent implements OnInit {
 
   setAdminSection(section: string): void {
     this.adminSection = section;
+    if (section === 'dashboard') this.loadAdminDashboard();
     if (section === 'partner-network') this.loadAdminNetwork();
     this.loadAdminSectionData(section);
   }
@@ -1144,7 +1151,7 @@ export class AuthPortalComponent implements OnInit {
     return this.adminLeads.filter((item) => {
       const matchesStatus = this.adminLeadStatus === 'Todos los estados' || item.status === this.adminLeadStatus;
       const matchesSource = this.adminLeadSource === 'Todas las fuentes' || item.source === this.adminLeadSource;
-      const matchesTerm = !term || [item.name, item.phone, item.email, item.caseType, item.owner, item.priority]
+      const matchesTerm = !term || [item.name, item.phone, item.email, item.caseType, item.owner, item.priority, item.notes, item.city, item.allyName]
         .some((value) => String(value || '').toLowerCase().includes(term));
       return matchesStatus && matchesSource && matchesTerm;
     });
@@ -1728,8 +1735,10 @@ export class AuthPortalComponent implements OnInit {
       next: (response) => {
         this.adminDashboard = response;
         this.adminMetrics = response.metrics || this.adminMetrics;
-        this.adminLeads = (response.recentLeads || []).map((item: any) => this.mapAdminLead(item));
-        this.selectedLead = this.adminLeads[0] || this.selectedLead;
+        if (this.adminSection === 'dashboard') {
+          this.adminLeads = (response.recentLeads || []).map((item: any) => this.mapAdminLead(item));
+          this.selectedLead = this.adminLeads[0] || this.selectedLead;
+        }
       }
     });
   }
@@ -1802,7 +1811,11 @@ export class AuthPortalComponent implements OnInit {
 
   updateLeadStatus(status: string): void {
     if (!(this.selectedLead as any)?.id) return;
-    this.http.patch<any>(this.apiUrl(`/api/admin/leads/${(this.selectedLead as any).id}`), { status }, { headers: this.authHeaders() }).subscribe({
+    const isReferral = this.selectedLead.sourceKind === 'referral';
+    const id = isReferral ? this.selectedLead.rawId : this.selectedLead.id;
+    const nextStatus = isReferral && status === 'Agendado' ? 'En negociacion' : status;
+    const endpoint = isReferral ? `/api/admin/network-referrals/${id}/status` : `/api/admin/leads/${id}`;
+    this.http.patch<any>(this.apiUrl(endpoint), { status: nextStatus }, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Lead actualizado.';
         this.loadAdminLeads();
@@ -1814,6 +1827,19 @@ export class AuthPortalComponent implements OnInit {
 
   convertSelectedLeadToCase(): void {
     if (!(this.selectedLead as any)?.id) return;
+    if (this.selectedLead.sourceKind === 'referral') {
+      this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${this.selectedLead.rawId}/status`), { status: 'Cliente vinculado' }, { headers: this.authHeaders() }).subscribe({
+        next: (response) => {
+          this.formMessage = 'Referido marcado como cliente vinculado.';
+          if (response?.whatsapp_url && typeof window !== 'undefined') window.open(response.whatsapp_url, '_blank', 'noopener');
+          this.loadAdminLeads();
+          this.loadAdminDashboard();
+          this.loadAdminNetwork();
+        },
+        error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el referido.'
+      });
+      return;
+    }
     this.http.post<any>(this.apiUrl(`/api/admin/leads/${(this.selectedLead as any).id}/convert`), {}, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Lead convertido en cliente y caso.';
@@ -2530,6 +2556,9 @@ export class AuthPortalComponent implements OnInit {
   private mapAdminLead(item: any): AdminLead {
     return {
       ...(item || {}),
+      id: item.id,
+      rawId: Number(item.raw_id || item.rawId || item.id),
+      sourceKind: item.source_kind || item.sourceKind || 'lead',
       name: item.name,
       phone: item.phone,
       email: item.email,
@@ -2539,7 +2568,10 @@ export class AuthPortalComponent implements OnInit {
       owner: item.assigned_to || item.owner || 'Comercial',
       date: item.created_at || item.date,
       nextAction: item.next_action || item.nextAction || 'Contactar y calificar necesidad legal',
-      priority: item.priority || 'Media'
+      priority: item.priority || 'Media',
+      notes: item.notes || '',
+      city: item.city || '',
+      allyName: item.ally_name || item.allyName || ''
     };
   }
 
