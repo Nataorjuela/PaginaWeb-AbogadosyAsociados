@@ -747,7 +747,7 @@
       <div class="content-grid" *ngIf="kind === 'admin' && adminSection === 'dashboard'">
         <section class="data-card wide">
           <h2>Leads recientes</h2>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ lead.date }}</td></tr></tbody></table></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ formatDate12Hour(lead.date) }}</td></tr></tbody></table></div>
         </section>
         <section class="data-card">
           <h2>Casos próximos a vencerse</h2>
@@ -826,24 +826,29 @@
             </div>
             <div class="table-responsive">
               <table class="table align-middle">
-                <thead><tr><th>Lead</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Prioridad</th><th>Fecha</th></tr></thead>
+                <thead><tr><th>Nombre referido</th><th>Celular referido</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Prioridad</th><th>Fecha</th><th>Detalle</th></tr></thead>
                 <tbody>
-                  <tr *ngFor="let lead of filteredAdminLeads" (click)="selectLead(lead)" class="clickable-row">
-                    <td><strong>{{ lead.name }}</strong><span>{{ lead.phone }}</span></td>
+                  <tr *ngFor="let lead of filteredAdminLeads">
+                    <td><strong>{{ lead.name }}</strong></td>
+                    <td>{{ lead.phone }}</td>
                     <td>{{ lead.caseType }}</td>
                     <td>{{ lead.source }}</td>
                     <td><span class="status-badge">{{ lead.status }}</span></td>
                     <td>{{ lead.owner }}</td>
                     <td><span class="priority-pill">{{ lead.priority }}</span></td>
                     <td>{{ lead.date }}</td>
+                    <td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Ver detalle" aria-label="Ver detalle" (click)="selectLead(lead)"><i class="bi bi-eye"></i></button></td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          <aside class="lead-detail-card">
-            <span class="secure-pill">Detalle del lead</span>
+          <aside class="lead-detail-card" *ngIf="showLeadDetail">
+            <div class="lead-detail-heading">
+              <span class="secure-pill">Detalle del lead</span>
+              <button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Cerrar detalle" aria-label="Cerrar detalle" (click)="closeLeadDetail()"><i class="bi bi-x-lg"></i></button>
+            </div>
             <h3>{{ selectedLead.name }}</h3>
             <div class="lead-detail-list">
               <p><strong>Teléfono:</strong> {{ selectedLead.phone }}</p>

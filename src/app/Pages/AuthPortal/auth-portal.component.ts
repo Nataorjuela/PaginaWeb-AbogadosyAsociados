@@ -137,6 +137,7 @@ export class AuthPortalComponent implements OnInit {
   showAdminPaymentForm = false;
   showAdminDocumentForm = false;
   showAdminAgendaForm = false;
+  showLeadDetail = false;
   editingAdminClientId: number | null = null;
   editingAdminCaseId: number | null = null;
   editingAdminAllyId: number | null = null;
@@ -977,6 +978,11 @@ export class AuthPortalComponent implements OnInit {
 
   selectLead(lead: AdminLead): void {
     this.selectedLead = lead;
+    this.showLeadDetail = true;
+  }
+
+  closeLeadDetail(): void {
+    this.showLeadDetail = false;
   }
 
   logout(): void {
@@ -2429,6 +2435,20 @@ export class AuthPortalComponent implements OnInit {
 
   formatCurrency(value: any): string {
     return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value || 0));
+  }
+
+  formatDate12Hour(value: any): string {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    let hour = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const period = hour >= 12 ? 'p.m.' : 'a.m.';
+    hour = hour % 12 || 12;
+    return `${day}/${month}/${year} ${String(hour).padStart(2, '0')}:${minutes} ${period}`;
   }
 
   pipelineCount(status: string): number {
