@@ -477,37 +477,6 @@ async function createDatabase() {
       status TEXT NOT NULL DEFAULT 'accepted'
     )`,
 
-    `CREATE TABLE IF NOT EXISTS ally_fraud_alerts (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT,
-      referral_id BIGINT,
-      risk_level TEXT NOT NULL,
-      alert_type TEXT NOT NULL,
-      description TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'open',
-      created_at TEXT NOT NULL
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_academy_modules (
-      id BIGSERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      content TEXT,
-      video_url TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 1,
-      is_active INTEGER NOT NULL DEFAULT 1
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_academy_progress (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT NOT NULL,
-      module_id BIGINT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pendiente',
-      progress INTEGER NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL,
-      UNIQUE(ally_id, module_id)
-    )`,
-
     `CREATE TABLE IF NOT EXISTS auth_clients (
       user_id BIGINT PRIMARY KEY,
       document_id TEXT UNIQUE,
@@ -551,21 +520,6 @@ async function createDatabase() {
         WHERE NOT EXISTS (SELECT 1 FROM ally_resources WHERE title = $7)`, [...item, seedNow, item[0]], createPgErrorLogger('seed ally_resources'));
     });
 
-    [
-      ['Cómo funciona el programa', 'Conoce reglas, estados y buenas prácticas.', 'El programa funciona por referidos efectivos y comisiones sujetas a validación.'],
-      ['Cómo referir correctamente', 'Aprende a registrar información clara y autorizada.', 'Registra datos completos, necesidad legal y autorización de contacto.'],
-      ['Cómo hablar de los servicios legales', 'Guía para explicar servicios sin promesas indebidas.', 'Comunica claridad, respaldo y acompañamiento profesional.'],
-      ['Protección de datos personales', 'Tratamiento responsable de datos en Colombia.', 'Solicita autorización previa y evita compartir datos sensibles por canales no seguros.'],
-      ['Ética en la captación de clientes', 'Buenas prácticas para recomendaciones legales.', 'Evita presiones, promesas de resultado y mensajes engañosos.'],
-      ['Uso correcto de la marca Orjuela Abogados', 'Lineamientos de marca para aliados.', 'Usa solo piezas autorizadas desde el portal.'],
-      ['Preguntas frecuentes', 'Respuestas para situaciones comunes.', 'Consulta estados, comisiones, pagos y políticas.'],
-      ['Scripts de venta', 'Guiones profesionales para conversaciones.', 'Mantén un tono claro, honesto y consultivo.'],
-      ['Buenas prácticas', 'Recomendaciones para mejorar vinculación.', 'Prioriza calidad de información y seguimiento oportuno.']
-    ].forEach((item, index) => {
-      pgRun(`INSERT INTO ally_academy_modules (title, description, content, sort_order)
-        SELECT $1, $2, $3, $4
-        WHERE NOT EXISTS (SELECT 1 FROM ally_academy_modules WHERE title = $5)`, [item[0], item[1], item[2], index + 1, item[0]], createPgErrorLogger('seed ally_academy_modules'));
-    });
 }
 
 function createTransporter() {
@@ -1184,19 +1138,6 @@ function seedProductionAllyDemoData(allyUserId) {
       });
     });
 
-    pgAll(`SELECT id, title FROM ally_academy_modules ORDER BY sort_order LIMIT 4`, (moduleErr, modules) => {
-      if (moduleErr) return;
-      modules.forEach((module, index) => {
-        const progress = index < 2 ? 100 : index === 2 ? 65 : 25;
-        pgRun(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (ally_id, module_id) DO UPDATE SET
-            status = excluded.status,
-            progress = excluded.progress,
-            updated_at = excluded.updated_at`,
-          [allyUserId, module.id, progress === 100 ? 'completado' : 'pendiente', progress, now]);
-      });
-    });
   };
 
   networkUsers.forEach((user) => {
@@ -2963,7 +2904,6 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                       commissions: item.generated_commissions || 0
                     }))
                   },
-                  academy: [],
                   share: {
                     client_message: `Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesoria juridica personalizada. Puedes dejar tus datos aqui: ${inviteLink}`,
                     ally_message: `Hola, quiero invitarte al programa de aliados de Orjuela Abogados. Puedes referir personas que necesiten servicios legales y recibir comisiones por casos efectivos. Registrate aqui: ${inviteLink}`
@@ -3055,14 +2995,6 @@ app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
         if (notificationErr) return res.status(500).json({ error: 'Error al cargar notificaciones.' });
         response.notifications = notifications;
 
-        pgAll(`SELECT m.*, COALESCE(p.status, 'pendiente') AS progress_status, COALESCE(p.progress, 0) AS progress
-          FROM ally_academy_modules m
-          LEFT JOIN ally_academy_progress p ON p.module_id = m.id AND p.ally_id = $1
-          WHERE m.is_active = 1
-          ORDER BY m.sort_order`, [allyId], (academyErr, academy) => {
-          if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
-          response.academy = academy;
-
           pgGet(`SELECT * FROM ally_kyc_verifications WHERE ally_id = $1`, [allyId], (kycErr, kyc) => {
             if (kycErr) return res.status(500).json({ error: 'Error al cargar verificacion.' });
             response.kyc = kyc || { status: 'Sin verificar', phone_validated: 0, email_validated: 0 };
@@ -3133,16 +3065,15 @@ app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
                           ]
                         };
                         res.json(response);
-                      });
                     });
                   });
                 });
               });
             });
-          });
         });
       });
     });
+  });
 });
 
 app.post('/api/partner/notifications/:id/read', requireAuth(['ally']), (req, res) => {
@@ -3210,18 +3141,6 @@ app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
       if (this.changes === 0) return res.status(404).json({ error: 'No encontramos tu perfil de aliado.' });
       res.json({ message: 'Perfil actualizado. Los datos de pago quedan sujetos a validación administrativa.' });
-    });
-});
-
-app.post('/api/partner/academy/:id/complete', requireAuth(['ally']), (req, res) => {
-  const moduleId = parseInt(req.params.id, 10);
-  if (!moduleId) return res.status(400).json({ error: 'Módulo inválido.' });
-  pgRun(`INSERT INTO ally_academy_progress (ally_id, module_id, status, progress, updated_at)
-      VALUES ($1, $2, 'completado', 100, $3)
-      ON CONFLICT(ally_id, module_id) DO UPDATE SET status = 'completado', progress = 100, updated_at = excluded.updated_at`,
-    [req.user.id, moduleId, getTimestamp()], function (err) {
-      if (err) return res.status(500).json({ error: 'No fue posible actualizar el módulo.' });
-      res.json({ message: 'Módulo completado.' });
     });
 });
 
@@ -3300,34 +3219,32 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
 
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
   try {
-    const [
-      usersResult,
-      partnersResult,
-      legacyAlliesResult,
-      referralsResult,
-      leadsResult,
-      commissionsResult,
-      settingsResult,
-      resourcesResult,
-      kycResult,
-      goalsResult
-    ] = await Promise.all([
-      pool.query(`SELECT id, full_name, document_id, email, status, created_at FROM users WHERE role = 'ally' ORDER BY created_at DESC`),
-      pool.query(`SELECT * FROM partners`),
-      pool.query(`SELECT * FROM allies ORDER BY created_at DESC`),
-      pool.query(`SELECT * FROM referrals ORDER BY created_at DESC`),
-      pool.query(`SELECT * FROM leads WHERE referrer_id IS NOT NULL ORDER BY created_at DESC`),
-      pool.query(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
+    const networkWarnings = [];
+    const safeQuery = async (label, sql, fallbackRows = []) => {
+      try {
+        return await pool.query(sql);
+      } catch (error) {
+        console.error(`[admin/partner-network] ${label} failed:`, error);
+        networkWarnings.push(label);
+        return { rows: fallbackRows };
+      }
+    };
+
+    const usersResult = await safeQuery('users', `SELECT id, full_name, document_id, email, status, created_at FROM users WHERE role = 'ally' ORDER BY created_at DESC`);
+    const partnersResult = await safeQuery('partners', `SELECT * FROM partners`);
+    const legacyAlliesResult = await safeQuery('allies', `SELECT * FROM allies ORDER BY created_at DESC`);
+    const referralsResult = await safeQuery('referrals', `SELECT * FROM referrals ORDER BY created_at DESC`);
+    const leadsResult = await safeQuery('leads', `SELECT * FROM leads WHERE referrer_id IS NOT NULL ORDER BY created_at DESC`);
+    const commissionsResult = await safeQuery('commissions', `SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
         FROM commissions c
         LEFT JOIN users receiver ON receiver.id = c.ally_id
         LEFT JOIN users source ON source.id = c.source_ally_id
         LEFT JOIN referrals r ON r.id = c.referral_id
-        ORDER BY c.created_at DESC`),
-      pool.query(`SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`),
-      pool.query(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`),
-      pool.query(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`),
-      pool.query(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`)
-    ]);
+        ORDER BY c.created_at DESC`);
+    const settingsResult = await safeQuery('commission_settings', `SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`);
+    const resourcesResult = await safeQuery('ally_resources', `SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`);
+    const kycResult = await safeQuery('ally_kyc_verifications', `SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`);
+    const goalsResult = await safeQuery('ally_goals', `SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`);
 
     const users = usersResult.rows || [];
     const partners = partnersResult.rows || [];
@@ -3434,7 +3351,17 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       settings: settingsResult.rows?.[0] || { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 },
       resources: resourcesResult.rows || [],
       kyc: kycResult.rows || [],
-      goals: goalsResult.rows || []
+      goals: goalsResult.rows || [],
+      debug: {
+        users: users.length,
+        partners: partners.length,
+        legacy_allies: legacyAllies.length,
+        raw_referrals: referrals.length,
+        lead_referrals: leads.length,
+        returned_allies: allies.length,
+        returned_referrals: referralsRows.length,
+        warnings: networkWarnings
+      }
     });
   } catch (err) {
     console.error('[admin/partner-network] load failed:', err);
@@ -3607,8 +3534,6 @@ app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admi
       return res.status(404).json({ error: 'Aliado no encontrado.' });
     }
 
-    await client.query(`DELETE FROM ally_academy_progress WHERE ally_id = $1`, [id]);
-    await client.query(`DELETE FROM ally_fraud_alerts WHERE ally_id = $1 OR referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
     await client.query(`DELETE FROM ally_electronic_signatures WHERE ally_id = $1`, [id]);
     await client.query(`DELETE FROM ally_kyc_verifications WHERE ally_id = $1`, [id]);
     await client.query(`DELETE FROM ally_legal_acceptances WHERE ally_id = $1`, [id]);
@@ -3851,110 +3776,6 @@ app.delete('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (
     if (err) return res.status(500).json({ error: 'No fue posible archivar el recurso.' });
     auditAdminAction(req, 'archivar', 'recurso_aliado', id, 'Recurso archivado');
     res.json({ message: 'Recurso archivado.' });
-  });
-});
-
-app.post('/api/admin/partner-network/academy', requireAuth(['admin']), (req, res) => {
-  const payload = {
-    title: cleanText(req.body.title, 140),
-    description: cleanText(req.body.description, 500),
-    content: cleanText(req.body.content, 4000),
-    video_url: cleanText(req.body.video_url, 220),
-    sort_order: parseInt(req.body.sort_order, 10) || 1
-  };
-  if (!payload.title || !payload.description) return res.status(400).json({ error: 'Título y descripción son obligatorios.' });
-  pgRun(`INSERT INTO ally_academy_modules (title, description, content, video_url, sort_order, is_active)
-    VALUES ($1, $2, $3, $4, $5, 1)
-    RETURNING id`, [payload.title, payload.description, payload.content, payload.video_url, payload.sort_order], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible crear el módulo.' });
-    auditAdminAction(req, 'crear', 'academia_aliado', this.lastID, payload.title);
-    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
-  });
-});
-
-app.patch('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const sortOrder = req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10);
-  if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
-  pgRun(`UPDATE ally_academy_modules SET
-      title = COALESCE(NULLIF($1, ''), title),
-      description = COALESCE(NULLIF($2, ''), description),
-      content = COALESCE(NULLIF($3, ''), content),
-      video_url = COALESCE(NULLIF($4, ''), video_url),
-      sort_order = COALESCE($5, sort_order)
-    WHERE id = $6`, [
-    cleanText(req.body.title, 140),
-    cleanText(req.body.description, 500),
-    cleanText(req.body.content, 4000),
-    cleanText(req.body.video_url, 220),
-    sortOrder !== null && !Number.isNaN(sortOrder) ? sortOrder : null,
-    id
-  ], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar el módulo.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Módulo no encontrado.' });
-    auditAdminAction(req, 'actualizar', 'academia_aliado', id, cleanText(req.body.title, 140) || 'Módulo actualizado');
-    res.json({ message: 'Módulo actualizado.' });
-  });
-});
-
-app.delete('/api/admin/partner-network/academy/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Módulo inválido.' });
-  pgRun(`UPDATE ally_academy_modules SET is_active = 0 WHERE id = $1`, [id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible archivar el módulo.' });
-    auditAdminAction(req, 'archivar', 'academia_aliado', id, 'Módulo archivado');
-    res.json({ message: 'Módulo archivado.' });
-  });
-});
-
-app.post('/api/admin/partner-network/fraud-alerts', requireAuth(['admin']), (req, res) => {
-  const payload = {
-    ally_id: req.body.ally_id ? parseInt(req.body.ally_id, 10) : null,
-    referral_id: req.body.referral_id ? parseInt(req.body.referral_id, 10) : null,
-    risk_level: cleanText(req.body.risk_level || 'Medio', 20),
-    alert_type: cleanText(req.body.alert_type || 'Revisión manual', 80),
-    description: cleanText(req.body.description, 700),
-    status: cleanText(req.body.status || 'open', 30)
-  };
-  if (!payload.alert_type || !payload.description) return res.status(400).json({ error: 'Tipo y descripción son obligatorios.' });
-  pgRun(`INSERT INTO ally_fraud_alerts (ally_id, referral_id, risk_level, alert_type, description, status, created_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    RETURNING id`, [payload.ally_id, payload.referral_id, payload.risk_level, payload.alert_type, payload.description, payload.status, getTimestamp()], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible crear la alerta.' });
-    auditAdminAction(req, 'crear', 'alerta_antifraude', this.lastID, payload.alert_type);
-    res.status(201).json({ id: this.lastID, ...payload });
-  });
-});
-
-app.patch('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
-  pgRun(`UPDATE ally_fraud_alerts SET
-      risk_level = COALESCE(NULLIF($1, ''), risk_level),
-      alert_type = COALESCE(NULLIF($2, ''), alert_type),
-      description = COALESCE(NULLIF($3, ''), description),
-      status = COALESCE(NULLIF($4, ''), status)
-    WHERE id = $5`, [
-    cleanText(req.body.risk_level, 20),
-    cleanText(req.body.alert_type, 80),
-    cleanText(req.body.description, 700),
-    cleanText(req.body.status, 30),
-    id
-  ], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar la alerta.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Alerta no encontrada.' });
-    auditAdminAction(req, 'actualizar', 'alerta_antifraude', id, cleanText(req.body.alert_type, 80) || 'Alerta actualizada');
-    res.json({ message: 'Alerta actualizada.' });
-  });
-});
-
-app.delete('/api/admin/partner-network/fraud-alerts/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Alerta inválida.' });
-  pgRun(`UPDATE ally_fraud_alerts SET status = 'archived' WHERE id = $1`, [id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible archivar la alerta.' });
-    auditAdminAction(req, 'archivar', 'alerta_antifraude', id, 'Alerta archivada');
-    res.json({ message: 'Alerta archivada.' });
   });
 });
 

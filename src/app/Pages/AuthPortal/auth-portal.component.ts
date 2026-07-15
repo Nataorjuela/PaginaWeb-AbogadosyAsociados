@@ -107,8 +107,6 @@ export class AuthPortalComponent implements OnInit {
   adminLevelForm!: FormGroup;
   adminGoalForm!: FormGroup;
   adminResourceForm!: FormGroup;
-  adminAcademyForm!: FormGroup;
-  adminFraudAlertForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   showResetPassword = false;
@@ -144,12 +142,9 @@ export class AuthPortalComponent implements OnInit {
   editingAdminLevelId: number | null = null;
   editingAdminGoalId: number | null = null;
   editingAdminResourceId: number | null = null;
-  editingAdminAcademyId: number | null = null;
-  editingAdminFraudAlertId: number | null = null;
   showAllyProfileForm = false;
   selectedPartnerReferral: any = null;
   selectedPartnerTeamAlly: any = null;
-  selectedAcademyModule: any = null;
   partnerReferralSearch = '';
   partnerReferralStatus = 'Todos';
   clientCaseSearch = '';
@@ -561,23 +556,6 @@ export class AuthPortalComponent implements OnInit {
       content: ['']
     });
 
-    this.adminAcademyForm = this.fb.group({
-      title: ['', Validators.required],
-      description: ['', Validators.required],
-      content: [''],
-      video_url: [''],
-      sort_order: [1, Validators.required]
-    });
-
-    this.adminFraudAlertForm = this.fb.group({
-      ally_id: [''],
-      referral_id: [''],
-      risk_level: ['Medio', Validators.required],
-      alert_type: ['Revisión manual', Validators.required],
-      description: ['', Validators.required],
-      status: ['open', Validators.required]
-    });
-
     this.restoreSession();
     this.enforceDashboardAccess();
     if (this.mode === 'partner-dashboard') {
@@ -959,7 +937,7 @@ export class AuthPortalComponent implements OnInit {
 
   setPartnerSection(section: string): void {
     this.partnerSection = section;
-    if (['crm', 'activity', 'level', 'goals', 'notifications', 'ally-profile', 'finance', 'tree', 'academy'].includes(section)) {
+    if (['crm', 'activity', 'level', 'goals', 'notifications', 'ally-profile', 'finance', 'tree'].includes(section)) {
       this.loadPartnerAdvanced();
     }
     this.formError = '';
@@ -1121,10 +1099,6 @@ export class AuthPortalComponent implements OnInit {
     return (this.partnerNetwork.network_referrals || []).filter((item: any) =>
       item.source_ally_id === ally.user_id || item.source_ally_name === ally.full_name
     );
-  }
-
-  openAcademyModule(module: any): void {
-    this.selectedAcademyModule = module;
   }
 
   get unreadNotifications(): number {
@@ -1316,17 +1290,6 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
-  completeAcademyModule(module: any): void {
-    this.http.post<any>(this.apiUrl(`/api/partner/academy/${module.id}/complete`), {}, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Módulo marcado como completado.';
-        this.selectedAcademyModule = null;
-        this.loadPartnerAdvanced();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el módulo.'
-    });
-  }
-
   loadPartnerNetwork(): void {
     const token = this.getToken();
     if (!token) return;
@@ -1355,12 +1318,20 @@ export class AuthPortalComponent implements OnInit {
   loadAdminNetwork(): void {
     const token = this.getToken();
     if (!token) return;
+    this.formError = '';
     this.http.get<any>(this.apiUrl('/api/admin/partner-network'), { headers: this.authHeaders() }).subscribe({
       next: (response) => {
         this.adminNetwork = response;
         this.commissionSettingsForm.patchValue(response.settings || {});
+        const alliesCount = response?.allies?.length || 0;
+        const referralsCount = response?.referrals?.length || 0;
+        if (!alliesCount && !referralsCount) {
+          const debug = response?.debug ? ` Conteos: usuarios aliados ${response.debug.users}, partners ${response.debug.partners}, registros landing ${response.debug.legacy_allies}, referidos ${response.debug.raw_referrals}, leads referidos ${response.debug.lead_referrals}.` : '';
+          this.formError = `No se encontraron aliados ni referidos en la base de datos consultada.${debug}`;
+        }
       },
-      error: () => {
+      error: (err) => {
+        this.formError = err?.error?.error || 'No fue posible cargar la red de aliados.';
         if (this.environment.enableDemoData) {
           this.adminNetwork = this.demoAdminNetwork();
           this.commissionSettingsForm.patchValue(this.adminNetwork.settings);
@@ -2127,88 +2098,6 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
-  saveAdminAcademy(): void {
-    if (this.adminAcademyForm.invalid) return this.adminAcademyForm.markAllAsTouched();
-    const endpoint = this.editingAdminAcademyId ? `/api/admin/partner-network/academy/${this.editingAdminAcademyId}` : '/api/admin/partner-network/academy';
-    const request = this.editingAdminAcademyId
-      ? this.http.patch(this.apiUrl(endpoint), this.adminAcademyForm.value, { headers: this.authHeaders() })
-      : this.http.post(this.apiUrl(endpoint), this.adminAcademyForm.value, { headers: this.authHeaders() });
-    request.subscribe({
-      next: () => {
-        this.formMessage = this.editingAdminAcademyId ? 'Módulo actualizado.' : 'Módulo creado.';
-        this.cancelAdminAcademyEdit();
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el módulo.'
-    });
-  }
-
-  editAdminAcademy(module: any): void {
-    this.editingAdminAcademyId = module.id;
-    this.adminAcademyForm.patchValue(module);
-  }
-
-  cancelAdminAcademyEdit(): void {
-    this.editingAdminAcademyId = null;
-    this.adminAcademyForm.reset({ sort_order: 1 });
-  }
-
-  archiveAdminAcademy(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/academy/${id}`), { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Módulo archivado.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el módulo.'
-    });
-  }
-
-  saveAdminFraudAlert(): void {
-    if (this.adminFraudAlertForm.invalid) return this.adminFraudAlertForm.markAllAsTouched();
-    const endpoint = this.editingAdminFraudAlertId ? `/api/admin/partner-network/fraud-alerts/${this.editingAdminFraudAlertId}` : '/api/admin/partner-network/fraud-alerts';
-    const request = this.editingAdminFraudAlertId
-      ? this.http.patch(this.apiUrl(endpoint), this.adminFraudAlertForm.value, { headers: this.authHeaders() })
-      : this.http.post(this.apiUrl(endpoint), this.adminFraudAlertForm.value, { headers: this.authHeaders() });
-    request.subscribe({
-      next: () => {
-        this.formMessage = this.editingAdminFraudAlertId ? 'Alerta actualizada.' : 'Alerta creada.';
-        this.cancelAdminFraudAlertEdit();
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar la alerta.'
-    });
-  }
-
-  editAdminFraudAlert(alert: any): void {
-    this.editingAdminFraudAlertId = alert.id;
-    this.adminFraudAlertForm.patchValue({ ...alert, ally_id: alert.ally_id || '', referral_id: alert.referral_id || '' });
-  }
-
-  cancelAdminFraudAlertEdit(): void {
-    this.editingAdminFraudAlertId = null;
-    this.adminFraudAlertForm.reset({ ally_id: '', referral_id: '', risk_level: 'Medio', alert_type: 'Revisión manual', status: 'open' });
-  }
-
-  updateAdminFraudAlertStatus(id: number, status: string): void {
-    this.http.patch(this.apiUrl(`/api/admin/partner-network/fraud-alerts/${id}`), { status }, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Alerta actualizada.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar la alerta.'
-    });
-  }
-
-  archiveAdminFraudAlert(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/fraud-alerts/${id}`), { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Alerta archivada.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar la alerta.'
-    });
-  }
-
   createAdminPayment(): void {
     if (this.adminPaymentForm.invalid) return this.adminPaymentForm.markAllAsTouched();
     this.http.post(this.apiUrl('/api/admin/payments'), this.adminPaymentForm.value, { headers: this.authHeaders() }).subscribe({
@@ -2714,10 +2603,6 @@ export class AuthPortalComponent implements OnInit {
       ],
       profile: { ...(this.partnerNetwork.partner || {}), document_id: '900111222', phone: '300 111 2233', city: 'Bogotá', occupation: 'Asesor comercial', status: 'Activo', joined_at: '2026-05-01', bank_name: 'Dato sensible protegido', account_type: 'Dato sensible protegido', account_number: '****' },
       charts: { commissions_by_month: [{ label: '2026-04', value: 380000 }, { label: '2026-05', value: 810000 }], referrals_by_month: [{ label: '2026-04', value: 2 }, { label: '2026-05', value: 7 }], network_growth: [{ label: '2026-05', value: 2 }], direct_vs_indirect: [{ label: 'Directas', value: 860000 }, { label: 'Indirectas', value: 330000 }], pending_vs_paid: [{ label: 'Pendientes', value: 255000 }, { label: 'Pagadas', value: 380000 }] },
-      academy: [
-        { title: 'Cómo funciona el programa', description: 'Reglas, estados y comisiones.', progress: 80, progress_status: 'completado' },
-        { title: 'Protección de datos personales', description: 'Buenas prácticas de habeas data.', progress: 40, progress_status: 'pendiente' }
-      ]
     };
   }
 

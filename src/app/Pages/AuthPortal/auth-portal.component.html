@@ -272,7 +272,6 @@
         <button [class.active]="partnerSection === 'notifications'" (click)="setPartnerSection('notifications')">Notificaciones</button>
         <button [class.active]="partnerSection === 'finance'" (click)="setPartnerSection('finance')">Finanzas</button>
         <button [class.active]="partnerSection === 'tree'" (click)="setPartnerSection('tree')">Mi red</button>
-        <button [class.active]="partnerSection === 'academy'" (click)="setPartnerSection('academy')">Academia</button>
         <button [class.active]="partnerSection === 'resources'" (click)="setPartnerSection('resources')">Material para compartir</button>
         <button [class.active]="partnerSection === 'ally-profile'" (click)="setPartnerSection('ally-profile')">Mi perfil</button>
         <button [class.active]="partnerSection === 'profile'" (click)="setPartnerSection('profile')">Cómo funciona</button>
@@ -578,14 +577,6 @@
           </div>
         </section>
 
-        <section class="data-card wide" *ngIf="partnerSection === 'academy'">
-          <h2>Academia de Aliados</h2>
-          <div class="academy-grid"><article *ngFor="let module of partnerAdvanced.academy || []"><span class="status-badge">{{ module.progress_status }}</span><h3>{{ module.title }}</h3><p>{{ module.description }}</p><div class="progress"><div class="progress-bar" [style.width.%]="module.progress || 0"></div></div><small>{{ module.progress || 0 }}% completado</small><button class="btn btn-outline-dark" (click)="openAcademyModule(module)">Ver contenido</button></article></div>
-          <section class="legal-notice" *ngIf="selectedAcademyModule"><h3>{{ selectedAcademyModule.title }}</h3><p>{{ selectedAcademyModule.content || selectedAcademyModule.description }}</p><button class="btn btn-primary" (click)="completeAcademyModule(selectedAcademyModule)">Marcar completado</button></section>
-          <h2 class="mt-3">Documentos del programa</h2>
-          <div class="document-list"><article><i class="bi bi-file-earmark-text"></i><div><strong>Políticas del programa de aliados</strong><span>Reglas de comisiones, protección de datos y conducta comercial.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('programa_aliados')">Aceptar</button></article><article><i class="bi bi-file-earmark-text"></i><div><strong>Autorización de tratamiento de datos</strong><span>Compromiso para registrar referidos únicamente con autorización.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('tratamiento_datos')">Aceptar</button></article></div>
-        </section>
-
         <section class="data-card wide" *ngIf="partnerSection === 'profile'">
           <h2>Cómo funciona</h2>
           <p>Como aliado de Orjuela Abogados puedes referir personas que necesiten asesoría jurídica y también invitar a otros aliados a formar parte de tu red. Recibirás comisiones por los casos que se conviertan en clientes, de acuerdo con las reglas del programa.</p>
@@ -596,6 +587,8 @@
             <article><strong>4</strong><span>Si tus aliados refieren casos exitosos, puedes recibir una comisión adicional por tu red.</span></article>
           </div>
           <div class="legal-notice">Las comisiones están sujetas a validación interna, pago efectivo del cliente y políticas del programa de aliados. Este programa no garantiza ingresos fijos ni constituye vínculo laboral.</div>
+          <h2 class="mt-3">Documentos del programa</h2>
+          <div class="document-list"><article><i class="bi bi-file-earmark-text"></i><div><strong>Políticas del programa de aliados</strong><span>Reglas de comisiones, protección de datos y conducta comercial.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('programa_aliados')">Aceptar</button></article><article><i class="bi bi-file-earmark-text"></i><div><strong>Autorización de tratamiento de datos</strong><span>Compromiso para registrar referidos únicamente con autorización.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('tratamiento_datos')">Aceptar</button></article></div>
         </section>
       </div>
 
@@ -924,15 +917,18 @@
             <p>Consulta aliados registrados, revisa sus referidos y asigna un porcentaje de comisión específico para cada aliado.</p>
           </div>
         </section>
+        <div *ngIf="formError" class="alert alert-danger">{{ formError }}</div>
 
         <section class="data-card wide">
           <div class="data-toolbar"><h2>Aliados registrados</h2><button class="btn btn-primary btn-sm" (click)="showAdminAllyForm = !showAdminAllyForm">{{ showAdminAllyForm ? 'Cerrar' : 'Crear aliado' }}</button></div>
+          <div class="legal-notice">Aliados encontrados: {{ adminNetwork.allies?.length || 0 }}</div>
           <form class="network-form mb-3" *ngIf="showAdminAllyForm" [formGroup]="adminAllyForm" (ngSubmit)="saveAdminAlly()"><label>Nombre<input class="form-control" formControlName="full_name"></label><label>Documento<input class="form-control" formControlName="document_id"></label><label>Teléfono<input class="form-control" formControlName="phone"></label><label>Correo<input class="form-control" formControlName="email"></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Tipo<select class="form-select" formControlName="partner_type"><option>Independiente</option><option>Inmobiliaria</option><option>Empresa</option><option>Cliente</option></select></label><label>Ocupación<input class="form-control" formControlName="occupation"></label><label>Comisión aliado (%)<input class="form-control" type="number" min="0" max="100" formControlName="commission_percentage"></label><label>Estado<select class="form-select" formControlName="status"><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="suspended">Suspendido</option></select></label><button class="btn btn-primary">{{ editingAdminAllyId ? 'Actualizar aliado' : 'Guardar aliado' }}</button></form>
           <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Aliado</th><th>Celular</th><th>Ciudad</th><th>Fecha ingreso</th><th>% Comisión</th><th>Referidos</th><th>Comisiones</th><th>Estado</th><th>Acciones</th></tr></thead><tbody><tr *ngFor="let ally of adminNetwork.allies"><td><strong>{{ ally.full_name }}</strong><span>{{ ally.email }}</span></td><td>{{ ally.phone }}</td><td>{{ ally.city }}</td><td>{{ ally.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ ally.commission_percentage || 10 }}%</span></td><td>{{ ally.referrals_count || 0 }}</td><td>{{ formatCurrency(ally.commissions_total) }}</td><td><span class="status-badge">{{ ally.status }}</span></td><td><ng-container *ngIf="!ally.legacy_only; else legacyAllyActions"><button class="btn btn-outline-dark btn-sm" (click)="editAdminAlly(ally)">Editar comisión</button><button class="btn btn-outline-danger btn-sm" (click)="archiveAdminAlly(ally.user_id)">Archivar</button><button class="btn btn-outline-danger btn-sm icon-action" type="button" title="Eliminar aliado" aria-label="Eliminar aliado" (click)="deleteAdminAlly(ally.user_id)"><i class="bi bi-trash"></i></button></ng-container><ng-template #legacyAllyActions><span class="status-badge">Registro landing</span></ng-template></td></tr></tbody></table></div>
         </section>
 
         <section class="data-card wide">
           <h2>Referidos por aliado</h2>
+          <div class="legal-notice">Referidos encontrados: {{ adminNetwork.referrals?.length || 0 }}</div>
           <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Referido</th><th>Celular</th><th>Ciudad</th><th>Aliado</th><th>Área legal</th><th>Origen</th><th>Estado</th><th>Fecha referido</th><th>Cambiar estado</th></tr></thead><tbody><tr *ngFor="let referral of adminNetwork.referrals"><td>{{ referral.referred_full_name }}</td><td>{{ referral.referred_phone }}</td><td>{{ referral.referred_city || referral.city }}</td><td>{{ referral.ally_name }}</td><td>{{ referral.legal_area }}</td><td>{{ referral.source_kind === 'lead' ? 'Lead landing' : 'Referido aliado' }}</td><td><span class="status-badge">{{ referral.status }}</span></td><td>{{ referral.created_at | date:'mediumDate' }}</td><td><select class="form-select table-select" *ngIf="referral.source_kind !== 'lead'; else leadOnlyStatus" [value]="referral.status" (change)="updateNetworkReferralStatus(referral.id, $any($event.target).value)"><option *ngFor="let status of referralStatuses">{{ status }}</option></select><ng-template #leadOnlyStatus><span class="status-badge">Gestionar en Leads</span></ng-template></td></tr></tbody></table></div>
         </section>
 
