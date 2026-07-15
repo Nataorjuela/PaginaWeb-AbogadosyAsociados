@@ -3639,6 +3639,35 @@ app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admi
   }
 });
 
+app.delete('/api/admin/partner-network/legacy-allies/:id/permanent', requireAuth(['admin']), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const allyResult = await client.query(`SELECT * FROM allies WHERE id = $1`, [id]);
+    const ally = allyResult.rows[0];
+    if (!ally) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Aliado no encontrado.' });
+    }
+    await client.query(`DELETE FROM commissions WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
+    await client.query(`DELETE FROM referral_status_history WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
+    await client.query(`DELETE FROM referrals WHERE ally_id = $1`, [id]);
+    await client.query(`DELETE FROM admin_notifications WHERE entity_type IN ('ally', 'partner') AND entity_id = $1`, [id]);
+    await client.query(`DELETE FROM allies WHERE id = $1`, [id]);
+    await client.query('COMMIT');
+    auditAdminAction(req, 'eliminar', 'aliado_landing', id, ally.full_name || 'Aliado eliminado');
+    res.json({ message: 'Aliado eliminado permanentemente.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[admin/legacy-allies/permanent] delete failed:', err);
+    res.status(500).json({ error: 'No fue posible eliminar el aliado.' });
+  } finally {
+    client.release();
+  }
+});
+
 app.patch('/api/admin/commissions/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const status = cleanText(req.body.status, 20);
@@ -3656,6 +3685,76 @@ app.patch('/api/admin/commissions/:id/status', requireAuth(['admin', 'abogado', 
     if (this.changes === 0) return res.status(404).json({ error: 'Comision no encontrada.' });
     res.json({ message: 'Comision actualizada correctamente.' });
   });
+});
+
+app.patch('/api/admin/network-referrals/:id/commission', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const referralId = parseInt(req.params.id, 10);
+  const caseAmount = Number(req.body.case_amount || 0);
+  const percentage = Number(req.body.percentage || 0);
+  if (!referralId || Number.isNaN(caseAmount) || caseAmount < 0 || ![5, 10, 20].includes(percentage)) {
+    return res.status(400).json({ error: 'Monto del caso o porcentaje de comisión no válido.' });
+  }
+  const commissionAmount = Math.round(caseAmount * (percentage / 100));
+  pgGet(`SELECT id, ally_id, referred_full_name FROM referrals WHERE id = $1`, [referralId], (refErr, referral) => {
+    if (refErr) return res.status(500).json({ error: 'No fue posible cargar el referido.' });
+    if (!referral) return res.status(404).json({ error: 'Referido no encontrado.' });
+
+    pgGet(`SELECT id FROM commissions WHERE referral_id = $1 AND commission_type = 'direct' ORDER BY id DESC LIMIT 1`, [referralId], (commissionErr, commission) => {
+      if (commissionErr) return res.status(500).json({ error: 'No fue posible cargar la comisión.' });
+      const notifyAlly = () => {
+        createAllyNotification(
+          referral.ally_id,
+          'Pago pendiente',
+          'Comisión pendiente registrada',
+          `Se registró una comisión pendiente de ${formatMoney(commissionAmount)} por el referido ${referral.referred_full_name}.`
+        );
+      };
+
+      if (commission?.id) {
+        pgRun(`UPDATE commissions SET percentage = $1, amount = $2, status = 'approved', paid_at = NULL WHERE id = $3`, [percentage, commissionAmount, commission.id], function (updateErr) {
+          if (updateErr) return res.status(500).json({ error: 'No fue posible guardar la comisión.' });
+          notifyAlly();
+          res.json({ message: 'Comisión pendiente guardada y notificada al aliado.', commission_id: commission.id, amount: commissionAmount, percentage });
+        });
+        return;
+      }
+
+      pgRun(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+        VALUES ($1, $2, $3, 'direct', $4, $5, 'approved', $6)
+        RETURNING id`, [referral.ally_id, referralId, referral.ally_id, percentage, commissionAmount, getTimestamp()], function (insertErr) {
+        if (insertErr) return res.status(500).json({ error: 'No fue posible crear la comisión. Verifica que el aliado tenga perfil activo.' });
+        notifyAlly();
+        res.json({ message: 'Comisión pendiente guardada y notificada al aliado.', commission_id: this.lastID, amount: commissionAmount, percentage });
+      });
+    });
+  });
+});
+
+app.delete('/api/admin/network-referrals/:id', requireAuth(['admin']), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Referido inválido.' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const referralResult = await client.query(`SELECT referred_full_name FROM referrals WHERE id = $1`, [id]);
+    if (!referralResult.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Referido no encontrado.' });
+    }
+    await client.query(`DELETE FROM commissions WHERE referral_id = $1`, [id]);
+    await client.query(`DELETE FROM referral_status_history WHERE referral_id = $1`, [id]);
+    await client.query(`DELETE FROM admin_notifications WHERE entity_type = 'referral' AND entity_id = $1`, [id]);
+    await client.query(`DELETE FROM referrals WHERE id = $1`, [id]);
+    await client.query('COMMIT');
+    auditAdminAction(req, 'eliminar', 'referido', id, referralResult.rows[0].referred_full_name || 'Referido eliminado');
+    res.json({ message: 'Referido eliminado correctamente.' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[admin/network-referrals] delete failed:', err);
+    res.status(500).json({ error: 'No fue posible eliminar el referido.' });
+  } finally {
+    client.release();
+  }
 });
 
 app.patch('/api/admin/commission-settings', requireAuth(['admin']), (req, res) => {
