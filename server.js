@@ -329,6 +329,7 @@ async function createDatabase() {
       account_number TEXT,
       referral_code TEXT UNIQUE,
       invited_by_partner_id BIGINT,
+      commission_percentage REAL DEFAULT 10,
       commission_balance REAL DEFAULT 0,
       created_at TEXT,
       updated_at TEXT,
@@ -517,7 +518,8 @@ async function createDatabase() {
 
   await runSchema([
     `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS users_email_role_key ON users(email, role)`
+    `CREATE UNIQUE INDEX IF NOT EXISTS users_email_role_key ON users(email, role)`,
+    `ALTER TABLE partners ADD COLUMN IF NOT EXISTS commission_percentage REAL DEFAULT 10`
   ]);
 
   pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -1312,15 +1314,16 @@ function createCommissionRows(referralId, sourceAllyId, callback) {
   getActiveCommissionSettings((settingsErr, settings) => {
     if (settingsErr) return callback(settingsErr);
     const createdAt = getTimestamp();
-    const rows = [{
-      allyId: sourceAllyId,
-      sourceAllyId,
-      type: 'direct',
-      percentage: settings.direct_percentage
-    }];
+    const rows = [];
 
     getPartnerProfile(sourceAllyId, (profileErr, partner) => {
       if (profileErr) return callback(profileErr);
+      rows.push({
+        allyId: sourceAllyId,
+        sourceAllyId,
+        type: 'direct',
+        percentage: Number(partner?.commission_percentage || settings.direct_percentage || 10)
+      });
       const finish = () => {
         let pending = rows.length;
         let firstErr = null;
@@ -3293,6 +3296,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         COALESCE(NULLIF(p.city, ''), a.city, '') AS city,
         COALESCE(NULLIF(p.occupation, ''), NULLIF(p.partner_type, ''), a.ally_type, '') AS occupation,
         COALESCE(NULLIF(p.referral_code, ''), '') AS referral_code,
+        COALESCE(p.commission_percentage, 10) AS commission_percentage,
         p.invited_by_partner_id,
         u.full_name,
         u.email,
@@ -3301,6 +3305,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         COUNT(DISTINCT r.id) AS referrals_count,
         COALESCE(SUM(DISTINCT c.amount), 0) AS commissions_total,
         u.created_at AS sort_date,
+        u.created_at,
         0 AS legacy_only
       FROM users u
       LEFT JOIN partners p ON p.user_id = u.id
@@ -3310,7 +3315,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       LEFT JOIN commissions c ON c.ally_id = u.id
       WHERE u.role = 'ally'
       GROUP BY u.id, p.document_id, u.document_id, a.document_number, p.phone, a.phone, p.city, a.city,
-        p.occupation, p.partner_type, a.ally_type, p.referral_code, p.invited_by_partner_id,
+        p.occupation, p.partner_type, a.ally_type, p.referral_code, p.commission_percentage, p.invited_by_partner_id,
         u.full_name, u.email, u.status, u.created_at, inviter.full_name
       UNION ALL
       SELECT -a.id AS user_id,
@@ -3319,6 +3324,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         a.city,
         a.ally_type AS occupation,
         '' AS referral_code,
+        10 AS commission_percentage,
         NULL AS invited_by_partner_id,
         a.full_name,
         a.email,
@@ -3327,6 +3333,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         COUNT(DISTINCT r.id) AS referrals_count,
         0 AS commissions_total,
         a.created_at AS sort_date,
+        a.created_at,
         1 AS legacy_only
       FROM allies a
       LEFT JOIN users u ON u.role = 'ally' AND (u.email = a.email OR u.document_id = a.document_number)
@@ -3353,6 +3360,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         r.status,
         r.created_at,
         r.updated_at,
+        r.created_at AS referred_at,
+        r.referred_city AS city,
         COALESCE(u.full_name, legacy.full_name, 'Aliado no identificado') AS ally_name
       FROM referrals r
       LEFT JOIN users u ON u.id = r.ally_id
@@ -3374,6 +3383,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         l.status,
         l.created_at,
         l.updated_at,
+        l.created_at AS referred_at,
+        '' AS city,
         COALESCE(u.full_name, 'Aliado no identificado') AS ally_name
       FROM leads l
       LEFT JOIN users u ON u.id = l.referrer_id
@@ -3484,10 +3495,12 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
     city: cleanText(req.body.city, 80),
     partner_type: cleanText(req.body.partner_type || 'Independiente', 60),
     occupation: cleanText(req.body.occupation, 100),
+    commission_percentage: Number(req.body.commission_percentage ?? 10),
     status: cleanText(req.body.status || 'active', 20)
   };
   if (!payload.full_name || !payload.email || !payload.phone || !payload.city) return res.status(400).json({ error: 'Nombre, correo, teléfono y ciudad son obligatorios.' });
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  if (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100) return res.status(400).json({ error: 'Porcentaje de comisión no válido.' });
   const now = getTimestamp();
   const password = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
   pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
@@ -3500,8 +3513,8 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
       RETURNING id`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
       if (userErr) return res.status(500).json({ error: 'No fue posible crear el usuario aliado.' });
       const userId = this.lastID;
-      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
+      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_percentage, commission_balance, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, $9, $10)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), payload.commission_percentage, now, now], function (partnerErr) {
         if (partnerErr) return res.status(500).json({ error: 'No fue posible crear aliado.' });
         auditAdminAction(req, 'crear', 'aliado', userId, payload.full_name);
         res.status(201).json({ message: 'Aliado creado.', user_id: userId });
@@ -3519,13 +3532,25 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
     city: cleanText(req.body.city, 80),
     partner_type: cleanText(req.body.partner_type, 60),
     occupation: cleanText(req.body.occupation, 100),
+    commission_percentage: req.body.commission_percentage === undefined ? null : Number(req.body.commission_percentage),
     status: cleanText(req.body.status, 20)
   };
+  if (payload.commission_percentage !== null && (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100)) return res.status(400).json({ error: 'Porcentaje de comisión no válido.' });
   pgRun(`UPDATE users SET full_name = COALESCE(NULLIF($1, ''), full_name), status = COALESCE(NULLIF($2, ''), status), updated_at = $3 WHERE id = $4 AND role = 'ally'`,
     [payload.full_name, payload.status, getTimestamp(), id], function (userErr) {
     if (userErr) return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
-    pgRun(`UPDATE partners SET phone = COALESCE(NULLIF($1, ''), phone), city = COALESCE(NULLIF($2, ''), city), partner_type = COALESCE(NULLIF($3, ''), partner_type), occupation = COALESCE(NULLIF($4, ''), occupation), updated_at = $5 WHERE user_id = $6`,
-      [payload.phone, payload.city, payload.partner_type, payload.occupation, getTimestamp(), id], (partnerErr) => {
+    pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_percentage, commission_balance, created_at, updated_at)
+      SELECT u.id, COALESCE(NULLIF(u.document_id, ''), $1), $2, $3, COALESCE(NULLIF($4, ''), 'Independiente'), $5, $6, COALESCE($7, 10), 0, $8, $9
+      FROM users u
+      WHERE u.id = $10 AND u.role = 'ally'
+      ON CONFLICT (user_id) DO UPDATE SET
+        phone = COALESCE(NULLIF(excluded.phone, ''), partners.phone),
+        city = COALESCE(NULLIF(excluded.city, ''), partners.city),
+        partner_type = COALESCE(NULLIF(excluded.partner_type, ''), partners.partner_type),
+        occupation = COALESCE(NULLIF(excluded.occupation, ''), partners.occupation),
+        commission_percentage = COALESCE(excluded.commission_percentage, partners.commission_percentage),
+        updated_at = excluded.updated_at`,
+      [`ALLY-${id}`, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name || 'ALIADO', String(id)), payload.commission_percentage, getTimestamp(), getTimestamp(), id], (partnerErr) => {
       if (partnerErr) return res.status(500).json({ error: 'No fue posible actualizar perfil de aliado.' });
       auditAdminAction(req, 'actualizar', 'aliado', id, payload.full_name || 'Aliado actualizado');
       res.json({ message: 'Aliado actualizado.' });

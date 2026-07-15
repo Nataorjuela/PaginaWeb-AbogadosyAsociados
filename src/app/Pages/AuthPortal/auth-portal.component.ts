@@ -501,6 +501,7 @@ export class AuthPortalComponent implements OnInit {
       city: ['', Validators.required],
       partner_type: ['Independiente'],
       occupation: [''],
+      commission_percentage: [10, [Validators.required, Validators.min(0), Validators.max(100)]],
       status: ['active']
     });
 
@@ -1982,7 +1983,7 @@ export class AuthPortalComponent implements OnInit {
         this.formMessage = this.editingAdminAllyId ? 'Aliado actualizado.' : 'Aliado creado.';
         this.editingAdminAllyId = null;
         this.showAdminAllyForm = false;
-        this.adminAllyForm.reset({ partner_type: 'Independiente', status: 'active' });
+        this.adminAllyForm.reset({ partner_type: 'Independiente', commission_percentage: 10, status: 'active' });
         this.loadAdminNetwork();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el aliado.'
@@ -1992,7 +1993,7 @@ export class AuthPortalComponent implements OnInit {
   editAdminAlly(ally: any): void {
     this.editingAdminAllyId = ally.user_id;
     this.showAdminAllyForm = true;
-    this.adminAllyForm.patchValue({ ...ally, full_name: ally.full_name, partner_type: ally.partner_type || 'Independiente' });
+    this.adminAllyForm.patchValue({ ...ally, full_name: ally.full_name, partner_type: ally.partner_type || ally.occupation || 'Independiente', commission_percentage: ally.commission_percentage ?? 10 });
   }
 
   archiveAdminAlly(id: number): void {
