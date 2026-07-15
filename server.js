@@ -3255,6 +3255,11 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     const referrals = referralsResult.rows || [];
     const leads = leadsResult.rows || [];
     const commissions = commissionsResult.rows || [];
+    const directCommissionByReferralId = new Map(
+      commissions
+        .filter((commission) => commission.commission_type === 'direct')
+        .map((commission) => [Number(commission.referral_id), commission])
+    );
     debugSnapshot = {
       users: users.length,
       partners: partners.length,
@@ -3287,6 +3292,9 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       const legacy = resolveLegacyForUser(user) || {};
       const userReferrals = referrals.filter((referral) => referralBelongsToUser(referral, user, legacy));
       const userCommissions = commissions.filter((commission) => Number(commission.ally_id) === Number(user.id));
+      const paidCommissionsTotal = userCommissions
+        .filter((commission) => String(commission.status || '').toLowerCase() === 'paid')
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
       return {
         user_id: user.id,
         document_id: partner.document_id || user.document_id || legacy.document_number || '',
@@ -3301,7 +3309,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: user.status || legacy.status || 'active',
         invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
         referrals_count: userReferrals.length,
-        commissions_total: userCommissions.reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        commissions_total: paidCommissionsTotal,
+        paid_commissions_total: paidCommissionsTotal,
         created_at: user.created_at || partner.created_at || legacy.created_at,
         legacy_only: 0
       };
@@ -3311,6 +3320,10 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       const linkedUser = users.find((user) => normalizeEmail(user.email) === normalizeEmail(legacy.email) || normalizeDocument(user.document_id) === normalizeDocument(legacy.document_number));
       if (linkedUser) return;
       const legacyReferrals = referrals.filter((referral) => referralBelongsToLegacyOnly(referral, legacy));
+      const legacyCommissions = commissions.filter((commission) => Number(commission.ally_id) === Number(legacy.id));
+      const legacyPaidCommissionsTotal = legacyCommissions
+        .filter((commission) => String(commission.status || '').toLowerCase() === 'paid')
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
       allies.push({
         user_id: -Number(legacy.id),
         document_id: legacy.document_number,
@@ -3325,7 +3338,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: legacy.status,
         invited_by_name: 'Principal',
         referrals_count: legacyReferrals.length,
-        commissions_total: 0,
+        commissions_total: legacyPaidCommissionsTotal,
+        paid_commissions_total: legacyPaidCommissionsTotal,
         created_at: legacy.created_at,
         legacy_only: 1
       });
@@ -3334,6 +3348,10 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     partners.forEach((partner) => {
       if (users.some((user) => Number(user.id) === Number(partner.user_id))) return;
       const partnerReferrals = referrals.filter((referral) => Number(referral.ally_id) === Number(partner.user_id));
+      const partnerCommissions = commissions.filter((commission) => Number(commission.ally_id) === Number(partner.user_id));
+      const partnerPaidCommissionsTotal = partnerCommissions
+        .filter((commission) => String(commission.status || '').toLowerCase() === 'paid')
+        .reduce((sum, item) => sum + Number(item.amount || 0), 0);
       allies.push({
         user_id: partner.user_id,
         document_id: partner.document_id || '',
@@ -3348,19 +3366,31 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: 'active',
         invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
         referrals_count: partnerReferrals.length,
-        commissions_total: commissions.filter((commission) => Number(commission.ally_id) === Number(partner.user_id)).reduce((sum, item) => sum + Number(item.amount || 0), 0),
+        commissions_total: partnerPaidCommissionsTotal,
+        paid_commissions_total: partnerPaidCommissionsTotal,
         created_at: partner.created_at,
         legacy_only: 0
       });
     });
 
-    const referralsRows = referrals.map((referral) => ({
-      ...referral,
-      source_kind: 'referral',
-      referred_at: referral.created_at,
-      city: referral.referred_city,
-      ally_name: resolveAllyName(referral.ally_id)
-    })).concat(leads.map((lead) => ({
+    const referralsRows = referrals.map((referral) => {
+      const directCommission = directCommissionByReferralId.get(Number(referral.id)) || {};
+      const commissionPercentage = Number(directCommission.percentage || 10);
+      const commissionAmount = Number(directCommission.amount || 0);
+      return {
+        ...referral,
+        source_kind: 'referral',
+        referred_at: referral.created_at,
+        city: referral.referred_city,
+        ally_name: resolveAllyName(referral.ally_id),
+        commission_id: directCommission.id || null,
+        commission_status: directCommission.status || '',
+        commission_percentage: commissionPercentage,
+        commission_amount: commissionAmount,
+        case_amount: commissionAmount && commissionPercentage ? Math.round((commissionAmount * 100) / commissionPercentage) : 0,
+        pending_payment: commissionAmount
+      };
+    }).concat(leads.map((lead) => ({
       id: lead.id,
       source_kind: 'lead',
       ally_id: lead.referrer_id,

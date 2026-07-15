@@ -497,6 +497,7 @@ h2 {
   display: grid;
   grid-template-columns: 220px 1fr;
   min-height: calc(100vh - 76px);
+  min-width: 0;
 }
 
 .sidebar {
@@ -537,7 +538,8 @@ h2 {
 
 .dashboard-main {
   padding: 1.5rem;
-  overflow: hidden;
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .dashboard-header {
@@ -632,6 +634,7 @@ h2 {
 }
 
 .data-card {
+  min-width: 0;
   padding: 1.2rem;
 }
 
@@ -643,8 +646,54 @@ h2 {
   align-items: center;
   display: grid;
   gap: 0.8rem;
-  grid-template-columns: 1fr 220px 180px;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px) minmax(140px, 180px);
   margin-bottom: 1rem;
+  min-width: 0;
+}
+
+.data-toolbar .form-control,
+.data-toolbar .form-select,
+.data-toolbar .btn {
+  min-width: 0;
+  width: 100%;
+}
+
+.table-responsive {
+  border-radius: 14px;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive .table {
+  margin-bottom: 0;
+  min-width: 820px;
+  width: max-content;
+}
+
+.table th,
+.table td {
+  max-width: 260px;
+  overflow-wrap: anywhere;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.table td strong,
+.table td span {
+  display: block;
+}
+
+.table td span,
+.table small {
+  color: #667085;
+}
+
+.table .btn,
+.table .form-select,
+.table .form-control {
+  white-space: nowrap;
 }
 
 .status-badge {
@@ -702,6 +751,7 @@ h2 {
 .admin-page {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .partner-page {
@@ -1262,6 +1312,7 @@ h2 {
   display: flex;
   gap: 1rem;
   justify-content: space-between;
+  min-width: 0;
   padding: 1.4rem;
 }
 
@@ -1725,11 +1776,27 @@ h2 {
     top: 76px;
     height: auto;
     z-index: 10;
+    overflow-x: auto;
   }
 
   .sidebar nav {
     display: flex;
     overflow-x: auto;
+    padding-bottom: 0.15rem;
+  }
+
+  .sidebar a,
+  .sidebar button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .dashboard-main {
+    padding: 1rem;
+  }
+
+  .table-responsive .table {
+    min-width: 760px;
   }
 
   .metric-grid {
@@ -1816,6 +1883,52 @@ h2 {
   .data-toolbar,
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .auth-platform {
+    padding-top: 64px;
+  }
+
+  .dashboard-shell {
+    min-height: calc(100vh - 64px);
+  }
+
+  .dashboard-main {
+    padding: 0.75rem;
+  }
+
+  .data-card,
+  .lead-hero-card,
+  .partner-hero-card,
+  .client-hero-card {
+    border-radius: 14px;
+    padding: 0.9rem;
+  }
+
+  .data-card h2,
+  .lead-hero-card h2 {
+    font-size: 1.35rem;
+  }
+
+  .table-responsive {
+    margin-inline: -0.25rem;
+    padding-bottom: 0.2rem;
+  }
+
+  .table-responsive .table {
+    min-width: 680px;
+  }
+
+  .table th,
+  .table td {
+    font-size: 0.9rem;
+    max-width: 210px;
+    padding: 0.65rem 0.55rem;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    white-space: nowrap;
   }
 
   .dashboard-header,

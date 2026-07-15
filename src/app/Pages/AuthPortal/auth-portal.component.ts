@@ -121,6 +121,8 @@ export class AuthPortalComponent implements OnInit {
   partnerNetwork: PartnerNetwork = {};
   partnerAdvanced: any = {};
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
+  selectedAdminAlly: any = null;
+  commissionOptions = [5, 10, 15, 20];
   adminDashboard: any = { metrics: [], recentLeads: [], deadlines: [], appointments: [], reports: {} };
   adminClients: any[] = [];
   adminCases: any[] = [];
@@ -1323,6 +1325,9 @@ export class AuthPortalComponent implements OnInit {
       next: (response) => {
         this.adminNetwork = response;
         this.commissionSettingsForm.patchValue(response.settings || {});
+        if (this.selectedAdminAlly) {
+          this.selectedAdminAlly = (response.allies || []).find((ally: any) => ally.user_id === this.selectedAdminAlly.user_id) || null;
+        }
         const alliesCount = response?.allies?.length || 0;
         const referralsCount = response?.referrals?.length || 0;
         if (!alliesCount && !referralsCount) {
@@ -1335,7 +1340,7 @@ export class AuthPortalComponent implements OnInit {
         const debug = err?.error?.debug
           ? ` Conteos: usuarios aliados ${err.error.debug.users || 0}, partners ${err.error.debug.partners || 0}, registros landing ${err.error.debug.legacy_allies || 0}, referidos ${err.error.debug.raw_referrals || 0}, leads referidos ${err.error.debug.lead_referrals || 0}.`
           : '';
-        this.formError = `${err?.error?.error || 'No fue posible cargar la red de aliados.'}${detail}${debug}`;
+        this.formError = `${err?.error?.error || 'No fue posible cargar aliados.'}${detail}${debug}`;
         if (this.environment.enableDemoData) {
           this.adminNetwork = this.demoAdminNetwork();
           this.commissionSettingsForm.patchValue(this.adminNetwork.settings);
@@ -1362,6 +1367,57 @@ export class AuthPortalComponent implements OnInit {
   updateCommissionStatus(id: number, status: string, amount?: string): void {
     this.http.patch(this.apiUrl(`/api/admin/commissions/${id}/status`), { status, amount: amount ? Number(amount) : undefined }, { headers: this.authHeaders() }).subscribe({
       next: () => this.loadAdminNetwork()
+    });
+  }
+
+  selectAdminAlly(ally: any): void {
+    this.selectedAdminAlly = ally;
+    this.formError = '';
+    this.formMessage = '';
+  }
+
+  get selectedAdminAllyReferrals(): any[] {
+    if (!this.selectedAdminAlly) return [];
+    const ids = [Number(this.selectedAdminAlly.user_id), Number(this.selectedAdminAlly.legacy_id)]
+      .filter((value) => value && !Number.isNaN(value));
+    return (this.adminNetwork.referrals || []).filter((referral: any) => ids.includes(Number(referral.ally_id)));
+  }
+
+  calculatePendingPayment(caseAmount: any, percentage: any): number {
+    const amount = Number(caseAmount || 0);
+    const percent = Number(percentage || 0);
+    if (!amount || !percent) return 0;
+    return Math.round(amount * (percent / 100));
+  }
+
+  updateAdminAllyCommission(ally: any, value: string): void {
+    const commission = Number(value);
+    if (!ally?.user_id || ally.legacy_only || Number.isNaN(commission)) return;
+    this.http.patch(this.apiUrl(`/api/admin/partner-network/allies/${ally.user_id}`), { commission_percentage: commission }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        ally.commission_percentage = commission;
+        this.formMessage = 'Porcentaje de comisión actualizado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el porcentaje.'
+    });
+  }
+
+  updateReferralCaseAmount(referral: any, value: string): void {
+    const caseAmount = Number(value || 0);
+    const percentage = Number(this.selectedAdminAlly?.commission_percentage || referral.commission_percentage || 0);
+    const pendingPayment = this.calculatePendingPayment(caseAmount, percentage);
+    referral.case_amount = caseAmount;
+    referral.pending_payment = pendingPayment;
+    if (!referral.commission_id) return;
+    const status = referral.commission_status || 'pending';
+    this.http.patch(this.apiUrl(`/api/admin/commissions/${referral.commission_id}/status`), { status, amount: pendingPayment }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        referral.commission_amount = pendingPayment;
+        this.formMessage = 'Pago pendiente actualizado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el pago pendiente.'
     });
   }
 
