@@ -21,6 +21,18 @@ const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
 const SEED_ACCESS_USERS = process.env.SEED_ACCESS_USERS === 'true';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 
+function parseEmailList(value) {
+  return String(value || '')
+    .split(/[,\s;]+/)
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean);
+}
+
+const GOOGLE_ADMIN_EMAILS = new Set([
+  ...parseEmailList(ADMIN_EMAIL),
+  ...parseEmailList(process.env.GOOGLE_ADMIN_EMAILS)
+]);
+
 const ALLY_TYPES = ['persona_natural', 'empresa', 'inmobiliaria', 'contador', 'asesor_comercial', 'cliente', 'independiente', 'otro'];
 const ALLY_STATUSES = ['pending', 'active', 'inactive'];
 const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
@@ -637,6 +649,27 @@ function ensureRoleProfile(user, callback = () => {}) {
   if (user.role === 'client') return ensureClientProfile(user, callback);
   if (user.role === 'ally') return ensurePartnerProfile(user, callback);
   return callback();
+}
+
+function adminGoogleSignupAllowed(email) {
+  return GOOGLE_ADMIN_EMAILS.has(normalizeEmail(email));
+}
+
+function documentPrefixForRole(role) {
+  if (role === 'ally') return 'ALIADO';
+  if (role === 'admin') return 'ADMIN';
+  return 'CLIENTE';
+}
+
+function googleValidationMessage(error) {
+  const reason = error?.message || '';
+  if (reason === 'invalid_audience') {
+    return 'La cuenta de Google fue validada, pero el Client ID no coincide con la configuracion del servidor.';
+  }
+  if (reason === 'email_not_verified') {
+    return 'Tu correo de Google no aparece verificado.';
+  }
+  return 'No fue posible validar tu cuenta de Google.';
 }
 
 function verifyGoogleCredential(credential, callback) {
@@ -1371,7 +1404,7 @@ app.post('/api/auth/google', (req, res) => {
   verifyGoogleCredential(String(req.body.credential || req.body.access_token || ''), (verifyErr, googleProfile) => {
     if (verifyErr || !googleProfile?.email) {
       console.error('[auth/google] Google validation failed:', verifyErr?.message || 'missing_profile');
-      return res.status(401).json({ error: 'No fue posible validar tu cuenta de Google.' });
+      return res.status(401).json({ error: googleValidationMessage(verifyErr) });
     }
 
     db.get(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = ?`, [googleProfile.email], (selectErr, existingUser) => {
@@ -1379,6 +1412,9 @@ app.post('/api/auth/google', (req, res) => {
 
       if (existingUser) {
         if (existingUser.status !== 'active') return res.status(403).json({ error: 'Esta cuenta no está activa.' });
+        if (existingUser.google_sub && googleProfile.google_sub && existingUser.google_sub !== googleProfile.google_sub) {
+          return res.status(403).json({ error: 'Esta cuenta ya esta vinculada a otro perfil de Google.' });
+        }
         if (requestedRole === 'admin' && !['admin', 'abogado', 'asistente'].includes(existingUser.role)) {
           return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
         }
@@ -1407,12 +1443,12 @@ app.post('/api/auth/google', (req, res) => {
         return;
       }
 
-      if (requestedRole === 'admin') {
-        return res.status(403).json({ error: 'El acceso con Google al panel interno requiere una cuenta previamente autorizada.' });
+      if (requestedRole === 'admin' && !adminGoogleSignupAllowed(googleProfile.email)) {
+        return res.status(403).json({ error: 'El acceso con Google al panel interno requiere un correo autorizado en GOOGLE_ADMIN_EMAILS o ADMIN_EMAIL.' });
       }
 
       const now = getTimestamp();
-      const documentId = generatedDocumentId(requestedRole === 'ally' ? 'ALIADO' : 'CLIENTE', googleProfile.email);
+      const documentId = generatedDocumentId(documentPrefixForRole(requestedRole), googleProfile.email);
       const passwordHash = hashPassword(crypto.randomBytes(24).toString('hex'));
       db.run(`INSERT INTO users (full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, 'google', ?, ?, ?, 'active', ?, ?)`,
