@@ -702,7 +702,6 @@ function googleValidationMessage(error) {
 
 function verifyGoogleCredential(credential, callback) {
   if (!credential) return callback(new Error('missing_credential'));
-  if (!credential.includes('.')) return verifyGoogleAccessToken(credential, callback);
   const url = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`;
   getJsonFromUrl(url, {}, (err, result) => {
     if (err) return callback(err);
@@ -1424,7 +1423,11 @@ app.post('/api/auth/google', (req, res) => {
     return res.status(400).json({ error: 'Selecciona un tipo de acceso válido.' });
   }
 
-  verifyGoogleCredential(String(req.body.credential || req.body.access_token || ''), (verifyErr, googleProfile) => {
+  const credential = String(req.body.credential || '');
+  const accessToken = String(req.body.access_token || '');
+  const verifier = accessToken ? verifyGoogleAccessToken : verifyGoogleCredential;
+
+  verifier(accessToken || credential, (verifyErr, googleProfile) => {
     if (verifyErr || !googleProfile?.email) {
       console.error('[auth/google] Google validation failed:', verifyErr?.message || 'missing_profile');
       return res.status(401).json({ error: googleValidationMessage(verifyErr) });
