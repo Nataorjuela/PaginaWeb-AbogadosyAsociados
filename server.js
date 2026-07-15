@@ -21,6 +21,7 @@ const APP_ENV = process.env.APP_ENV || 'development';
 const QA_DEMO_DATA = process.env.QA_DEMO_DATA === 'true' || APP_ENV === 'qa';
 const SEED_ACCESS_USERS = process.env.SEED_ACCESS_USERS === 'true';
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const SUPPORT_MULTI_ROLE_EMAIL = 'orjuelayabogadossoporte@gmail.com';
 
 function parseEmailList(value) {
   return String(value || '')
@@ -31,6 +32,8 @@ function parseEmailList(value) {
 
 const GOOGLE_ADMIN_EMAILS = new Set([
   ...parseEmailList(ADMIN_EMAIL),
+  SUPPORT_MULTI_ROLE_EMAIL,
+  'orjuelayabogados@gmail.com',
   ...parseEmailList(process.env.GOOGLE_ADMIN_EMAILS)
 ]);
 
@@ -39,6 +42,7 @@ const ALLY_STATUSES = ['pending', 'active', 'inactive'];
 const LEGAL_AREAS = ['derecho_civil', 'derecho_laboral', 'derecho_comercial', 'derecho_inmobiliario', 'derecho_familia', 'cobranza', 'contratos', 'sucesiones', 'otro'];
 const REFERRAL_STATUSES = ['new', 'contacted', 'in_progress', 'proposal_sent', 'won', 'commission_approved', 'commission_paid', 'rejected'];
 const AUTH_ROLES = ['admin', 'abogado', 'asistente', 'ally', 'client'];
+const ADMIN_ROLES = ['admin', 'abogado', 'asistente'];
 const NETWORK_REFERRAL_STATUSES = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente vinculado', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
 const COMMISSION_STATUSES = ['pending', 'approved', 'paid', 'rejected'];
 const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
@@ -239,7 +243,7 @@ async function createDatabase() {
       id BIGSERIAL PRIMARY KEY,
       full_name TEXT NOT NULL,
       document_id TEXT,
-      email TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
       password_hash TEXT NOT NULL,
       auth_provider TEXT DEFAULT 'password',
       google_sub TEXT,
@@ -249,7 +253,8 @@ async function createDatabase() {
       reset_token_hash TEXT,
       reset_token_expires_at TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      UNIQUE(email, role)
     )`,
 
     `CREATE TABLE IF NOT EXISTS client_messages (
@@ -494,6 +499,11 @@ async function createDatabase() {
     )`
   ]);
 
+  await runSchema([
+    `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS users_email_role_key ON users(email, role)`
+  ]);
+
   pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
     SELECT 10, 3, 1, 1, $1, $2
     WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()], createPgErrorLogger('seed commission_settings'));
@@ -683,6 +693,38 @@ function adminGoogleSignupAllowed(email) {
   return GOOGLE_ADMIN_EMAILS.has(normalizeEmail(email));
 }
 
+function isAdminRole(role) {
+  return ADMIN_ROLES.includes(role);
+}
+
+function isSupportMultiRoleEmail(email) {
+  return normalizeEmail(email) === SUPPORT_MULTI_ROLE_EMAIL;
+}
+
+function roleMatchesRequest(userRole, requestedRole) {
+  if (requestedRole === 'admin') return isAdminRole(userRole);
+  return userRole === requestedRole;
+}
+
+function findUserForRequestedRole(users, requestedRole) {
+  return (users || []).find((user) => roleMatchesRequest(user.role, requestedRole));
+}
+
+function validateEmailRoleAvailability(existingUsers, email, requestedRole) {
+  const users = existingUsers || [];
+  if (findUserForRequestedRole(users, requestedRole)) {
+    return 'Ya existe una cuenta con este correo para ese perfil.';
+  }
+  if (isSupportMultiRoleEmail(email)) return '';
+  if (isAdminRole(requestedRole) && users.length > 0) {
+    return 'Este correo ya pertenece a otro perfil y no puede registrarse como administrador.';
+  }
+  if (users.some((user) => isAdminRole(user.role))) {
+    return 'Este correo pertenece a un administrador y no puede usarse como cliente o aliado.';
+  }
+  return '';
+}
+
 function documentPrefixForRole(role) {
   if (role === 'ally') return 'ALIADO';
   if (role === 'admin') return 'ADMIN';
@@ -844,13 +886,13 @@ function upsertSeedUser({ fullName, documentId, email, password, role }, callbac
   const now = getTimestamp();
   const passwordHash = hashPassword(password);
 
-  pgGet(`SELECT id FROM users WHERE email = $1`, [email], (selectErr, existingUser) => {
+  pgGet(`SELECT id FROM users WHERE email = $1 AND role = $2`, [email, role], (selectErr, existingUser) => {
     if (selectErr) return callback(selectErr);
 
     if (existingUser) {
       return pgRun(`UPDATE users
-        SET full_name = $1, document_id = $2, password_hash = $3, role = $4, status = 'active', updated_at = $5
-        WHERE id = $6`, [fullName, documentId, passwordHash, role, now, existingUser.id], (updateErr) => {
+        SET full_name = $1, document_id = $2, password_hash = $3, status = 'active', updated_at = $4
+        WHERE id = $5`, [fullName, documentId, passwordHash, now, existingUser.id], (updateErr) => {
         callback(updateErr, existingUser.id);
       });
     }
@@ -1293,19 +1335,25 @@ app.post('/api/auth/register-client', (req, res) => {
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('CLIENTE', payload.email);
 
-  pgGet(`SELECT id FROM users WHERE email = $1 OR document_id = $2`, [payload.email, documentId], (existingErr, existing) => {
+  pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (existingErr, existingUsers) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
-    if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
+    const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'client');
+    if (roleError) return res.status(409).json({ error: roleError });
 
-    pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, 'client', 'active', $5, $6)
-      RETURNING id`,
-      [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
-        if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta de cliente.' });
-        const userId = this.lastID;
-        pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES ($1, $2, 'Equipo Orjuela')`, [userId, documentId]);
-        pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES ($1, $2, $3, $4, $5)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
-        res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
+    pgGet(`SELECT id FROM clients WHERE document_id = $1`, [documentId], (clientDocErr, existingClient) => {
+      if (clientDocErr) return res.status(500).json({ error: 'Error validando cliente.' });
+      if (existingClient) return res.status(409).json({ error: 'Ya existe un cliente con esa cédula.' });
+
+      pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'client', 'active', $5, $6)
+        RETURNING id`,
+        [payload.full_name, documentId, payload.email, hashPassword(payload.password), createdAt, createdAt], function insertUser(err) {
+          if (err) return res.status(500).json({ error: 'No fue posible crear la cuenta de cliente.' });
+          const userId = this.lastID;
+          pgRun(`INSERT INTO auth_clients (user_id, document_id, assigned_lawyer) VALUES ($1, $2, 'Equipo Orjuela')`, [userId, documentId]);
+          pgRun(`INSERT INTO clients (name, document_id, phone, email, created_at) VALUES ($1, $2, $3, $4, $5)`, [payload.full_name, documentId, payload.phone, payload.email, createdAt]);
+          res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
+        });
       });
   });
 });
@@ -1337,9 +1385,10 @@ app.post('/api/auth/register-admin', (req, res) => {
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('ADMIN', payload.email);
 
-  pgGet(`SELECT id FROM users WHERE email = $1 OR document_id = $2`, [payload.email, documentId], (existingErr, existing) => {
+  pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (existingErr, existingUsers) => {
     if (existingErr) return res.status(500).json({ error: 'Error validando usuario.' });
-    if (existing) return res.status(409).json({ error: 'Ya existe una cuenta con ese correo o cédula.' });
+    const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'admin');
+    if (roleError) return res.status(409).json({ error: roleError });
 
     pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, 'admin', 'active', $5, $6)
@@ -1384,40 +1433,45 @@ app.post('/api/auth/register-partner', (req, res) => {
       console.error(refErr);
       return res.status(500).json({ error: 'Error al validar el codigo de invitacion.' });
     }
-    pgGet(`SELECT u.id FROM users u
-      LEFT JOIN partners p ON p.user_id = u.id
-      WHERE u.email = $1 OR p.document_id = $2 OR ($3 <> '' AND p.phone = $4)`, [payload.email, payload.document_id, payload.phone, payload.phone], (dupErr, duplicate) => {
-      if (dupErr) {
-        console.error(dupErr);
-        return res.status(500).json({ error: 'Error al validar duplicados.' });
-      }
-      if (duplicate) {
-        return res.status(409).json({ error: 'Ya existe un aliado registrado con ese correo, cedula o telefono.' });
-      }
+    pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (userRoleErr, existingUsers) => {
+      if (userRoleErr) return res.status(500).json({ error: 'Error al validar usuario.' });
+      const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'ally');
+      if (roleError) return res.status(409).json({ error: roleError });
 
-      pgRun(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
-        VALUES ($1, $2, $3, 'ally', 'active', $4, $5)
-        RETURNING id`,
-        [payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt], function (err) {
-      if (err) {
-        if (err.message.includes('UNIQUE')) return res.status(409).json({ error: 'Ya existe una cuenta con este correo.' });
-        console.error(err);
-        return res.status(500).json({ error: 'Error al crear usuario.' });
-      }
-
-      const userId = this.lastID;
-      const referralCode = generateReferralCode(payload.full_name, payload.document_id);
-      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
-        if (partnerErr) {
-          console.error(partnerErr);
-          return res.status(500).json({ error: 'Error al crear perfil de aliado.' });
+      pgGet(`SELECT p.user_id FROM partners p
+        WHERE p.document_id = $1 OR ($2 <> '' AND p.phone = $3)`, [payload.document_id, payload.phone, payload.phone], (dupErr, duplicate) => {
+        if (dupErr) {
+          console.error(dupErr);
+          return res.status(500).json({ error: 'Error al validar duplicados.' });
+        }
+        if (duplicate) {
+          return res.status(409).json({ error: 'Ya existe un aliado registrado con esa cedula o telefono.' });
         }
 
-        const user = { id: userId, full_name: payload.full_name, email: payload.email, role: 'ally', status: 'active' };
-        res.status(201).json({ message: 'Tu cuenta de aliado fue creada exitosamente.', token: signToken(user), user });
+        pgRun(`INSERT INTO users (full_name, email, password_hash, role, status, created_at, updated_at)
+          VALUES ($1, $2, $3, 'ally', 'active', $4, $5)
+          RETURNING id`,
+          [payload.full_name, payload.email, hashPassword(payload.password), createdAt, createdAt], function (err) {
+        if (err) {
+          if (err.message.includes('unique') || err.message.includes('duplicate')) return res.status(409).json({ error: 'Ya existe una cuenta de aliado con este correo.' });
+          console.error(err);
+          return res.status(500).json({ error: 'Error al crear usuario.' });
+        }
+
+        const userId = this.lastID;
+        const referralCode = generateReferralCode(payload.full_name, payload.document_id);
+        pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, referral_code, invited_by_partner_id, commission_balance)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.company, payload.how_known, payload.occupation, referralCode, referrer?.user_id || null], (partnerErr) => {
+          if (partnerErr) {
+            console.error(partnerErr);
+            return res.status(500).json({ error: 'Error al crear perfil de aliado.' });
+          }
+
+          const user = { id: userId, full_name: payload.full_name, email: payload.email, role: 'ally', status: 'active' };
+          res.status(201).json({ message: 'Tu cuenta de aliado fue creada exitosamente.', token: signToken(user), user });
+        });
       });
-    });
+      });
     });
   });
 });
@@ -1438,15 +1492,16 @@ app.post('/api/auth/google', (req, res) => {
       return res.status(401).json({ error: googleValidationMessage(verifyErr) });
     }
 
-    pgGet(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = $1`, [googleProfile.email], (selectErr, existingUser) => {
+    pgAll(`SELECT id, full_name, document_id, email, password_hash, auth_provider, google_sub, avatar_url, role, status FROM users WHERE email = $1`, [googleProfile.email], (selectErr, existingUsers) => {
       if (selectErr) return res.status(500).json({ error: 'Error validando usuario.' });
+      const existingUser = findUserForRequestedRole(existingUsers, requestedRole);
 
       if (existingUser) {
         if (existingUser.status !== 'active') return res.status(403).json({ error: 'Esta cuenta no está activa.' });
         if (existingUser.google_sub && googleProfile.google_sub && existingUser.google_sub !== googleProfile.google_sub) {
           return res.status(403).json({ error: 'Esta cuenta ya esta vinculada a otro perfil de Google.' });
         }
-        if (requestedRole === 'admin' && !['admin', 'abogado', 'asistente'].includes(existingUser.role)) {
+        if (requestedRole === 'admin' && !isAdminRole(existingUser.role)) {
           return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
         }
         if (requestedRole === 'ally' && existingUser.role !== 'ally') {
@@ -1477,6 +1532,8 @@ app.post('/api/auth/google', (req, res) => {
       if (requestedRole === 'admin' && !adminGoogleSignupAllowed(googleProfile.email)) {
         return res.status(403).json({ error: 'El acceso con Google al panel interno requiere un correo autorizado en GOOGLE_ADMIN_EMAILS o ADMIN_EMAIL.' });
       }
+      const roleError = validateEmailRoleAvailability(existingUsers, googleProfile.email, requestedRole);
+      if (roleError) return res.status(409).json({ error: roleError });
 
       const now = getTimestamp();
       const documentId = generatedDocumentId(documentPrefixForRole(requestedRole), googleProfile.email);
@@ -1514,16 +1571,17 @@ app.post('/api/auth/login', (req, res) => {
     return res.status(400).json({ error: 'Correo y contraseña son obligatorios.' });
   }
 
-  pgGet(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = $1`, [email], (err, user) => {
+  pgAll(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = $1`, [email], (err, users) => {
     if (err) {
       console.error(err);
       return res.status(500).json({ error: 'Error al validar credenciales.' });
     }
 
+    const user = findUserForRequestedRole(users, requestedRole);
     if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
       return res.status(401).json({ error: 'Credenciales inválidas.' });
     }
-    if (requestedRole === 'admin' && !['admin', 'abogado', 'asistente'].includes(user.role)) {
+    if (requestedRole === 'admin' && !isAdminRole(user.role)) {
       return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
     }
     if (requestedRole === 'ally' && user.role !== 'ally') {
@@ -2952,11 +3010,14 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
   }
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo invalido.' });
 
-  pgGet(`SELECT u.id FROM users u
-    LEFT JOIN partners p ON p.user_id = u.id
-    WHERE u.email = $1 OR p.document_id = $2 OR p.phone = $3`, [payload.email, payload.document_id, payload.phone], (dupErr, duplicate) => {
+  pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
+    if (roleErr) return res.status(500).json({ error: 'Error al validar usuario.' });
+    const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'ally');
+    if (roleError) return res.status(409).json({ error: roleError });
+
+  pgGet(`SELECT user_id FROM partners WHERE document_id = $1 OR phone = $2`, [payload.document_id, payload.phone], (dupErr, duplicate) => {
     if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
-    if (duplicate) return res.status(409).json({ error: 'Ya existe un aliado con ese correo, cedula o telefono.' });
+    if (duplicate) return res.status(409).json({ error: 'Ya existe un aliado con esa cedula o telefono.' });
 
     const createdAt = getTimestamp();
     const tempPassword = crypto.randomBytes(10).toString('hex');
@@ -3058,16 +3119,22 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
   if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   const now = getTimestamp();
   const password = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
-  pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, 'ally', $5, $6, $7)
-    RETURNING id`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
-    if (userErr) return res.status(500).json({ error: 'No fue posible crear el usuario aliado.' });
-    const userId = this.lastID;
-    pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
-      if (partnerErr) return res.status(500).json({ error: 'No fue posible crear aliado.' });
-      auditAdminAction(req, 'crear', 'aliado', userId, payload.full_name);
-      res.status(201).json({ message: 'Aliado creado.', user_id: userId });
+  pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
+    if (roleErr) return res.status(500).json({ error: 'No fue posible validar el correo.' });
+    const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'ally');
+    if (roleError) return res.status(409).json({ error: roleError });
+
+    pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'ally', $5, $6, $7)
+      RETURNING id`, [payload.full_name, payload.document_id, payload.email, password, payload.status, now, now], function (userErr) {
+      if (userErr) return res.status(500).json({ error: 'No fue posible crear el usuario aliado.' });
+      const userId = this.lastID;
+      pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_balance, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`, [userId, payload.document_id, payload.phone, payload.city, payload.partner_type, payload.occupation, generateReferralCode(payload.full_name, payload.document_id), now, now], function (partnerErr) {
+        if (partnerErr) return res.status(500).json({ error: 'No fue posible crear aliado.' });
+        auditAdminAction(req, 'crear', 'aliado', userId, payload.full_name);
+        res.status(201).json({ message: 'Aliado creado.', user_id: userId });
+      });
     });
   });
 });
@@ -3461,6 +3528,7 @@ app.post('/api/auth/recovery/request', (req, res) => {
       res.json({ message: 'Si el correo existe, enviaremos instrucciones para recuperar el acceso.' });
     });
   });
+  });
 });
 
 app.post('/api/auth/recovery/reset', (req, res) => {
@@ -3530,8 +3598,8 @@ app.post('/api/allies', (req, res) => {
     const tempPassword = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
     pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, 'ally', 'pending', $5, $6)
-      ON CONFLICT (email) DO NOTHING`, [payload.full_name, payload.document_number, payload.email, tempPassword, createdAt, createdAt], function () {
-      pgGet(`SELECT id FROM users WHERE email = $1`, [payload.email], (userErr, user) => {
+      ON CONFLICT (email, role) DO NOTHING`, [payload.full_name, payload.document_number, payload.email, tempPassword, createdAt, createdAt], function () {
+      pgGet(`SELECT id FROM users WHERE email = $1 AND role = 'ally'`, [payload.email], (userErr, user) => {
         if (!userErr && user) {
           pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, how_known, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12)

@@ -51,11 +51,10 @@ async function upsertUser(user) {
   const result = await pool.query(
     `INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
-      ON CONFLICT (email) DO UPDATE SET
+      ON CONFLICT (email, role) DO UPDATE SET
         full_name = excluded.full_name,
         document_id = excluded.document_id,
         password_hash = excluded.password_hash,
-        role = excluded.role,
         status = 'active',
         updated_at = excluded.updated_at
       RETURNING id`,
