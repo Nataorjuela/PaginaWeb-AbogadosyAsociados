@@ -122,7 +122,7 @@ export class AuthPortalComponent implements OnInit {
   partnerAdvanced: any = {};
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
   selectedAdminAlly: any = null;
-  commissionOptions = [5, 10, 15, 20];
+  commissionOptions = [5, 10, 20];
   adminDashboard: any = { metrics: [], recentLeads: [], deadlines: [], appointments: [], reports: {} };
   adminClients: any[] = [];
   adminCases: any[] = [];
@@ -1390,34 +1390,55 @@ export class AuthPortalComponent implements OnInit {
     return Math.round(amount * (percent / 100));
   }
 
-  updateAdminAllyCommission(ally: any, value: string): void {
-    const commission = Number(value);
-    if (!ally?.user_id || ally.legacy_only || Number.isNaN(commission)) return;
-    this.http.patch(this.apiUrl(`/api/admin/partner-network/allies/${ally.user_id}`), { commission_percentage: commission }, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        ally.commission_percentage = commission;
-        this.formMessage = 'Porcentaje de comisión actualizado.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el porcentaje.'
-    });
-  }
-
   updateReferralCaseAmount(referral: any, value: string): void {
     const caseAmount = Number(value || 0);
-    const percentage = Number(this.selectedAdminAlly?.commission_percentage || referral.commission_percentage || 0);
-    const pendingPayment = this.calculatePendingPayment(caseAmount, percentage);
+    const percentage = Number(referral.commission_percentage || 10);
     referral.case_amount = caseAmount;
-    referral.pending_payment = pendingPayment;
-    if (!referral.commission_id) return;
-    const status = referral.commission_status || 'pending';
-    this.http.patch(this.apiUrl(`/api/admin/commissions/${referral.commission_id}/status`), { status, amount: pendingPayment }, { headers: this.authHeaders() }).subscribe({
+    referral.pending_payment = this.calculatePendingPayment(caseAmount, percentage);
+  }
+
+  updateReferralCommissionPercent(referral: any, value: string): void {
+    const percentage = Number(value || 0);
+    referral.commission_percentage = percentage;
+    referral.pending_payment = this.calculatePendingPayment(referral.case_amount, percentage);
+  }
+
+  saveReferralPendingPayment(referral: any): void {
+    if (referral.source_kind === 'lead') {
+      this.formError = 'Este registro viene de Leads. Convierte o gestiona el referido desde la sección Leads.';
+      return;
+    }
+    const caseAmount = Number(referral.case_amount || 0);
+    const percentage = Number(referral.commission_percentage || 0);
+    if (!caseAmount || !percentage) {
+      this.formError = 'Ingresa el monto del caso y selecciona el porcentaje de comisión.';
+      return;
+    }
+    this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${referral.id}/commission`), {
+      case_amount: caseAmount,
+      percentage
+    }, { headers: this.authHeaders() }).subscribe({
       next: () => {
-        referral.commission_amount = pendingPayment;
-        this.formMessage = 'Pago pendiente actualizado.';
+        this.formMessage = 'Pago pendiente guardado y notificado al aliado.';
         this.loadAdminNetwork();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el pago pendiente.'
+    });
+  }
+
+  deleteNetworkReferral(referral: any): void {
+    if (referral.source_kind === 'lead') {
+      this.formError = 'Este registro viene de Leads. Elimínalo o archívalo desde la sección Leads.';
+      return;
+    }
+    const confirmed = confirm(`¿Deseas eliminar el referido ${referral.referred_full_name}?`);
+    if (!confirmed) return;
+    this.http.delete(this.apiUrl(`/api/admin/network-referrals/${referral.id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Referido eliminado.';
+        this.loadAdminNetwork();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el referido.'
     });
   }
 
@@ -2040,9 +2061,13 @@ export class AuthPortalComponent implements OnInit {
   deleteAdminAlly(id: number): void {
     const confirmed = confirm('Esta acción eliminará permanentemente el aliado, sus referidos, comisiones y datos relacionados. ¿Deseas continuar?');
     if (!confirmed) return;
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/allies/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
+    const endpoint = id < 0
+      ? `/api/admin/partner-network/legacy-allies/${Math.abs(id)}/permanent`
+      : `/api/admin/partner-network/allies/${id}/permanent`;
+    this.http.delete(this.apiUrl(endpoint), { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Aliado eliminado permanentemente.';
+        if (this.selectedAdminAlly?.user_id === id) this.selectedAdminAlly = null;
         this.loadAdminNetwork();
         this.loadAdminDashboard();
       },
