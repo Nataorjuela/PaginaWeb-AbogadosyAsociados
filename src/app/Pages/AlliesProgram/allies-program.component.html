@@ -53,6 +53,15 @@
               <label>Celular<input class="form-control" type="tel" formControlName="phone" /></label>
               <label>Correo<input class="form-control" type="email" formControlName="email" /></label>
               <label>Ciudad<input class="form-control" formControlName="city" /></label>
+              <label>Crear contraseña<input class="form-control" type="password" formControlName="password" autocomplete="new-password" /></label>
+              <label>Confirmar contraseña<input class="form-control" type="password" formControlName="confirm_password" autocomplete="new-password" /></label>
+            </div>
+            <div class="password-rules">
+              <span>Min. 8 caracteres</span>
+              <span>Mayúscula</span>
+              <span>Minúscula</span>
+              <span>Número</span>
+              <span>Símbolo</span>
             </div>
           </div>
 
@@ -101,6 +110,10 @@
             <button class="btn btn-primary" type="button" *ngIf="registerStep < 4" (click)="nextRegisterStep()">Continuar</button>
             <button class="btn btn-primary" type="submit" *ngIf="registerStep === 4" [disabled]="isRegistering">{{ isRegistering ? 'Enviando...' : 'Enviar registro' }}</button>
           </div>
+          <button class="google-register-button" type="button" (click)="continueWithGoogle()" [disabled]="isGoogleRegistering">
+            <span class="google-mark">G</span>
+            {{ isGoogleRegistering ? 'Conectando...' : 'Crear cuenta con Google' }}
+          </button>
         </form>
       </div>
     </section>

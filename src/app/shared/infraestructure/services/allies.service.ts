@@ -11,6 +11,8 @@ export interface AllyRegistration {
   city: string;
   ally_type: string;
   how_known?: string;
+  password: string;
+  confirm_password: string;
   bank_name?: string;
   account_type?: string;
   account_number?: string;
@@ -40,6 +42,10 @@ export class AlliesService {
 
   registerAlly(payload: AllyRegistration): Observable<any> {
     return this.http.post(`${this.apiBase}/allies`, payload);
+  }
+
+  googleAllyAuth(payload: { credential?: string; access_token?: string }): Observable<any> {
+    return this.http.post(`${this.apiBase}/auth/google`, { role: 'ally', ...payload });
   }
 
   sendReferral(payload: ReferralSubmission): Observable<any> {

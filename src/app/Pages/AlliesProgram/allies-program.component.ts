@@ -3,6 +3,9 @@ import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClientModule } from '@angular/common/http';
 import { AlliesService, AllyRegistration, ReferralSubmission } from '../../shared/infraestructure/services/allies.service';
+import { APP_PUBLIC_CONFIG } from '../../shared/config/app-public-config';
+
+declare const google: any;
 
 type Option = { value: string; label: string };
 type Benefit = { icon: string; title: string; description: string };
@@ -25,6 +28,9 @@ export class AlliesProgramComponent implements OnInit {
   referralError = '';
   isRegistering = false;
   isSendingReferral = false;
+  isGoogleRegistering = false;
+  private googleScriptPromise?: Promise<void>;
+  readonly strongPasswordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
   allyTypes: Option[] = [
     { value: 'inmobiliaria', label: 'Inmobiliaria' },
@@ -76,6 +82,8 @@ export class AlliesProgramComponent implements OnInit {
       phone: ['', [Validators.required, Validators.minLength(7)]],
       email: ['', [Validators.required, Validators.email]],
       city: ['', Validators.required],
+      password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
+      confirm_password: ['', [Validators.required, Validators.pattern(this.strongPasswordPattern)]],
       ally_type: ['', Validators.required],
       how_known: [''],
       bank_name: [''],
@@ -133,7 +141,7 @@ export class AlliesProgramComponent implements OnInit {
 
   isRegisterStepValid(): boolean {
     const controlsByStep: Record<number, string[]> = {
-      1: ['full_name', 'document_number', 'phone', 'email', 'city'],
+      1: ['full_name', 'document_number', 'phone', 'email', 'city', 'password', 'confirm_password'],
       2: ['ally_type'],
       3: [],
       4: ['accept_program_terms', 'accept_terms']
@@ -153,6 +161,16 @@ export class AlliesProgramComponent implements OnInit {
 
   private validateControls(form: FormGroup, controlNames: string[]): boolean {
     controlNames.forEach((controlName) => form.get(controlName)?.markAsTouched());
+    if (form === this.registerForm && controlNames.includes('confirm_password') && form.value.password !== form.value.confirm_password) {
+      form.get('confirm_password')?.setErrors({ mismatch: true });
+    } else if (form === this.registerForm && controlNames.includes('confirm_password')) {
+      const confirmPassword = form.get('confirm_password');
+      if (confirmPassword?.hasError('mismatch')) {
+        const errors = { ...(confirmPassword.errors || {}) };
+        delete errors['mismatch'];
+        confirmPassword.setErrors(Object.keys(errors).length ? errors : null);
+      }
+    }
     return controlNames.every((controlName) => form.get(controlName)?.valid);
   }
 
@@ -162,6 +180,10 @@ export class AlliesProgramComponent implements OnInit {
     if (this.registerForm.invalid) {
       this.registerForm.markAllAsTouched();
       this.registerError = 'Revisa los campos marcados antes de enviar tu registro.';
+      return;
+    }
+    if (this.registerForm.value.password !== this.registerForm.value.confirm_password) {
+      this.registerError = 'Las contraseñas no coinciden.';
       return;
     }
 
@@ -179,6 +201,95 @@ export class AlliesProgramComponent implements OnInit {
         this.isRegistering = false;
       }
     });
+  }
+
+  continueWithGoogle(): void {
+    this.registerError = '';
+    this.registerMessage = '';
+    const clientId = APP_PUBLIC_CONFIG.googleClientId;
+    if (!clientId) {
+      this.registerError = 'Configura GOOGLE_CLIENT_ID para activar el registro con Google.';
+      return;
+    }
+
+    this.isGoogleRegistering = true;
+    this.loadGoogleScript()
+      .then(() => {
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: (response: { credential?: string }) => {
+            if (!response?.credential) {
+              this.requestGoogleAccessToken(clientId);
+              return;
+            }
+            this.completeGoogleAllyAuth({ credential: response.credential });
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+        google.accounts.id.prompt((notification: any) => {
+          if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+            this.requestGoogleAccessToken(clientId);
+          }
+        });
+      })
+      .catch(() => {
+        this.isGoogleRegistering = false;
+        this.registerError = 'No fue posible cargar Google Sign-In.';
+      });
+  }
+
+  private requestGoogleAccessToken(clientId: string): void {
+    try {
+      const tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        callback: (response: { access_token?: string; error?: string }) => {
+          if (response?.error || !response?.access_token) {
+            this.isGoogleRegistering = false;
+            this.registerError = 'No recibimos la autorización de Google. Intenta de nuevo.';
+            return;
+          }
+          this.completeGoogleAllyAuth({ access_token: response.access_token });
+        }
+      });
+      tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } catch {
+      this.isGoogleRegistering = false;
+      this.registerError = 'No fue posible iniciar la ventana de Google.';
+    }
+  }
+
+  private completeGoogleAllyAuth(payload: { credential?: string; access_token?: string }): void {
+    this.alliesService.googleAllyAuth(payload).subscribe({
+      next: (response) => {
+        localStorage.setItem('orjuelaToken', response.token);
+        localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
+        this.isGoogleRegistering = false;
+        window.location.href = '/aliados/dashboard';
+      },
+      error: (error) => {
+        this.isGoogleRegistering = false;
+        this.registerError = error?.error?.error || 'No fue posible crear la cuenta con Google.';
+      }
+    });
+  }
+
+  private loadGoogleScript(): Promise<void> {
+    if (typeof window === 'undefined') return Promise.reject();
+    if ((window as any).google?.accounts?.id) return Promise.resolve();
+    if (!this.googleScriptPromise) {
+      this.googleScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://accounts.google.com/gsi/client';
+        script.async = true;
+        script.defer = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject();
+        document.head.appendChild(script);
+      });
+    }
+    return this.googleScriptPromise;
   }
 
   submitReferral(): void {

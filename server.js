@@ -3565,6 +3565,8 @@ app.post('/api/allies', (req, res) => {
     city: cleanText(req.body.city, 100),
     ally_type: cleanText(req.body.ally_type, 40),
     how_known: cleanText(req.body.how_known, 180),
+    password: String(req.body.password || ''),
+    confirm_password: String(req.body.confirm_password || ''),
     bank_name: cleanText(req.body.bank_name, 100),
     account_type: cleanText(req.body.account_type, 40),
     account_number: cleanText(req.body.account_number, 80),
@@ -3572,15 +3574,25 @@ app.post('/api/allies', (req, res) => {
     accept_terms: req.body.accept_terms
   };
 
-  if (!payload.full_name || !payload.document_number || !payload.phone || !payload.email || !payload.city || !payload.ally_type || payload.accept_terms !== true) {
+  if (!payload.full_name || !payload.document_number || !payload.phone || !payload.email || !payload.city || !payload.ally_type || !payload.password || !payload.confirm_password || payload.accept_terms !== true) {
     return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos y aceptar el tratamiento de datos.' });
   }
+  if (payload.password !== payload.confirm_password) {
+    return res.status(400).json({ error: 'Las contraseñas no coinciden.' });
+  }
+  const passwordError = validatePasswordStrength(payload.password);
+  if (passwordError) return res.status(400).json({ error: passwordError });
   if (!isValidEmail(payload.email)) {
     return res.status(400).json({ error: 'El correo electrónico no tiene un formato válido.' });
   }
   if (!isOneOf(payload.ally_type, ALLY_TYPES)) {
     return res.status(400).json({ error: 'El tipo de aliado seleccionado no es válido.' });
   }
+
+  pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
+    if (roleErr) return res.status(500).json({ error: 'No fue posible validar el correo.' });
+    const roleError = validateEmailRoleAvailability(existingUsers, payload.email, 'ally');
+    if (roleError) return res.status(409).json({ error: roleError });
 
   const createdAt = getTimestamp();
   pgRun(`INSERT INTO allies (full_name, document_number, phone, email, city, ally_type, how_known, bank_name, account_type, account_number, status, created_at, updated_at)
@@ -3595,10 +3607,9 @@ app.post('/api/allies', (req, res) => {
       return res.status(500).json({ error: 'Error interno al guardar el aliado.' });
     }
 
-    const tempPassword = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
     pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, 'ally', 'pending', $5, $6)
-      ON CONFLICT (email, role) DO NOTHING`, [payload.full_name, payload.document_number, payload.email, tempPassword, createdAt, createdAt], function () {
+      VALUES ($1, $2, $3, $4, 'ally', 'active', $5, $6)
+      ON CONFLICT (email, role) DO NOTHING`, [payload.full_name, payload.document_number, payload.email, hashPassword(payload.password), createdAt, createdAt], function () {
       pgGet(`SELECT id FROM users WHERE email = $1 AND role = 'ally'`, [payload.email], (userErr, user) => {
         if (!userErr && user) {
           pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, how_known, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
@@ -3633,7 +3644,8 @@ app.post('/api/allies', (req, res) => {
       <p><strong>Fecha:</strong> ${createdAt}</p>
     `);
 
-    res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Pronto nuestro equipo validará tu información.' });
+    res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Ya puedes ingresar al portal de aliados con tu correo y contraseña.' });
+  });
   });
 });
 
