@@ -646,19 +646,23 @@ export class AuthPortalComponent implements OnInit {
     this.googleLoadingRole = role;
     this.loadGoogleScript()
       .then(() => {
-        const tokenClient = google.accounts.oauth2.initTokenClient({
+        google.accounts.id.initialize({
           client_id: clientId,
-          scope: 'openid email profile',
-          callback: (response: { access_token?: string; error?: string }) => {
-            if (response?.error || !response?.access_token) {
-              this.googleLoadingRole = null;
-              this.error = 'No recibimos la autorización de Google. Intenta de nuevo.';
+          callback: (response: { credential?: string }) => {
+            if (!response?.credential) {
+              this.requestGoogleAccessToken(role, clientId);
               return;
             }
-            this.completeGoogleAuth(role, response.access_token);
+            this.completeGoogleAuth(role, { credential: response.credential });
+          },
+          auto_select: false,
+          cancel_on_tap_outside: true
+        });
+        google.accounts.id.prompt((notification: any) => {
+          if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+            this.requestGoogleAccessToken(role, clientId);
           }
         });
-        tokenClient.requestAccessToken({ prompt: 'select_account' });
       })
       .catch(() => {
         this.googleLoadingRole = null;
@@ -666,8 +670,29 @@ export class AuthPortalComponent implements OnInit {
       });
   }
 
-  private completeGoogleAuth(role: 'ally' | 'client' | 'admin', access_token: string): void {
-    this.http.post<any>(this.apiUrl('/api/auth/google'), { role, access_token }).subscribe({
+  private requestGoogleAccessToken(role: 'ally' | 'client' | 'admin', clientId: string): void {
+    try {
+      const tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: 'openid email profile',
+        callback: (response: { access_token?: string; error?: string }) => {
+          if (response?.error || !response?.access_token) {
+            this.googleLoadingRole = null;
+            this.error = 'No recibimos la autorización de Google. Intenta de nuevo.';
+            return;
+          }
+          this.completeGoogleAuth(role, { access_token: response.access_token });
+        }
+      });
+      tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } catch {
+      this.googleLoadingRole = null;
+      this.error = 'No fue posible iniciar la ventana de Google.';
+    }
+  }
+
+  private completeGoogleAuth(role: 'ally' | 'client' | 'admin', googlePayload: { credential?: string; access_token?: string }): void {
+    this.http.post<any>(this.apiUrl('/api/auth/google'), { role, ...googlePayload }).subscribe({
       next: (response) => {
         localStorage.setItem('orjuelaToken', response.token);
         localStorage.setItem('orjuelaUser', JSON.stringify(response.user));
