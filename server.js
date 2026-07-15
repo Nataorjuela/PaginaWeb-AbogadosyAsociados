@@ -3286,25 +3286,71 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
 });
 
 app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
+  pgAll(`SELECT u.id AS user_id,
+      COALESCE(NULLIF(p.document_id, ''), NULLIF(u.document_id, ''), a.document_number, '') AS document_id,
+      COALESCE(NULLIF(p.phone, ''), a.phone, '') AS phone,
+      COALESCE(NULLIF(p.city, ''), a.city, '') AS city,
+      COALESCE(NULLIF(p.occupation, ''), NULLIF(p.partner_type, ''), a.ally_type, '') AS occupation,
+      COALESCE(NULLIF(p.referral_code, ''), '') AS referral_code,
+      p.invited_by_partner_id,
       u.full_name, u.email, u.status,
       inviter.full_name AS invited_by_name,
       COUNT(DISTINCT r.id) AS referrals_count,
       COALESCE(SUM(c.amount), 0) AS commissions_total
-    FROM partners p
-    JOIN users u ON u.id = p.user_id
+    FROM users u
+    LEFT JOIN partners p ON p.user_id = u.id
+    LEFT JOIN allies a ON a.email = u.email
     LEFT JOIN users inviter ON inviter.id = p.invited_by_partner_id
-    LEFT JOIN referrals r ON r.ally_id = p.user_id
-    LEFT JOIN commissions c ON c.ally_id = p.user_id
-    GROUP BY p.user_id, p.document_id, p.phone, p.city, p.occupation, p.referral_code, p.invited_by_partner_id,
+    LEFT JOIN referrals r ON r.ally_id = u.id
+    LEFT JOIN commissions c ON c.ally_id = u.id
+    WHERE u.role = 'ally'
+    GROUP BY u.id, p.document_id, u.document_id, a.document_number, p.phone, a.phone, p.city, a.city,
+      p.occupation, p.partner_type, a.ally_type, p.referral_code, p.invited_by_partner_id,
       u.full_name, u.email, u.status, u.created_at, inviter.full_name
     ORDER BY u.created_at DESC`, (allyErr, allies) => {
     if (allyErr) return res.status(500).json({ error: 'Error al cargar aliados.' });
 
-    pgAll(`SELECT r.*, u.full_name AS ally_name
+    pgAll(`SELECT r.id,
+        'referral' AS source_kind,
+        r.ally_id,
+        r.referred_full_name,
+        r.client_identification,
+        r.referred_phone,
+        r.referred_email,
+        r.referred_city,
+        r.legal_area,
+        r.case_description,
+        r.referral_channel,
+        r.urgency,
+        r.file_notes,
+        r.status,
+        r.created_at,
+        r.updated_at,
+        COALESCE(u.full_name, 'Aliado no identificado') AS ally_name
       FROM referrals r
-      JOIN users u ON u.id = r.ally_id
-      ORDER BY r.created_at DESC`, (refErr, referralsRows) => {
+      LEFT JOIN users u ON u.id = r.ally_id
+      UNION ALL
+      SELECT l.id,
+        'lead' AS source_kind,
+        l.referrer_id AS ally_id,
+        l.name AS referred_full_name,
+        '' AS client_identification,
+        l.phone AS referred_phone,
+        l.email AS referred_email,
+        '' AS referred_city,
+        l.case_type AS legal_area,
+        l.notes AS case_description,
+        l.source AS referral_channel,
+        l.priority AS urgency,
+        '' AS file_notes,
+        l.status,
+        l.created_at,
+        l.updated_at,
+        COALESCE(u.full_name, 'Aliado no identificado') AS ally_name
+      FROM leads l
+      LEFT JOIN users u ON u.id = l.referrer_id
+      WHERE l.referrer_id IS NOT NULL
+      ORDER BY created_at DESC`, (refErr, referralsRows) => {
       if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
 
       pgAll(`SELECT c.*, receiver.full_name AS ally_name, source.full_name AS source_ally_name, r.referred_full_name
@@ -3323,15 +3369,9 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
               if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
               pgAll(`SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`, (kycErr, kyc) => {
                 if (kycErr) return res.status(500).json({ error: 'Error al cargar KYC.' });
-                pgAll(`SELECT f.*, u.full_name FROM ally_fraud_alerts f LEFT JOIN users u ON u.id = f.ally_id WHERE f.status <> 'archived' ORDER BY f.created_at DESC`, (fraudErr, fraudAlerts) => {
-                  if (fraudErr) return res.status(500).json({ error: 'Error al cargar alertas.' });
-                  pgAll(`SELECT * FROM ally_academy_modules WHERE is_active = 1 ORDER BY sort_order`, (academyErr, academy) => {
-                    if (academyErr) return res.status(500).json({ error: 'Error al cargar academia.' });
-                    pgAll(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
-                      if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
-                      res.json({ allies, referrals: referralsRows, commissions, settings, levels, resources, kyc, fraudAlerts, academy, goals });
-                    });
-                  });
+                pgAll(`SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`, (goalErr, goals) => {
+                  if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
+                  res.json({ allies, referrals: referralsRows, commissions, settings, levels, resources, kyc, goals });
                 });
               });
             });
