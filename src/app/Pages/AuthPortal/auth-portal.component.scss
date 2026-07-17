@@ -735,6 +735,18 @@ h2 {
   padding: 0.35rem 0.65rem;
 }
 
+.overdue-badge {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 999px;
+  color: #9a3412 !important;
+  display: inline-flex !important;
+  font-size: 0.78rem;
+  font-weight: 900;
+  padding: 0.35rem 0.65rem;
+  white-space: nowrap;
+}
+
 .timeline {
   color: #667085;
 }

@@ -71,6 +71,11 @@ i {
   padding-top: 1.25rem;
 }
 
+.creator-credit {
+  color: rgba(215, 222, 231, 0.58);
+  font-size: 0.82rem;
+}
+
 @media (max-width: 900px) {
   .footer-grid {
     grid-template-columns: 1fr;

@@ -11,7 +11,7 @@
         </div>
       </div>
       <div class="partner-preview">
-        <strong>Pipeline de referidos</strong>
+        <strong>Pipeline de clientes potenciales</strong>
         <div class="pipeline-row"><span>Recibido</span><b>5</b></div>
         <div class="pipeline-row"><span>En evaluación</span><b>4</b></div>
         <div class="pipeline-row"><span>Cliente activo</span><b>3</b></div>
@@ -120,7 +120,7 @@
 
     <section class="program-block" id="aliado-referido">
       <div class="block-heading">
-        <span class="eyebrow">Nuevo referido</span>
+        <span class="eyebrow">Nuevo cliente potencial</span>
         <h3>Enviar oportunidad legal</h3>
         <p>Registra a la persona referida con autorización de contacto y deja trazabilidad desde el primer momento.</p>
       </div>
@@ -140,7 +140,7 @@
           </div>
 
           <div *ngIf="referralStep === 2" class="step-pane">
-            <h4>Datos del referido</h4>
+            <h4>Datos del cliente potencial</h4>
             <div class="form-grid">
               <label>Nombre completo<input class="form-control" formControlName="referred_full_name" /></label>
               <label>Celular<input class="form-control" type="tel" formControlName="referred_phone" /></label>
@@ -187,7 +187,7 @@
           <div class="step-actions">
             <button class="btn btn-outline-dark" type="button" *ngIf="referralStep > 1" (click)="previousReferralStep()">Atrás</button>
             <button class="btn btn-primary" type="button" *ngIf="referralStep < 4" (click)="nextReferralStep()">Continuar</button>
-            <button class="btn btn-primary" type="submit" *ngIf="referralStep === 4" [disabled]="isSendingReferral">{{ isSendingReferral ? 'Enviando...' : 'Enviar referido' }}</button>
+            <button class="btn btn-primary" type="submit" *ngIf="referralStep === 4" [disabled]="isSendingReferral">{{ isSendingReferral ? 'Enviando...' : 'Enviar cliente potencial' }}</button>
           </div>
         </form>
       </div>

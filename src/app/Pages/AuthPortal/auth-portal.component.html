@@ -25,14 +25,14 @@
     <div class="login-visual">
       <div class="mock-card">
         <span>Portal aliados</span>
-        <h2>Haz seguimiento a tus referidos desde un solo lugar.</h2>
+        <h2>Haz seguimiento a tus clientes potenciales desde un solo lugar.</h2>
         <div class="mini-chart"><b style="height: 46%"></b><b style="height: 68%"></b><b style="height: 82%"></b><b style="height: 58%"></b></div>
       </div>
     </div>
     <div class="login-panel">
       <a class="back-link" href="/ingresar">Volver</a>
       <h1>Ingresar como aliado</h1>
-      <p>Gestiona referidos, estados, pagos e historial comercial.</p>
+      <p>Gestiona clientes potenciales, estados, pagos e historial comercial.</p>
       <ng-container *ngTemplateOutlet="loginFormTemplate; context: { role: 'ally', button: 'Ingresar al portal' }"></ng-container>
       <div class="auth-alt">¿Aún no eres aliado? <a href="/aliados/registro">Regístrate aquí</a></div>
     </div>
@@ -122,7 +122,7 @@
         <a class="back-link" href="/aliados/login">Ya tengo cuenta</a>
         <span class="secure-pill">Registro de aliado</span>
         <h1>Crea tu cuenta de aliado</h1>
-        <p>Completa la información para activar tu portal, enviar referidos y consultar el avance de cada oportunidad.</p>
+        <p>Completa la información para activar tu portal, invitar aliados, enviar clientes potenciales y consultar el avance de cada oportunidad.</p>
       </div>
       <div class="register-card">
         <div class="progress"><div class="progress-bar" [style.width.%]="registerProgress"></div></div>
@@ -262,17 +262,14 @@
       <strong>Orjuela</strong>
       <nav *ngIf="kind === 'partner'">
         <button [class.active]="partnerSection === 'overview'" (click)="setPartnerSection('overview')">Inicio</button>
-        <button [class.active]="partnerSection === 'new-referral'" (click)="setPartnerSection('new-referral')">Añadir referido</button>
+        <button [class.active]="partnerSection === 'new-referral'" (click)="setPartnerSection('new-referral')">Registrar cliente potencial</button>
         <button [class.active]="partnerSection === 'network'" (click)="setPartnerSection('network')">Mi red de aliados</button>
-        <button [class.active]="partnerSection === 'network-referrals'" (click)="setPartnerSection('network-referrals')">Referidos de mi red</button>
-        <button [class.active]="partnerSection === 'crm'" (click)="setPartnerSection('crm')">Mis referidos</button>
+        <button [class.active]="partnerSection === 'network-referrals'" (click)="setPartnerSection('network-referrals')">Clientes de mi red</button>
+        <button [class.active]="partnerSection === 'crm'" (click)="setPartnerSection('crm')">Mis clientes potenciales</button>
         <button [class.active]="partnerSection === 'activity'" (click)="setPartnerSection('activity')">Actividad reciente</button>
-        <button [class.active]="partnerSection === 'level'" (click)="setPartnerSection('level')">Mi nivel</button>
-        <button [class.active]="partnerSection === 'goals'" (click)="setPartnerSection('goals')">Metas del mes</button>
         <button [class.active]="partnerSection === 'notifications'" (click)="setPartnerSection('notifications')">Notificaciones</button>
         <button [class.active]="partnerSection === 'finance'" (click)="setPartnerSection('finance')">Finanzas</button>
         <button [class.active]="partnerSection === 'tree'" (click)="setPartnerSection('tree')">Mi red</button>
-        <button [class.active]="partnerSection === 'resources'" (click)="setPartnerSection('resources')">Material para compartir</button>
         <button [class.active]="partnerSection === 'ally-profile'" (click)="setPartnerSection('ally-profile')">Mi perfil</button>
         <button [class.active]="partnerSection === 'profile'" (click)="setPartnerSection('profile')">Cómo funciona</button>
         <button (click)="logout()">Cerrar sesión</button>
@@ -309,7 +306,7 @@
       <header class="dashboard-header">
         <div *ngIf="kind !== 'admin' || adminSection === 'dashboard'">
           <span class="secure-pill">{{ kind === 'partner' ? 'Cuenta activa' : kind === 'client' ? 'Caso protegido' : 'Acceso interno seguro' }}</span>
-          <h1>{{ kind === 'partner' ? 'Mi red de referidores' : kind === 'client' ? 'Portal clientes' : 'Centro de control' }}</h1>
+          <h1>{{ kind === 'partner' ? 'Mi red de aliados' : kind === 'client' ? 'Portal clientes' : 'Centro de control' }}</h1>
         </div>
         <div class="dashboard-actions">
           <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
@@ -341,12 +338,12 @@
 
         <section class="partner-hero-card">
           <div>
-            <span class="secure-pill">Mi red de referidores</span>
+            <span class="secure-pill">Mi red de aliados</span>
             <h2>Gana recomendando nuestros servicios legales</h2>
-            <p>Registra referidos, invita aliados y consulta comisiones directas e indirectas con reglas claras del programa.</p>
+            <p>Invita aliados que construyan red y registra clientes potenciales que sí tienen una necesidad legal real.</p>
           </div>
           <div class="hero-actions-inline">
-            <button class="btn btn-primary" (click)="setPartnerSection('new-referral')">Añadir referido</button>
+            <button class="btn btn-primary" (click)="setPartnerSection('new-referral')">Registrar cliente potencial</button>
             <button class="btn btn-secondary-contrast" (click)="setPartnerSection('network')">Invitar aliado</button>
           </div>
         </section>
@@ -358,13 +355,14 @@
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'overview'">
-          <div class="data-toolbar"><h2>Mis referidos directos</h2><input class="form-control" placeholder="Buscar por estado o área" [(ngModel)]="partnerReferralSearch"><select class="form-select" [(ngModel)]="partnerReferralStatus"><option *ngFor="let status of partnerReferralStatuses">{{ status }}</option></select></div>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Área legal</th><th>Fecha</th><th>Estado</th><th>Comisión asignada</th><th></th></tr></thead><tbody><tr *ngFor="let item of filteredPartnerDirectReferrals"><td>{{ item.masked_name || item.referred_full_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(item)">Ver seguimiento</button></td></tr></tbody></table></div>
-          <div class="legal-notice">Por protección de datos, el aliado no accede a cédula, teléfono, correo, documentos ni información económica del referido. Solo verá estado y comisión asignada por la firma.</div>
+          <div class="data-toolbar"><h2>Mis clientes potenciales directos</h2><input class="form-control" placeholder="Buscar por estado o área" [(ngModel)]="partnerReferralSearch"><select class="form-select" [(ngModel)]="partnerReferralStatus"><option *ngFor="let status of partnerReferralStatuses">{{ status }}</option></select></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Cliente potencial</th><th>Área legal</th><th>Fecha</th><th>Estado</th><th>Comisión asignada</th><th></th></tr></thead><tbody><tr *ngFor="let item of filteredPartnerDirectReferrals"><td>{{ item.masked_name || item.referred_full_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(item)">Ver seguimiento</button></td></tr></tbody></table></div>
+          <div class="legal-notice">Por protección de datos, el aliado no accede a cédula, teléfono, correo, documentos ni información económica del cliente potencial. Solo verá estado y comisión asignada por la firma.</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'new-referral'">
-          <h2>Añadir referido</h2>
+          <h2>Registrar cliente potencial</h2>
+          <p class="empty-state">Usa este formulario solo para personas o empresas que tienen un caso legal real y autorizaron ser contactadas.</p>
           <form class="network-form" [formGroup]="networkReferralForm" (ngSubmit)="submitNetworkReferral()">
             <label>Nombre completo<input class="form-control" formControlName="client_name"></label>
             <label>Cédula o identificación<input class="form-control" formControlName="client_identification"></label>
@@ -372,12 +370,12 @@
             <label>Correo electrónico<input class="form-control" formControlName="client_email"></label>
             <label>Ciudad<input class="form-control" formControlName="city"></label>
             <label>Tipo de caso legal<select class="form-select" formControlName="legal_area"><option value="">Selecciona</option><option *ngFor="let area of legalAreas">{{ area }}</option></select></label>
-            <label>Medio por el cual fue referido<input class="form-control" formControlName="referral_channel" placeholder="WhatsApp, llamada, recomendado, evento..."></label>
+            <label>Medio por el cual llegó<input class="form-control" formControlName="referral_channel" placeholder="WhatsApp, llamada, recomendado, evento..."></label>
             <label class="full">Descripción breve del caso<textarea class="form-control" rows="4" formControlName="description"></textarea></label>
             <label class="check-row full"><input type="checkbox" formControlName="data_authorization"> Confirmo que la persona autorizó el tratamiento de datos y el contacto por Orjuela Abogados.</label>
             <div class="full" *ngIf="formError"><div class="alert alert-danger">{{ formError }}</div></div>
             <div class="full" *ngIf="formMessage"><div class="alert alert-success">{{ formMessage }}</div></div>
-            <button class="btn btn-primary" [disabled]="loading">Enviar referido</button>
+            <button class="btn btn-primary" [disabled]="loading">Enviar cliente potencial</button>
           </form>
         </section>
 
@@ -385,7 +383,7 @@
           <div class="section-split">
             <div>
               <h2>Invitar aliado</h2>
-              <p>Registra una persona interesada en formar parte de tu red de aliados. Quedará asociada a tu código.</p>
+              <p>Registra una persona que quiere buscar clientes potenciales o invitar más aliados. No necesita tener un caso legal propio.</p>
               <form class="network-form single" [formGroup]="invitationForm" (ngSubmit)="submitInvitation()">
                 <label>Nombre completo<input class="form-control" formControlName="full_name"></label>
                 <label>Cédula<input class="form-control" formControlName="document_id"></label>
@@ -403,74 +401,42 @@
                 <article *ngFor="let ally of partnerNetwork.team || []">
                   <div><strong>{{ ally.full_name }}</strong><span>{{ ally.city }}</span></div>
                   <span class="status-badge">{{ ally.status === 'active' ? 'Activo' : ally.status === 'pending' ? 'Invitado' : 'Inactivo' }}</span>
-                  <small>{{ ally.referrals_count || 0 }} referidos · {{ formatCurrency(ally.generated_commissions) }}</small>
+                  <small>{{ ally.client_leads_count || ally.referrals_count || 0 }} clientes potenciales · {{ ally.invited_allies_count || 0 }} aliados invitados · {{ formatCurrency(ally.generated_commissions) }}</small>
                   <button class="btn btn-outline-dark btn-sm" type="button" (click)="openPartnerTeamDetail(ally)">Ver detalle</button>
                 </article>
               </div>
               <section class="legal-notice mt-3" *ngIf="selectedPartnerTeamAlly">
                 <strong>{{ selectedPartnerTeamAlly.full_name }}</strong> · {{ selectedPartnerTeamAlly.city || 'Ciudad pendiente' }} · {{ selectedPartnerTeamAlly.status === 'active' ? 'Activo' : selectedPartnerTeamAlly.status === 'pending' ? 'Invitado' : 'Inactivo' }}.
-                Código: {{ selectedPartnerTeamAlly.referral_code }}. Referidos: {{ selectedPartnerTeamAlly.referrals_count || 0 }}. Comisión generada para tu red: {{ formatCurrency(selectedPartnerTeamAlly.generated_commissions) }}.
+                Código: {{ selectedPartnerTeamAlly.referral_code }}. Clientes potenciales: {{ selectedPartnerTeamAlly.client_leads_count || selectedPartnerTeamAlly.referrals_count || 0 }}. Aliados invitados: {{ selectedPartnerTeamAlly.invited_allies_count || 0 }}. Comisión generada para tu red: {{ formatCurrency(selectedPartnerTeamAlly.generated_commissions) }}.
                 <button class="btn btn-outline-dark btn-sm" type="button" (click)="closePartnerTeamDetail()">Cerrar</button>
               </section>
               <div class="table-responsive mt-3" *ngIf="selectedPartnerTeamAlly && selectedPartnerTeamReferrals.length">
-                <table class="table align-middle"><thead><tr><th>Referido</th><th>Área</th><th>Estado</th><th>Comisión</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let referral of selectedPartnerTeamReferrals"><td>{{ referral.masked_name || referral.referred_full_name }}</td><td>{{ referral.legal_area }}</td><td><span class="status-badge">{{ referral.status }}</span></td><td>{{ formatCurrency(referral.commission_amount) }}</td><td>{{ referral.created_at | date:'mediumDate' }}</td></tr></tbody></table>
+                <table class="table align-middle"><thead><tr><th>Cliente potencial</th><th>Área</th><th>Estado</th><th>Comisión</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let referral of selectedPartnerTeamReferrals"><td>{{ referral.masked_name || referral.referred_full_name }}</td><td>{{ referral.legal_area }}</td><td><span class="status-badge">{{ referral.status }}</span></td><td>{{ formatCurrency(referral.commission_amount) }}</td><td>{{ referral.created_at | date:'mediumDate' }}</td></tr></tbody></table>
               </div>
             </div>
           </div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'network-referrals'">
-          <h2>Referidos de mi red</h2>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Tipo de caso</th><th>Aliado</th><th>Estado</th><th>Comisión estimada</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let item of partnerNetwork.network_referrals || []"><td>{{ item.masked_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.source_ally_name }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td>{{ item.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
-        </section>
-
-        <section class="data-card wide" *ngIf="partnerSection === 'resources'">
-          <h2>Material para compartir</h2>
-          <div class="share-grid">
-            <article><span>Link personalizado</span><code>{{ partnerNetwork.partner?.invite_link }}</code><button class="btn btn-outline-dark" (click)="copyText(partnerNetwork.partner?.invite_link)">Copiar</button></article>
-            <article><span>Mensaje para clientes</span><p>{{ partnerNetwork.share?.client_message }}</p><button class="btn btn-outline-dark" (click)="copyText(partnerNetwork.share?.client_message)">Copiar mensaje</button></article>
-            <article><span>Mensaje para aliados</span><p>{{ partnerNetwork.share?.ally_message }}</p><button class="btn btn-outline-dark" (click)="copyText(partnerNetwork.share?.ally_message)">Copiar mensaje</button></article>
-            <article class="code-card"><span>Tarjeta simple</span><strong>{{ partnerNetwork.partner?.referral_code }}</strong><small>ORJUELA Abogados & Asociados</small></article>
-            <article *ngFor="let resource of partnerAdvanced.resources || []">
-              <span>{{ resource.resource_type }}</span>
-              <strong>{{ resource.title }}</strong>
-              <p>{{ resource.description || resource.content }}</p>
-              <a class="btn btn-outline-dark" *ngIf="resource.url" [href]="resource.url" target="_blank" rel="noopener">Descargar</a>
-              <button class="btn btn-outline-dark" *ngIf="resource.content" (click)="copyText(resource.content)">Copiar texto</button>
-            </article>
-          </div>
+          <h2>Clientes potenciales de mi red</h2>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Cliente potencial</th><th>Tipo de caso</th><th>Aliado que lo trajo</th><th>Estado</th><th>Comisión estimada</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let item of partnerNetwork.network_referrals || []"><td>{{ item.masked_name }}</td><td>{{ item.legal_area }}</td><td>{{ item.source_ally_name }}</td><td><span class="status-badge">{{ item.status }}</span></td><td>{{ formatCurrency(item.commission_amount) }}</td><td>{{ item.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'crm'">
-          <h2>Mis referidos</h2>
+          <h2>Mis clientes potenciales</h2>
           <div class="pipeline-grid">
             <article *ngFor="let status of ['Nuevo','Contactado','Cliente activo','Caso cerrado','Rechazado']">
               <span>{{ status }}</span>
               <strong>{{ pipelineCount(status) }}</strong>
             </article>
           </div>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Referido</th><th>Tipo de caso</th><th>Registro</th><th>Estado</th><th>Última actualización</th><th>Seguimiento</th><th></th></tr></thead><tbody><tr *ngFor="let referral of filteredPartnerCrmReferrals"><td>{{ referral.masked_name || referral.name }}</td><td>{{ referral.case_type }}</td><td>{{ referral.registered_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.current_status }}</span></td><td>{{ referral.updated_at | date:'mediumDate' }}</td><td>{{ referral.public_note || referral.observations }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(referral)">Ver seguimiento</button></td></tr></tbody></table></div>
+          <div class="table-responsive"><table class="table"><thead><tr><th>Cliente potencial</th><th>Tipo de caso</th><th>Registro</th><th>Estado</th><th>Última actualización</th><th>Seguimiento</th><th></th></tr></thead><tbody><tr *ngFor="let referral of filteredPartnerCrmReferrals"><td>{{ referral.masked_name || referral.name }}</td><td>{{ referral.case_type }}</td><td>{{ referral.registered_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.current_status }}</span></td><td>{{ referral.updated_at | date:'mediumDate' }}</td><td>{{ referral.public_note || referral.observations }}</td><td><button class="btn btn-outline-dark btn-sm" (click)="openPartnerReferralDetail(referral)">Ver seguimiento</button></td></tr></tbody></table></div>
           <section class="legal-notice" *ngIf="selectedPartnerReferral"><strong>Seguimiento protegido:</strong> {{ selectedPartnerReferral.masked_name || selectedPartnerReferral.name }} · {{ selectedPartnerReferral.case_type || selectedPartnerReferral.legal_area }} · {{ selectedPartnerReferral.current_status || selectedPartnerReferral.status }}. {{ selectedPartnerReferral.public_note || 'La firma actualizará el estado cuando exista una novedad comercial validada.' }}</section>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'activity'">
           <h2>Actividad reciente</h2>
           <div class="activity-list"><article *ngFor="let item of partnerAdvanced.activity || []"><i class="bi {{ item.icon || 'bi-activity' }}"></i><div><strong>{{ item.type }}</strong><span>{{ item.description }}</span><small>{{ item.date | date:'medium' }}</small></div><span class="status-badge">{{ item.status }}</span></article></div>
-        </section>
-
-        <section class="data-card wide" *ngIf="partnerSection === 'level'">
-          <h2>Mi nivel de aliado</h2>
-          <div class="level-card"><span>Nivel actual</span><strong>{{ partnerAdvanced.level?.current?.name || 'Bronce' }}</strong><p>{{ partnerAdvanced.level?.current?.benefits }}</p><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.level?.progress || 0"></div></div><small>Progreso al siguiente nivel: {{ partnerAdvanced.level?.progress || 0 }}%</small><p *ngIf="partnerAdvanced.level?.next">Para subir a {{ partnerAdvanced.level.next.name }}: {{ partnerAdvanced.level.next.min_converted_referrals }} clientes vinculados, {{ formatCurrency(partnerAdvanced.level.next.min_commissions) }} en comisiones y {{ partnerAdvanced.level.next.min_active_allies }} aliados activos.</p></div>
-        </section>
-
-        <section class="data-card wide" *ngIf="partnerSection === 'goals'">
-          <h2>Mis metas del mes</h2>
-          <div class="commission-summary-grid">
-            <article><span>Meta de referidos</span><strong>{{ partnerAdvanced.goals?.referral_goal || 0 }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.referral_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.referral_progress || 0 }}%</small></article>
-            <article><span>Clientes vinculados</span><strong>{{ partnerAdvanced.goals?.converted_goal || 0 }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.converted_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.converted_progress || 0 }}%</small></article>
-            <article><span>Meta de comisiones</span><strong>{{ formatCurrency(partnerAdvanced.goals?.commission_goal) }}</strong><div class="progress"><div class="progress-bar" [style.width.%]="partnerAdvanced.goals?.commission_progress || 0"></div></div><small>{{ partnerAdvanced.goals?.commission_progress || 0 }}%</small></article>
-          </div>
-          <div class="legal-notice">{{ partnerAdvanced.goals?.message }}</div>
         </section>
 
         <section class="data-card wide" *ngIf="partnerSection === 'notifications'">
@@ -503,8 +469,8 @@
             <article><span>Aprobadas para pago</span><strong>{{ formatCurrency(commissionSummary.approved) }}</strong><small>Listas para programación</small></article>
             <article><span>Pendientes</span><strong>{{ formatCurrency(commissionSummary.pending) }}</strong><small>En validación interna</small></article>
             <article><span>Pagadas</span><strong>{{ formatCurrency(commissionSummary.paid) }}</strong><small>Historial confirmado</small></article>
-            <article><span>Directas</span><strong>{{ formatCurrency(commissionSummary.direct) }}</strong><small>Por referidos propios</small></article>
-            <article><span>Aliados</span><strong>{{ formatCurrency(commissionSummary.indirect) }}</strong><small>Por referidos de tu equipo</small></article>
+            <article><span>Directas</span><strong>{{ formatCurrency(commissionSummary.direct) }}</strong><small>Por clientes potenciales propios</small></article>
+            <article><span>Aliados</span><strong>{{ formatCurrency(commissionSummary.indirect) }}</strong><small>Por clientes potenciales de tu equipo</small></article>
           </div>
 
           <div class="finance-panels">
@@ -540,7 +506,7 @@
           <div class="table-responsive">
             <table class="table finance-detail-table">
               <thead>
-                <tr><th>Referido</th><th>Tipo</th><th>Comisión asignada</th><th>Estado</th><th>Fecha</th></tr>
+                <tr><th>Cliente potencial</th><th>Tipo</th><th>Comisión asignada</th><th>Estado</th><th>Fecha</th></tr>
               </thead>
               <tbody>
                 <tr *ngFor="let item of partnerNetwork.commissions || []">
@@ -564,13 +530,13 @@
             <article>
               <strong>{{ partnerDynamicTree.name }}</strong>
               <span>{{ partnerDynamicTree.level }} · {{ partnerDynamicTree.status }}</span>
-              <small>{{ partnerDynamicTree.referrals_count }} referidos directos · {{ formatCurrency(partnerDynamicTree.commissions) }} en comisiones</small>
+              <small>{{ partnerDynamicTree.referrals_count }} clientes potenciales directos · {{ formatCurrency(partnerDynamicTree.commissions) }} en comisiones</small>
             </article>
             <div class="tree-children" *ngIf="partnerDynamicTree.children.length; else emptyTree">
               <article *ngFor="let node of partnerDynamicTree.children">
                 <strong>{{ node.name }}</strong>
                 <span>{{ node.level }} · {{ node.status }} · {{ node.city }}</span>
-                <small>{{ node.referrals_count }} referidos de red · {{ formatCurrency(node.commissions) }} generados</small>
+                <small>{{ node.referrals_count }} clientes potenciales de red · {{ formatCurrency(node.commissions) }} generados</small>
               </article>
             </div>
             <ng-template #emptyTree><p class="empty-state">Aún no tienes aliados registrados en tu red.</p></ng-template>
@@ -581,14 +547,12 @@
           <h2>Cómo funciona</h2>
           <p>Como aliado de Orjuela Abogados puedes referir personas que necesiten asesoría jurídica y también invitar a otros aliados a formar parte de tu red. Recibirás comisiones por los casos que se conviertan en clientes, de acuerdo con las reglas del programa.</p>
           <div class="how-network-grid">
-            <article><strong>1</strong><span>Comparte tu enlace o registra un referido.</span></article>
+            <article><strong>1</strong><span>Comparte tu enlace, invita aliados o registra un cliente potencial.</span></article>
             <article><strong>2</strong><span>Nuestro equipo jurídico revisa y contacta al posible cliente.</span></article>
             <article><strong>3</strong><span>Si el caso se convierte en cliente, se genera una comisión.</span></article>
             <article><strong>4</strong><span>Si tus aliados refieren casos exitosos, puedes recibir una comisión adicional por tu red.</span></article>
           </div>
           <div class="legal-notice">Las comisiones están sujetas a validación interna, pago efectivo del cliente y políticas del programa de aliados. Este programa no garantiza ingresos fijos ni constituye vínculo laboral.</div>
-          <h2 class="mt-3">Documentos del programa</h2>
-          <div class="document-list"><article><i class="bi bi-file-earmark-text"></i><div><strong>Políticas del programa de aliados</strong><span>Reglas de comisiones, protección de datos y conducta comercial.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('programa_aliados')">Aceptar</button></article><article><i class="bi bi-file-earmark-text"></i><div><strong>Autorización de tratamiento de datos</strong><span>Compromiso para registrar referidos únicamente con autorización.</span></div><button class="btn btn-outline-dark btn-sm" (click)="acceptPartnerLegalDocument('tratamiento_datos')">Aceptar</button></article></div>
         </section>
       </div>
 
@@ -741,8 +705,8 @@
         <section class="lead-hero-card admin-control-hero wide">
           <div>
             <span class="secure-pill">Prioridades de hoy</span>
-            <h2>Gestiona leads, aliados, casos y pagos desde una sola vista</h2>
-            <p>El panel muestra pendientes reales de contacto, actividad reciente, comisiones por pagar y rendimiento comercial del mes.</p>
+            <h2>Gestiona clientes potenciales, aliados, casos y pagos desde una sola vista</h2>
+            <p>El panel prioriza clientes potenciales sin contacto, nuevos aliados, comisiones por pagar y rendimiento comercial del mes.</p>
           </div>
           <button class="btn btn-primary" type="button" (click)="loadAdminDashboard()">
             <i class="bi bi-arrow-clockwise"></i>
@@ -776,13 +740,13 @@
           <div class="data-card-heading">
             <div>
               <span class="section-kicker">Comercial</span>
-              <h2>Leads y referidos por atender</h2>
+              <h2>Clientes potenciales por atender</h2>
             </div>
-            <button class="btn btn-outline-dark btn-sm" type="button" (click)="setAdminSection('leads')">Gestionar leads</button>
+            <button class="btn btn-outline-dark btn-sm" type="button" (click)="setAdminSection('leads')">Gestionar clientes potenciales</button>
           </div>
           <div class="table-responsive" *ngIf="adminDashboard.attentionLeads?.length; else emptyAttentionLeads">
             <table class="table">
-              <thead><tr><th>Nombre</th><th>Celular</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th><th></th></tr></thead>
+              <thead><tr><th>Nombre</th><th>Celular</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Seguimiento</th><th>Responsable</th><th>Fecha</th><th></th></tr></thead>
               <tbody>
                 <tr *ngFor="let lead of adminDashboard.attentionLeads">
                   <td><strong>{{ lead.name }}</strong></td>
@@ -790,6 +754,10 @@
                   <td>{{ lead.caseType }}</td>
                   <td>{{ lead.source }}</td>
                   <td><span class="status-badge">{{ lead.status }}</span></td>
+                  <td>
+                    <span class="overdue-badge" *ngIf="lead.isOverdue">Sin contacto {{ waitingTimeLabel(lead.waitingHours) }}</span>
+                    <span *ngIf="!lead.isOverdue">En seguimiento</span>
+                  </td>
                   <td>{{ lead.owner }}</td>
                   <td>{{ formatDate12Hour(lead.date) }}</td>
                   <td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Ver detalle" aria-label="Ver detalle" (click)="selectLead(lead); setAdminSection('leads')"><i class="bi bi-eye"></i></button></td>
@@ -797,7 +765,7 @@
               </tbody>
             </table>
           </div>
-          <ng-template #emptyAttentionLeads><p class="empty-state">No hay leads pendientes por atender.</p></ng-template>
+          <ng-template #emptyAttentionLeads><p class="empty-state">No hay clientes potenciales pendientes por atender.</p></ng-template>
         </section>
         <section class="data-card">
           <div class="data-card-heading compact-heading">
@@ -824,7 +792,7 @@
           </div>
           <div class="commission-pending-list" *ngIf="adminDashboard.pendingCommissions?.length; else emptyCommissions">
             <article *ngFor="let item of adminDashboard.pendingCommissions">
-              <div><strong>{{ item.ally_name }}</strong><span>{{ item.referred_full_name || 'Referido sin nombre' }}</span></div>
+              <div><strong>{{ item.ally_name }}</strong><span>{{ item.referred_full_name || 'Cliente potencial sin nombre' }}</span></div>
               <b>{{ formatCurrency(item.amount) }}</b>
             </article>
           </div>
@@ -943,7 +911,7 @@
           <div>
             <span class="secure-pill">Centro de novedades</span>
             <h2>Notificaciones administrativas</h2>
-            <p>Revisa nuevos aliados, referidos y clientes registrados. Contacta rápido por WhatsApp, correo o teléfono.</p>
+            <p>Revisa nuevos aliados, clientes potenciales y clientes registrados. Contacta rápido por WhatsApp, correo o teléfono.</p>
           </div>
           <button class="btn btn-outline-dark" type="button" (click)="markAdminNotificationsRead()">Marcar todas como leídas</button>
         </section>
@@ -951,7 +919,7 @@
         <section class="data-card wide">
           <div class="activity-list admin-notification-list">
             <article *ngFor="let item of adminNotifications" [class.unread]="!item.is_read">
-              <i class="bi" [ngClass]="item.notification_type === 'new_referral' ? 'bi-person-lines-fill' : item.notification_type === 'new_ally' ? 'bi-diagram-3' : 'bi-person-plus'"></i>
+              <i class="bi" [ngClass]="item.notification_type === 'overdue_referral' ? 'bi-alarm' : item.notification_type === 'new_referral' ? 'bi-person-lines-fill' : item.notification_type === 'new_ally' ? 'bi-diagram-3' : 'bi-person-plus'"></i>
               <div>
                 <strong>{{ item.title }}</strong>
                 <span>{{ item.description }}</span>
@@ -969,12 +937,12 @@
                 <a class="btn btn-outline-dark btn-sm" *ngIf="item.email_url" [href]="item.email_url">
                   <i class="bi bi-envelope"></i> Correo
                 </a>
-                <button class="btn btn-outline-dark btn-sm" type="button" *ngIf="!item.is_read" (click)="markAdminNotificationRead(item.id)">Leída</button>
+                <button class="btn btn-outline-dark btn-sm" type="button" *ngIf="!item.is_read && !item.virtual" (click)="markAdminNotificationRead(item.id)">Leída</button>
               </div>
             </article>
             <article *ngIf="!adminNotifications.length">
               <i class="bi bi-check-circle"></i>
-              <div><strong>Sin notificaciones pendientes</strong><span>Cuando llegue un nuevo aliado, referido o cliente aparecerá aquí.</span></div>
+              <div><strong>Sin notificaciones pendientes</strong><span>Cuando llegue un nuevo aliado, cliente potencial o cliente aparecerá aquí.</span></div>
             </article>
           </div>
         </section>
@@ -984,7 +952,7 @@
           <div>
             <span class="secure-pill">Programa de aliados</span>
             <h2>Aliados</h2>
-            <p>Consulta el resumen de aliados registrados, revisa su información completa y calcula pagos pendientes por referido.</p>
+            <p>Consulta quién construye red de aliados y quién trae clientes potenciales reales para convertir en contratos.</p>
           </div>
         </section>
         <div *ngIf="formError" class="alert alert-danger">{{ formError }}</div>
@@ -993,14 +961,14 @@
           <div class="data-toolbar"><h2>Resumen general de aliados</h2><button class="btn btn-primary btn-sm" (click)="showAdminAllyForm = !showAdminAllyForm">{{ showAdminAllyForm ? 'Cerrar' : 'Crear aliado' }}</button></div>
           <div class="legal-notice">Aliados encontrados: {{ adminNetwork.allies?.length || 0 }}</div>
           <form class="network-form mb-3" *ngIf="showAdminAllyForm" [formGroup]="adminAllyForm" (ngSubmit)="saveAdminAlly()"><label>Nombre<input class="form-control" formControlName="full_name"></label><label>Documento<input class="form-control" formControlName="document_id"></label><label>Teléfono<input class="form-control" formControlName="phone"></label><label>Correo<input class="form-control" formControlName="email"></label><label>Ciudad<input class="form-control" formControlName="city"></label><label>Tipo<select class="form-select" formControlName="partner_type"><option>Independiente</option><option>Inmobiliaria</option><option>Empresa</option><option>Cliente</option></select></label><label>Ocupación<input class="form-control" formControlName="occupation"></label><label>Comisión aliado (%)<input class="form-control" type="number" min="0" max="100" formControlName="commission_percentage"></label><label>Estado<select class="form-select" formControlName="status"><option value="active">Activo</option><option value="inactive">Inactivo</option><option value="suspended">Suspendido</option></select></label><button class="btn btn-primary">{{ editingAdminAllyId ? 'Actualizar aliado' : 'Guardar aliado' }}</button></form>
-          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Aliado</th><th>Cédula</th><th>Referidos</th><th>Comisiones pagadas</th><th>Fecha ingreso</th><th>Estado</th><th>Acciones</th></tr></thead><tbody><tr *ngFor="let ally of adminNetwork.allies" [class.clickable-row]="true"><td><strong>{{ ally.full_name }}</strong><span>{{ ally.email }}</span></td><td>{{ ally.document_id || 'Sin dato' }}</td><td>{{ ally.referrals_count || 0 }}</td><td>{{ formatCurrency(ally.paid_commissions_total || ally.commissions_total || 0) }}</td><td>{{ ally.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ ally.status }}</span></td><td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Ver detalle" aria-label="Ver detalle" (click)="selectAdminAlly(ally)"><i class="bi bi-eye"></i></button><button class="btn btn-outline-danger btn-sm icon-action" type="button" title="Eliminar aliado" aria-label="Eliminar aliado" (click)="deleteAdminAlly(ally.user_id)"><i class="bi bi-trash"></i></button></td></tr><tr *ngIf="!(adminNetwork.allies || []).length"><td colspan="7" class="empty-state">No hay aliados registrados todavía.</td></tr></tbody></table></div>
+          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Aliado</th><th>Cédula</th><th>Invitado por</th><th>Aliados invitados</th><th>Clientes potenciales</th><th>Comisiones pagadas</th><th>Fecha ingreso</th><th>Estado</th><th>Acciones</th></tr></thead><tbody><tr *ngFor="let ally of adminNetwork.allies" [class.clickable-row]="true"><td><strong>{{ ally.full_name }}</strong><span>{{ ally.email }}</span></td><td>{{ ally.document_id || 'Sin dato' }}</td><td>{{ ally.invited_by_name || 'Principal' }}</td><td>{{ ally.invited_allies_count || 0 }}</td><td>{{ ally.client_leads_count || ally.referrals_count || 0 }}</td><td>{{ formatCurrency(ally.paid_commissions_total || ally.commissions_total || 0) }}</td><td>{{ ally.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ ally.status }}</span></td><td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Ver detalle" aria-label="Ver detalle" (click)="selectAdminAlly(ally)"><i class="bi bi-eye"></i></button><button class="btn btn-outline-danger btn-sm icon-action" type="button" title="Eliminar aliado" aria-label="Eliminar aliado" (click)="deleteAdminAlly(ally.user_id)"><i class="bi bi-trash"></i></button></td></tr><tr *ngIf="!(adminNetwork.allies || []).length"><td colspan="9" class="empty-state">No hay aliados registrados todavía.</td></tr></tbody></table></div>
         </section>
 
         <section class="data-card wide" *ngIf="selectedAdminAlly; else selectAllyEmpty">
           <div class="data-toolbar"><h2>Detalle del aliado</h2><button class="btn btn-outline-dark btn-sm" type="button" (click)="selectedAdminAlly = null">Cerrar detalle</button></div>
-          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Nombre</th><th>Cédula</th><th>Celular</th><th>Correo</th><th>Cantidad de referidos</th><th>Comisiones pagadas</th><th>Fecha ingreso</th></tr></thead><tbody><tr><td><strong>{{ selectedAdminAlly.full_name }}</strong></td><td>{{ selectedAdminAlly.document_id || 'Sin dato' }}</td><td>{{ selectedAdminAlly.phone || 'Sin celular' }}</td><td>{{ selectedAdminAlly.email || 'Sin correo' }}</td><td>{{ selectedAdminAlly.referrals_count || 0 }}</td><td>{{ formatCurrency(selectedAdminAlly.paid_commissions_total || selectedAdminAlly.commissions_total || 0) }}</td><td>{{ selectedAdminAlly.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
-          <h3 class="mt-3">Referidos de {{ selectedAdminAlly.full_name }}</h3>
-          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Nombre</th><th>Cédula</th><th>Celular</th><th>Fecha ingreso</th><th>Estado</th><th>Monto caso</th><th>% Comisión</th><th>Pago pendiente</th><th>Acciones</th></tr></thead><tbody><tr *ngFor="let referral of selectedAdminAllyReferrals"><td><strong>{{ referral.referred_full_name }}</strong></td><td>{{ referral.client_identification || 'Sin dato' }}</td><td>{{ referral.referred_phone || 'Sin celular' }}</td><td>{{ referral.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.status }}</span></td><td><input class="form-control amount-input" type="number" min="0" [value]="referral.case_amount || ''" (input)="updateReferralCaseAmount(referral, $any($event.target).value)"></td><td><select class="form-select table-select" [value]="referral.commission_percentage || 10" (change)="updateReferralCommissionPercent(referral, $any($event.target).value)"><option *ngFor="let option of commissionOptions" [value]="option">{{ option }}%</option></select></td><td><span class="status-badge">{{ formatCurrency(referral.pending_payment || calculatePendingPayment(referral.case_amount, referral.commission_percentage)) }}</span></td><td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Guardar pago pendiente" aria-label="Guardar pago pendiente" (click)="saveReferralPendingPayment(referral)"><i class="bi bi-save"></i></button><button class="btn btn-outline-danger btn-sm icon-action" type="button" title="Eliminar referido" aria-label="Eliminar referido" (click)="deleteNetworkReferral(referral)"><i class="bi bi-trash"></i></button></td></tr><tr *ngIf="!selectedAdminAllyReferrals.length"><td colspan="9" class="empty-state">Este aliado aún no tiene referidos registrados.</td></tr></tbody></table></div>
+          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Nombre</th><th>Cédula</th><th>Celular</th><th>Correo</th><th>Invitado por</th><th>Aliados invitados</th><th>Clientes potenciales</th><th>Comisiones pagadas</th><th>Fecha ingreso</th></tr></thead><tbody><tr><td><strong>{{ selectedAdminAlly.full_name }}</strong></td><td>{{ selectedAdminAlly.document_id || 'Sin dato' }}</td><td>{{ selectedAdminAlly.phone || 'Sin celular' }}</td><td>{{ selectedAdminAlly.email || 'Sin correo' }}</td><td>{{ selectedAdminAlly.invited_by_name || 'Principal' }}</td><td>{{ selectedAdminAlly.invited_allies_count || 0 }}</td><td>{{ selectedAdminAlly.client_leads_count || selectedAdminAlly.referrals_count || 0 }}</td><td>{{ formatCurrency(selectedAdminAlly.paid_commissions_total || selectedAdminAlly.commissions_total || 0) }}</td><td>{{ selectedAdminAlly.created_at | date:'mediumDate' }}</td></tr></tbody></table></div>
+          <h3 class="mt-3">Clientes potenciales de {{ selectedAdminAlly.full_name }}</h3>
+          <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Nombre</th><th>Cédula</th><th>Celular</th><th>Fecha ingreso</th><th>Estado</th><th>Monto caso</th><th>% Comisión</th><th>Pago pendiente</th><th>Acciones</th></tr></thead><tbody><tr *ngFor="let referral of selectedAdminAllyReferrals"><td><strong>{{ referral.referred_full_name }}</strong></td><td>{{ referral.client_identification || 'Sin dato' }}</td><td>{{ referral.referred_phone || 'Sin celular' }}</td><td>{{ referral.created_at | date:'mediumDate' }}</td><td><span class="status-badge">{{ referral.status }}</span></td><td><input class="form-control amount-input" type="number" min="0" [value]="referral.case_amount || ''" (input)="updateReferralCaseAmount(referral, $any($event.target).value)"></td><td><select class="form-select table-select" [value]="referral.commission_percentage || 10" (change)="updateReferralCommissionPercent(referral, $any($event.target).value)"><option *ngFor="let option of commissionOptions" [value]="option">{{ option }}%</option></select></td><td><span class="status-badge">{{ formatCurrency(referral.pending_payment || calculatePendingPayment(referral.case_amount, referral.commission_percentage)) }}</span></td><td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Guardar pago pendiente" aria-label="Guardar pago pendiente" (click)="saveReferralPendingPayment(referral)"><i class="bi bi-save"></i></button><button class="btn btn-outline-danger btn-sm icon-action" type="button" title="Eliminar cliente potencial" aria-label="Eliminar cliente potencial" (click)="deleteNetworkReferral(referral)"><i class="bi bi-trash"></i></button></td></tr><tr *ngIf="!selectedAdminAllyReferrals.length"><td colspan="9" class="empty-state">Este aliado aún no tiene clientes potenciales registrados.</td></tr></tbody></table></div>
         </section>
         <ng-template #selectAllyEmpty><section class="data-card wide"><p class="empty-state">Selecciona el ícono de ojo en un aliado para ver su información detallada.</p></section></ng-template>
       </div>

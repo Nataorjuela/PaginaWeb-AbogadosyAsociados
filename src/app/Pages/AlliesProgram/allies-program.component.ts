@@ -65,12 +65,12 @@ export class AlliesProgramComponent implements OnInit {
   ];
 
   benefits: Benefit[] = [
-    { icon: 'bi-cash-stack', title: 'Comisión por cliente efectivo', description: 'Recibe reconocimiento económico cuando un referido se convierte en cliente.' },
-    { icon: 'bi-kanban', title: 'Seguimiento de referidos', description: 'Consulta estados y próximas acciones desde una experiencia privada.' },
+    { icon: 'bi-cash-stack', title: 'Comisión por cliente efectivo', description: 'Recibe reconocimiento económico cuando un cliente potencial se convierte en cliente.' },
+    { icon: 'bi-kanban', title: 'Seguimiento de clientes potenciales', description: 'Consulta estados y próximas acciones desde una experiencia privada.' },
     { icon: 'bi-clock-history', title: 'Historial de oportunidades', description: 'Mantén trazabilidad de cada contacto enviado a la firma.' },
     { icon: 'bi-shield-check', title: 'Transparencia en estados', description: 'Estados claros: recibido, contactado, evaluación, cliente activo y comisión.' },
     { icon: 'bi-headset', title: 'Soporte jurídico', description: 'Equipo disponible para orientar el proceso comercial y legal.' },
-    { icon: 'bi-share', title: 'Material para compartir', description: 'Recursos editables para comunicar los servicios de la firma.' }
+    { icon: 'bi-diagram-3', title: 'Red de aliados', description: 'Invita aliados y diferencia la red comercial de los clientes potenciales con caso legal.' }
   ];
 
   constructor(private fb: FormBuilder, private alliesService: AlliesService) {}
@@ -305,13 +305,13 @@ export class AlliesProgramComponent implements OnInit {
     const payload: ReferralSubmission = this.referralForm.value;
     this.alliesService.sendReferral(payload).subscribe({
       next: (response) => {
-        this.referralMessage = response?.message || 'Referido enviado correctamente. El equipo de Orjuela Abogados se pondrá en contacto con la persona referida.';
+        this.referralMessage = response?.message || 'Cliente potencial enviado correctamente. El equipo de Orjuela Abogados se pondrá en contacto con la persona.';
         this.referralForm.reset({ contact_authorization: false });
         this.referralStep = 1;
         this.isSendingReferral = false;
       },
       error: (error) => {
-        this.referralError = error?.error?.error || 'Ocurrió un error al enviar el referido. Intente de nuevo.';
+        this.referralError = error?.error?.error || 'Ocurrió un error al enviar el cliente potencial. Intente de nuevo.';
         this.isSendingReferral = false;
       }
     });

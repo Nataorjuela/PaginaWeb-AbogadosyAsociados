@@ -1,4 +1,4 @@
-Ôªøimport { CommonModule } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, FormGroup, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
@@ -61,6 +61,8 @@ type AdminLead = {
   notes?: string;
   city?: string;
   allyName?: string;
+  isOverdue?: boolean;
+  waitingHours?: number | null;
 };
 type PartnerNetwork = {
   partner?: any;
@@ -104,9 +106,6 @@ export class AuthPortalComponent implements OnInit {
   adminPaymentForm!: FormGroup;
   adminDocumentForm!: FormGroup;
   adminAgendaForm!: FormGroup;
-  adminLevelForm!: FormGroup;
-  adminGoalForm!: FormGroup;
-  adminResourceForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   showResetPassword = false;
@@ -123,7 +122,7 @@ export class AuthPortalComponent implements OnInit {
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
   selectedAdminAlly: any = null;
   commissionOptions = [5, 10, 20];
-  adminDashboard: any = { metrics: [], recentLeads: [], attentionLeads: [], actionItems: [], recentActivity: [], pendingCommissions: [], monthlyPerformance: [], reports: {} };
+  adminDashboard: any = { metrics: [], recentLeads: [], attentionLeads: [], overdueReferrals: [], actionItems: [], recentActivity: [], pendingCommissions: [], monthlyPerformance: [], reports: {} };
   adminClients: any[] = [];
   adminCases: any[] = [];
   adminPayments: any[] = [];
@@ -141,9 +140,6 @@ export class AuthPortalComponent implements OnInit {
   editingAdminClientId: number | null = null;
   editingAdminCaseId: number | null = null;
   editingAdminAllyId: number | null = null;
-  editingAdminLevelId: number | null = null;
-  editingAdminGoalId: number | null = null;
-  editingAdminResourceId: number | null = null;
   showAllyProfileForm = false;
   selectedPartnerReferral: any = null;
   selectedPartnerTeamAlly: any = null;
@@ -179,37 +175,37 @@ export class AuthPortalComponent implements OnInit {
   readonly environment = this.resolveEnvironment();
   readonly strongPasswordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
   readonly passwordRules = [
-    'M√≠nimo 8 caracteres',
-    'Una letra may√∫scula',
-    'Una letra min√∫scula',
-    'Un n√∫mero',
-    'Un s√≠mbolo'
+    'MÌnimo 8 caracteres',
+    'Una letra may˙scula',
+    'Una letra min˙scula',
+    'Un n˙mero',
+    'Un sÌmbolo'
   ];
 
   accessCards: AccessCard[] = [
-    { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Gestiona tus referidos y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
+    { icon: 'bi-diagram-3', title: 'Soy aliado', text: 'Invita aliados, registra clientes potenciales y consulta tus comisiones.', button: 'Ingresar como aliado', href: '/aliados/login' },
     { icon: 'bi-folder-check', title: 'Soy cliente', text: 'Consulta el estado de tu caso y tus documentos.', button: 'Ingresar como cliente', href: '/clientes/login' },
-    { icon: 'bi-shield-lock', title: 'Administraci√≥n', text: 'Acceso interno para el equipo jur√≠dico y administrativo.', button: 'Ingresar al panel', href: '/admin/login' }
+    { icon: 'bi-shield-lock', title: 'AdministraciÛn', text: 'Acceso interno para el equipo jurÌdico y administrativo.', button: 'Ingresar al panel', href: '/admin/login' }
   ];
 
   partnerMetrics: PortalMetric[] = [
-    { label: 'Referidos enviados', value: '12' },
+    { label: 'Clientes potenciales enviados', value: '12' },
     { label: 'Casos activos', value: '4' },
-    { label: 'Comisi√≥n estimada', value: '$480.000' },
-    { label: 'Comisi√≥n pagada', value: '$320.000' }
+    { label: 'ComisiÛn estimada', value: '$480.000' },
+    { label: 'ComisiÛn pagada', value: '$320.000' }
   ];
 
   clientMetrics: PortalMetric[] = [
     { label: 'Casos activos', value: '1' },
-    { label: 'Pr√≥xima cita', value: '16 may' },
+    { label: 'PrÛxima cita', value: '16 may' },
     { label: 'Documentos pendientes', value: '2' },
-    { label: 'Estado general', value: 'En revisi√≥n' }
+    { label: 'Estado general', value: 'En revisiÛn' }
   ];
 
   adminMetrics: PortalMetric[] = [
     { label: 'Nuevos leads', value: '18' },
     { label: 'Casos activos', value: '42' },
-    { label: 'Referidos del mes', value: '16' },
+    { label: 'Clientes potenciales del mes', value: '16' },
     { label: 'Clientes activos', value: '31' },
     { label: 'Comisiones pendientes', value: '$450.000' },
     { label: 'Ingresos estimados', value: '$38.5M' }
@@ -223,84 +219,84 @@ export class AuthPortalComponent implements OnInit {
   ];
 
   referrals: ReferralRow[] = [
-    { client: 'Mar√≠a Rodr√≠guez', caseType: 'Derecho inmobiliario', date: '2026-05-08', status: 'En evaluaci√≥n', commission: '$180.000', action: 'Revisi√≥n de documentos' },
-    { client: 'Carlos P√©rez', caseType: 'Cobro de cartera', date: '2026-05-04', status: 'Contactado', commission: '$120.000', action: 'Agendar asesor√≠a' },
-    { client: 'Empresa Andina', caseType: 'Contratos', date: '2026-04-29', status: 'Comisi√≥n aprobada', commission: '$450.000', action: 'Pago programado' }
+    { client: 'MarÌa RodrÌguez', caseType: 'Derecho inmobiliario', date: '2026-05-08', status: 'En evaluaciÛn', commission: '$180.000', action: 'RevisiÛn de documentos' },
+    { client: 'Carlos PÈrez', caseType: 'Cobro de cartera', date: '2026-05-04', status: 'Contactado', commission: '$120.000', action: 'Agendar asesorÌa' },
+    { client: 'Empresa Andina', caseType: 'Contratos', date: '2026-04-29', status: 'ComisiÛn aprobada', commission: '$450.000', action: 'Pago programado' }
   ];
 
   clientCases: CaseRow[] = [
-    { caseType: 'Contrato de compraventa', status: 'En revisi√≥n', updatedAt: '2026-05-12', lawyer: 'Equipo inmobiliario', nextAction: 'Enviar certificado actualizado' },
-    { caseType: 'Sucesi√≥n', status: 'Documentos solicitados', updatedAt: '2026-05-09', lawyer: '√Årea civil y familia', nextAction: 'Cargar registros civiles' }
+    { caseType: 'Contrato de compraventa', status: 'En revisiÛn', updatedAt: '2026-05-12', lawyer: 'Equipo inmobiliario', nextAction: 'Enviar certificado actualizado' },
+    { caseType: 'SucesiÛn', status: 'Documentos solicitados', updatedAt: '2026-05-09', lawyer: '¡rea civil y familia', nextAction: 'Cargar registros civiles' }
   ];
 
   clientPortalCases: ClientPortalCase[] = [
     {
       id: 1,
-      title: 'Revisi√≥n contrato de compraventa',
+      title: 'RevisiÛn contrato de compraventa',
       type: 'Derecho inmobiliario',
-      status: 'En revisi√≥n',
+      status: 'En revisiÛn',
       lawyer: 'Equipo inmobiliario',
       startDate: '2026-05-02',
       updatedAt: '2026-05-12',
-      nextAction: 'Enviar certificado de tradici√≥n actualizado',
-      description: 'An√°lisis de promesa de compraventa, documentos del inmueble y riesgos jur√≠dicos antes de firma.',
+      nextAction: 'Enviar certificado de tradiciÛn actualizado',
+      description: 'An·lisis de promesa de compraventa, documentos del inmueble y riesgos jurÌdicos antes de firma.',
       timeline: [
-        { date: '2026-05-02', title: 'Caso recibido', description: 'Se registr√≥ la solicitud y documentos iniciales.', status: 'Completado' },
-        { date: '2026-05-06', title: 'Revisi√≥n documental', description: 'El abogado asignado inici√≥ validaci√≥n de certificados y promesa.', status: 'En curso' },
-        { date: '2026-05-12', title: 'Documento solicitado', description: 'Se pidi√≥ certificado de tradici√≥n actualizado.', status: 'Pendiente' }
+        { date: '2026-05-02', title: 'Caso recibido', description: 'Se registrÛ la solicitud y documentos iniciales.', status: 'Completado' },
+        { date: '2026-05-06', title: 'RevisiÛn documental', description: 'El abogado asignado iniciÛ validaciÛn de certificados y promesa.', status: 'En curso' },
+        { date: '2026-05-12', title: 'Documento solicitado', description: 'Se pidiÛ certificado de tradiciÛn actualizado.', status: 'Pendiente' }
       ],
-      tasks: ['Cargar certificado de tradici√≥n actualizado', 'Confirmar fecha tentativa de firma', 'Enviar paz y salvo de administraci√≥n']
+      tasks: ['Cargar certificado de tradiciÛn actualizado', 'Confirmar fecha tentativa de firma', 'Enviar paz y salvo de administraciÛn']
     },
     {
       id: 2,
-      title: 'Sucesi√≥n familiar',
+      title: 'SucesiÛn familiar',
       type: 'Familia',
       status: 'Pendiente de documentos',
-      lawyer: '√Årea civil y familia',
+      lawyer: '¡rea civil y familia',
       startDate: '2026-04-22',
       updatedAt: '2026-05-09',
       nextAction: 'Cargar registros civiles',
-      description: 'Organizaci√≥n documental para tr√°mite sucesoral y revisi√≥n de herederos.',
+      description: 'OrganizaciÛn documental para tr·mite sucesoral y revisiÛn de herederos.',
       timeline: [
-        { date: '2026-04-22', title: 'Apertura de caso', description: 'Se cre√≥ expediente digital del proceso.', status: 'Completado' },
-        { date: '2026-04-29', title: 'Lista documental enviada', description: 'Se comparti√≥ listado de documentos requeridos.', status: 'Completado' },
+        { date: '2026-04-22', title: 'Apertura de caso', description: 'Se creÛ expediente digital del proceso.', status: 'Completado' },
+        { date: '2026-04-29', title: 'Lista documental enviada', description: 'Se compartiÛ listado de documentos requeridos.', status: 'Completado' },
         { date: '2026-05-09', title: 'Pendiente de documentos', description: 'Faltan registros civiles para avanzar.', status: 'Pendiente' }
       ],
-      tasks: ['Subir registro civil de nacimiento', 'Subir registro civil de defunci√≥n', 'Confirmar datos de contacto de herederos']
+      tasks: ['Subir registro civil de nacimiento', 'Subir registro civil de defunciÛn', 'Confirmar datos de contacto de herederos']
     }
   ];
 
   clientDocuments: ClientDocument[] = [
-    { id: 1, caseTitle: 'Revisi√≥n contrato de compraventa', name: 'Promesa de compraventa.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-03', status: 'Aprobado', observations: 'Documento legible y completo.', size: '1.2 MB' },
-    { id: 2, caseTitle: 'Revisi√≥n contrato de compraventa', name: 'Certificado de tradici√≥n.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-04', status: 'Requiere correcci√≥n', observations: 'Debe estar actualizado a m√°ximo 30 d√≠as.', size: '840 KB' },
-    { id: 3, caseTitle: 'Sucesi√≥n familiar', name: 'Lista de documentos requeridos.pdf', uploadedBy: 'Firma', uploadedAt: '2026-04-29', status: 'Recibido', observations: 'Documento gu√≠a para continuar el tr√°mite.', size: '430 KB' }
+    { id: 1, caseTitle: 'RevisiÛn contrato de compraventa', name: 'Promesa de compraventa.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-03', status: 'Aprobado', observations: 'Documento legible y completo.', size: '1.2 MB' },
+    { id: 2, caseTitle: 'RevisiÛn contrato de compraventa', name: 'Certificado de tradiciÛn.pdf', uploadedBy: 'Cliente', uploadedAt: '2026-05-04', status: 'Requiere correcciÛn', observations: 'Debe estar actualizado a m·ximo 30 dÌas.', size: '840 KB' },
+    { id: 3, caseTitle: 'SucesiÛn familiar', name: 'Lista de documentos requeridos.pdf', uploadedBy: 'Firma', uploadedAt: '2026-04-29', status: 'Recibido', observations: 'Documento guÌa para continuar el tr·mite.', size: '430 KB' }
   ];
 
   clientPayments: ClientPayment[] = [
-    { concept: 'Honorarios revisi√≥n contractual', caseTitle: 'Revisi√≥n contrato de compraventa', amount: 850000, dueDate: '2026-05-20', status: 'Pendiente', receipt: 'Pendiente de soporte' },
-    { concept: 'Abono inicial sucesi√≥n', caseTitle: 'Sucesi√≥n familiar', amount: 600000, dueDate: '2026-04-25', status: 'Pagado', receipt: 'RC-2026-041' },
-    { concept: 'Gastos notariales estimados', caseTitle: 'Sucesi√≥n familiar', amount: 320000, dueDate: '2026-05-28', status: 'Pr√≥ximo vencimiento', receipt: 'Por generar' }
+    { concept: 'Honorarios revisiÛn contractual', caseTitle: 'RevisiÛn contrato de compraventa', amount: 850000, dueDate: '2026-05-20', status: 'Pendiente', receipt: 'Pendiente de soporte' },
+    { concept: 'Abono inicial sucesiÛn', caseTitle: 'SucesiÛn familiar', amount: 600000, dueDate: '2026-04-25', status: 'Pagado', receipt: 'RC-2026-041' },
+    { concept: 'Gastos notariales estimados', caseTitle: 'SucesiÛn familiar', amount: 320000, dueDate: '2026-05-28', status: 'PrÛximo vencimiento', receipt: 'Por generar' }
   ];
 
   clientAppointments: ClientAppointment[] = [
-    { title: 'Revisi√≥n de hallazgos', caseTitle: 'Revisi√≥n contrato de compraventa', date: '2026-05-16 09:00', type: 'Virtual', status: 'Confirmada', location: 'Google Meet pendiente de env√≠o' },
-    { title: 'Organizaci√≥n documental', caseTitle: 'Sucesi√≥n familiar', date: '2026-05-21 15:30', type: 'Llamada', status: 'Solicitada', location: 'Llamada a celular registrado' },
-    { title: 'Primera asesor√≠a', caseTitle: 'Revisi√≥n contrato de compraventa', date: '2026-05-03 10:00', type: 'Virtual', status: 'Realizada', location: 'Google Meet' }
+    { title: 'RevisiÛn de hallazgos', caseTitle: 'RevisiÛn contrato de compraventa', date: '2026-05-16 09:00', type: 'Virtual', status: 'Confirmada', location: 'Google Meet pendiente de envÌo' },
+    { title: 'OrganizaciÛn documental', caseTitle: 'SucesiÛn familiar', date: '2026-05-21 15:30', type: 'Llamada', status: 'Solicitada', location: 'Llamada a celular registrado' },
+    { title: 'Primera asesorÌa', caseTitle: 'RevisiÛn contrato de compraventa', date: '2026-05-03 10:00', type: 'Virtual', status: 'Realizada', location: 'Google Meet' }
   ];
 
   clientMessages: ClientMessage[] = [
-    { caseTitle: 'Revisi√≥n contrato de compraventa', from: 'Equipo inmobiliario', date: '2026-05-12 16:10', unread: true, text: 'Por favor carga el certificado de tradici√≥n actualizado para continuar la revisi√≥n.', attachmentName: 'lista-observaciones.pdf' },
-    { caseTitle: 'Sucesi√≥n familiar', from: '√Årea civil y familia', date: '2026-05-09 09:20', unread: false, text: 'Te enviamos el listado de documentos necesarios para avanzar con el tr√°mite.' }
+    { caseTitle: 'RevisiÛn contrato de compraventa', from: 'Equipo inmobiliario', date: '2026-05-12 16:10', unread: true, text: 'Por favor carga el certificado de tradiciÛn actualizado para continuar la revisiÛn.', attachmentName: 'lista-observaciones.pdf' },
+    { caseTitle: 'SucesiÛn familiar', from: '¡rea civil y familia', date: '2026-05-09 09:20', unread: false, text: 'Te enviamos el listado de documentos necesarios para avanzar con el tr·mite.' }
   ];
 
   clientNotifications: ClientNotification[] = [
-    { title: 'Documento pendiente', description: 'Certificado de tradici√≥n requiere actualizaci√≥n.', date: '2026-05-12', type: 'Documentos', unread: true },
-    { title: 'Cita confirmada', description: 'Revisi√≥n de hallazgos el 16 de mayo a las 9:00 a. m.', date: '2026-05-11', type: 'Citas', unread: true },
-    { title: 'Pago pr√≥ximo', description: 'Honorarios revisi√≥n contractual vencen el 20 de mayo.', date: '2026-05-10', type: 'Pagos', unread: false }
+    { title: 'Documento pendiente', description: 'Certificado de tradiciÛn requiere actualizaciÛn.', date: '2026-05-12', type: 'Documentos', unread: true },
+    { title: 'Cita confirmada', description: 'RevisiÛn de hallazgos el 16 de mayo a las 9:00 a. m.', date: '2026-05-11', type: 'Citas', unread: true },
+    { title: 'Pago prÛximo', description: 'Honorarios revisiÛn contractual vencen el 20 de mayo.', date: '2026-05-10', type: 'Pagos', unread: false }
   ];
 
   clientServiceRequests: Array<LegalServiceRequest & { status: string; createdAt: string }> = [
-    { service_type: 'Contratos', description: 'Revisi√≥n de contrato de arrendamiento comercial.', urgency: 'Media', documents: 'contrato-preliminar.pdf', city: 'Bogot√°', email: 'cliente@orjuela.com', phone: '3000000000', status: 'En an√°lisis', createdAt: '2026-05-10' }
+    { service_type: 'Contratos', description: 'RevisiÛn de contrato de arrendamiento comercial.', urgency: 'Media', documents: 'contrato-preliminar.pdf', city: 'Bogot·', email: 'cliente@orjuela.com', phone: '3000000000', status: 'En an·lisis', createdAt: '2026-05-10' }
   ];
 
   clientProfile: ClientProfile = {
@@ -308,18 +304,18 @@ export class AuthPortalComponent implements OnInit {
     document_id: '12345678',
     email: 'cliente@orjuela.com',
     phone: '3000000000',
-    city: 'Bogot√°',
-    address: 'Direcci√≥n por actualizar',
+    city: 'Bogot·',
+    address: 'DirecciÛn por actualizar',
     created_at: '2026-05-01',
     updated_at: '2026-05-01',
     verified: false
   };
 
   adminLeads: AdminLead[] = [
-    { name: 'Laura M√©ndez', phone: '300 456 7890', email: 'laura@example.com', caseType: 'Derecho civil', source: 'Web', status: 'Nuevo', owner: 'Comercial', date: '2026-05-12', nextAction: 'Llamar hoy antes de las 5:00 p. m.', priority: 'Alta' },
-    { name: 'Inmobiliaria Norte', phone: '311 222 3344', email: 'contacto@inmobiliaria.test', caseType: 'Contratos', source: 'Aliado', status: 'Contactado', owner: 'Asistente', date: '2026-05-11', nextAction: 'Enviar propuesta de revisi√≥n contractual', priority: 'Media' },
+    { name: 'Laura MÈndez', phone: '300 456 7890', email: 'laura@example.com', caseType: 'Derecho civil', source: 'Web', status: 'Nuevo', owner: 'Comercial', date: '2026-05-12', nextAction: 'Llamar hoy antes de las 5:00 p. m.', priority: 'Alta' },
+    { name: 'Inmobiliaria Norte', phone: '311 222 3344', email: 'contacto@inmobiliaria.test', caseType: 'Contratos', source: 'Aliado', status: 'Contactado', owner: 'Asistente', date: '2026-05-11', nextAction: 'Enviar propuesta de revisiÛn contractual', priority: 'Media' },
     { name: 'Jorge Salinas', phone: '315 987 1122', email: 'jorge@example.com', caseType: 'Cobro de cartera', source: 'WhatsApp', status: 'Agendado', owner: 'Abogado civil', date: '2026-05-10', nextAction: 'Preparar cita y documentos requeridos', priority: 'Alta' },
-    { name: 'Mar√≠a Fernanda Ruiz', phone: '302 555 8844', email: 'maria@example.com', caseType: 'Derecho inmobiliario', source: 'Org√°nico', status: 'Propuesta enviada', owner: 'Equipo inmobiliario', date: '2026-05-09', nextAction: 'Hacer seguimiento a aceptaci√≥n de propuesta', priority: 'Media' }
+    { name: 'MarÌa Fernanda Ruiz', phone: '302 555 8844', email: 'maria@example.com', caseType: 'Derecho inmobiliario', source: 'Org·nico', status: 'Propuesta enviada', owner: 'Equipo inmobiliario', date: '2026-05-09', nextAction: 'Hacer seguimiento a aceptaciÛn de propuesta', priority: 'Media' }
   ];
 
   selectedLead: AdminLead = this.adminLeads[0];
@@ -402,7 +398,7 @@ export class AuthPortalComponent implements OnInit {
     });
 
     this.clientDocumentForm = this.fb.group({
-      caseTitle: ['Revisi√≥n contrato de compraventa', Validators.required],
+      caseTitle: ['RevisiÛn contrato de compraventa', Validators.required],
       fileName: ['', Validators.required],
       fileType: ['', Validators.required],
       fileSizeMb: [1, [Validators.required, Validators.max(10)]],
@@ -410,14 +406,14 @@ export class AuthPortalComponent implements OnInit {
     });
 
     this.clientAppointmentForm = this.fb.group({
-      caseTitle: ['Revisi√≥n contrato de compraventa', Validators.required],
+      caseTitle: ['RevisiÛn contrato de compraventa', Validators.required],
       type: ['Virtual', Validators.required],
       requestedDate: ['', Validators.required],
       reason: ['', Validators.required]
     });
 
     this.clientMessageForm = this.fb.group({
-      caseTitle: ['Revisi√≥n contrato de compraventa', Validators.required],
+      caseTitle: ['RevisiÛn contrato de compraventa', Validators.required],
       message: ['', [Validators.required, Validators.minLength(8)]],
       attachment: ['']
     });
@@ -476,7 +472,7 @@ export class AuthPortalComponent implements OnInit {
       description: [''],
       status: ['Recibido', Validators.required],
       assigned_lawyer: ['Equipo Orjuela'],
-      next_action: ['Revisar documentaci√≥n inicial']
+      next_action: ['Revisar documentaciÛn inicial']
     });
 
     this.adminClientForm = this.fb.group({
@@ -531,31 +527,6 @@ export class AuthPortalComponent implements OnInit {
       scheduled_at: ['', Validators.required],
       status: ['Programada'],
       notes: ['']
-    });
-
-    this.adminLevelForm = this.fb.group({
-      name: ['', Validators.required],
-      min_converted_referrals: [0, Validators.required],
-      min_commissions: [0, Validators.required],
-      min_active_allies: [0, Validators.required],
-      benefits: [''],
-      sort_order: [1, Validators.required]
-    });
-
-    this.adminGoalForm = this.fb.group({
-      ally_id: [''],
-      month: [new Date().toISOString().slice(0, 7), Validators.required],
-      referral_goal: [5, Validators.required],
-      converted_goal: [1, Validators.required],
-      commission_goal: [500000, Validators.required]
-    });
-
-    this.adminResourceForm = this.fb.group({
-      title: ['', Validators.required],
-      resource_type: ['Mensaje', Validators.required],
-      description: [''],
-      url: [''],
-      content: ['']
     });
 
     this.restoreSession();
@@ -618,7 +589,7 @@ export class AuthPortalComponent implements OnInit {
       },
       error: (err) => {
         this.loading = false;
-        this.error = err?.error?.error || 'No fue posible iniciar sesi√≥n.';
+        this.error = err?.error?.error || 'No fue posible iniciar sesiÛn.';
       }
     });
   }
@@ -667,7 +638,7 @@ export class AuthPortalComponent implements OnInit {
         callback: (response: { access_token?: string; error?: string }) => {
           if (response?.error || !response?.access_token) {
             this.googleLoadingRole = null;
-            this.error = 'No recibimos la autorizaci√≥n de Google. Intenta de nuevo.';
+            this.error = 'No recibimos la autorizaciÛn de Google. Intenta de nuevo.';
             return;
           }
           this.completeGoogleAuth(role, { access_token: response.access_token });
@@ -722,15 +693,15 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     if (this.partnerRegisterForm.value.password !== this.partnerRegisterForm.value.confirm_password) {
-      this.error = 'Las contrase√±as no coinciden.';
+      this.error = 'Las contraseÒas no coinciden.';
       return;
     }
     if (this.partnerRegisterForm.get('email')?.invalid) {
-      this.error = 'Ingresa un correo electr√≥nico v√°lido.';
+      this.error = 'Ingresa un correo electrÛnico v·lido.';
       return;
     }
     if (!this.strongPasswordPattern.test(this.partnerRegisterForm.value.password || '')) {
-      this.error = 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      this.error = 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
       return;
     }
 
@@ -756,13 +727,13 @@ export class AuthPortalComponent implements OnInit {
     const confirmPassword = this.partnerRegisterForm.get('confirm_password');
 
     if (email?.hasError('email')) {
-      return 'Ingresa un correo electr√≥nico v√°lido.';
+      return 'Ingresa un correo electrÛnico v·lido.';
     }
     if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
-      return 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      return 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
     }
     if (this.partnerRegisterForm.get('terms')?.invalid || this.partnerRegisterForm.get('data_auth')?.invalid) {
-      return 'Acepta las pol√≠ticas del programa y autoriza el tratamiento de datos.';
+      return 'Acepta las polÌticas del programa y autoriza el tratamiento de datos.';
     }
     return 'Completa todos los campos obligatorios para crear tu cuenta de aliado.';
   }
@@ -777,15 +748,15 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     if (this.accountRegisterForm.value.password !== this.accountRegisterForm.value.confirm_password) {
-      this.error = 'Las contrase√±as no coinciden.';
+      this.error = 'Las contraseÒas no coinciden.';
       return;
     }
     if (!this.strongPasswordPattern.test(this.accountRegisterForm.value.password || '')) {
-      this.error = 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      this.error = 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
       return;
     }
     if (role === 'admin' && !this.accountRegisterForm.value.admin_registration_code) {
-      this.error = 'Ingresa el c√≥digo interno para crear una cuenta administrativa.';
+      this.error = 'Ingresa el cÛdigo interno para crear una cuenta administrativa.';
       return;
     }
 
@@ -833,13 +804,13 @@ export class AuthPortalComponent implements OnInit {
     const confirmPassword = this.accountRegisterForm.get('confirm_password');
 
     if (email?.hasError('email')) {
-      return 'Ingresa un correo electr√≥nico v√°lido.';
+      return 'Ingresa un correo electrÛnico v·lido.';
     }
     if (password?.hasError('pattern') || confirmPassword?.hasError('pattern')) {
-      return 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      return 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
     }
     if (role === 'admin' && this.accountRegisterForm.get('admin_registration_code')?.invalid) {
-      return 'Ingresa el c√≥digo interno para crear una cuenta administrativa.';
+      return 'Ingresa el cÛdigo interno para crear una cuenta administrativa.';
     }
     return 'Completa todos los campos obligatorios para crear tu cuenta.';
   }
@@ -873,11 +844,11 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     if (this.resetPasswordForm.value.password !== this.resetPasswordForm.value.confirm_password) {
-      this.error = 'Las contrase√±as no coinciden.';
+      this.error = 'Las contraseÒas no coinciden.';
       return;
     }
     if (!this.strongPasswordPattern.test(this.resetPasswordForm.value.password || '')) {
-      this.error = 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      this.error = 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
       return;
     }
 
@@ -896,21 +867,21 @@ export class AuthPortalComponent implements OnInit {
           this.go(this.dashboardPathForRole(response.user.role));
           return;
         }
-        this.message = response.message || 'Contrase√±a actualizada correctamente.';
+        this.message = response.message || 'ContraseÒa actualizada correctamente.';
       },
       error: (err) => {
         this.loading = false;
-        this.error = err?.error?.error || 'No fue posible actualizar la contrase√±a.';
+        this.error = err?.error?.error || 'No fue posible actualizar la contraseÒa.';
       }
     });
   }
 
   private getResetPasswordError(): string {
-    if (this.resetPasswordForm.get('codigo')?.invalid) return 'Ingresa el c√≥digo recibido por correo.';
+    if (this.resetPasswordForm.get('codigo')?.invalid) return 'Ingresa el cÛdigo recibido por correo.';
     if (this.resetPasswordForm.get('password')?.hasError('pattern') || this.resetPasswordForm.get('confirm_password')?.hasError('pattern')) {
-      return 'La contrase√±a debe tener m√≠nimo 8 caracteres, may√∫scula, min√∫scula, n√∫mero y s√≠mbolo.';
+      return 'La contraseÒa debe tener mÌnimo 8 caracteres, may˙scula, min˙scula, n˙mero y sÌmbolo.';
     }
-    return 'Completa todos los campos para crear una nueva contrase√±a.';
+    return 'Completa todos los campos para crear una nueva contraseÒa.';
   }
 
   nextRegisterStep(): void {
@@ -939,7 +910,7 @@ export class AuthPortalComponent implements OnInit {
 
   setPartnerSection(section: string): void {
     this.partnerSection = section;
-    if (['crm', 'activity', 'level', 'goals', 'notifications', 'ally-profile', 'finance', 'tree'].includes(section)) {
+    if (['crm', 'activity', 'notifications', 'ally-profile', 'finance', 'tree'].includes(section)) {
       this.loadPartnerAdvanced();
     }
     this.formError = '';
@@ -976,8 +947,9 @@ export class AuthPortalComponent implements OnInit {
   get partnerNetworkMetrics(): PortalMetric[] {
     const summary = this.partnerNetwork.summary || {};
     return [
-      { label: 'Total referidos enviados', value: String(summary['total_referrals'] || 0) },
-      { label: 'Referidos en revision', value: String(summary['in_review'] || 0) },
+      { label: 'Clientes potenciales enviados', value: String(summary['total_client_leads'] || summary['total_referrals'] || 0) },
+      { label: 'Aliados invitados', value: String(summary['invited_allies'] || summary['active_team_members'] || 0) },
+      { label: 'Clientes potenciales en revision', value: String(summary['in_review'] || 0) },
       { label: 'Clientes vinculados', value: String(summary['converted'] || 0) },
       { label: 'Comision pendiente', value: this.formatCurrency(summary['pending_commission']) },
       { label: 'Comision aprobada', value: this.formatCurrency(summary['approved_commission']) },
@@ -1070,12 +1042,12 @@ export class AuthPortalComponent implements OnInit {
       indirect_level_1: 'Red nivel 1',
       indirect_level_2: 'Red nivel 2'
     };
-    return labels[type] || type || 'Comisi√≥n';
+    return labels[type] || type || 'ComisiÛn';
   }
 
   commissionStatusLabel(status: string): string {
     const labels: Record<string, string> = {
-      pending: 'Pendiente de validaci√≥n',
+      pending: 'Pendiente de validaciÛn',
       approved: 'Aprobada para pago',
       paid: 'Pagada',
       rejected: 'Rechazada'
@@ -1162,12 +1134,12 @@ export class AuthPortalComponent implements OnInit {
   }
 
   get clientDashboardMetrics(): PortalMetric[] {
-    const pendingDocs = this.clientDocuments.filter((item) => item.status === 'Requiere correcci√≥n' || item.status === 'En revisi√≥n').length;
+    const pendingDocs = this.clientDocuments.filter((item) => item.status === 'Requiere correcciÛn' || item.status === 'En revisiÛn').length;
     const pendingPayments = this.clientPayments.filter((item) => item.status !== 'Pagado').length;
     const unread = this.clientMessages.filter((item) => item.unread).length + this.clientNotifications.filter((item) => item.unread).length;
     return [
       { label: 'Procesos activos', value: String(this.clientPortalCases.filter((item) => item.status !== 'Finalizado').length) },
-      { label: 'Pr√≥xima cita', value: '16 may' },
+      { label: 'PrÛxima cita', value: '16 may' },
       { label: 'Documentos pendientes', value: String(pendingDocs) },
       { label: 'Pagos por revisar', value: String(pendingPayments) },
       { label: 'Mensajes nuevos', value: String(unread) }
@@ -1207,20 +1179,20 @@ export class AuthPortalComponent implements OnInit {
     this.formMessage = '';
     if (this.networkReferralForm.invalid) {
       this.networkReferralForm.markAllAsTouched();
-      this.formError = 'Completa los datos obligatorios del referido.';
+      this.formError = 'Completa los datos obligatorios del cliente potencial.';
       return;
     }
     this.loading = true;
     this.http.post<any>(this.apiUrl('/api/partner/network/referrals'), this.networkReferralForm.value, { headers: this.authHeaders() }).subscribe({
       next: (response) => {
         this.loading = false;
-        this.formMessage = response.message || 'Referido enviado correctamente.';
+        this.formMessage = response.message || 'Cliente potencial enviado correctamente.';
         this.networkReferralForm.reset({ data_authorization: false });
         this.loadPartnerNetwork();
       },
       error: (err) => {
         this.loading = false;
-        this.formError = err?.error?.error || 'No fue posible registrar el referido.';
+        this.formError = err?.error?.error || 'No fue posible registrar el cliente potencial.';
       }
     });
   }
@@ -1268,27 +1240,17 @@ export class AuthPortalComponent implements OnInit {
     this.formMessage = '';
     if (this.allyProfileForm.invalid) {
       this.allyProfileForm.markAllAsTouched();
-      this.formError = 'Completa tel√©fono, ciudad y tipo de aliado.';
+      this.formError = 'Completa telÈfono, ciudad y tipo de aliado.';
       return;
     }
     this.http.patch<any>(this.apiUrl('/api/partner/profile'), this.allyProfileForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
-        this.formMessage = 'Perfil actualizado. Los datos de pago quedan sujetos a validaci√≥n administrativa.';
+        this.formMessage = 'Perfil actualizado. Los datos de pago quedan sujetos a validaciÛn administrativa.';
         this.showAllyProfileForm = false;
         this.loadPartnerAdvanced();
         this.loadPartnerNetwork();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el perfil.'
-    });
-  }
-
-  acceptPartnerLegalDocument(documentType: string): void {
-    this.http.post<any>(this.apiUrl('/api/partner/legal-acceptances'), { document_type: documentType, version: 'v1.0' }, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Documento aceptado correctamente.';
-        this.loadPartnerAdvanced();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar la aceptaci√≥n.'
     });
   }
 
@@ -1331,14 +1293,14 @@ export class AuthPortalComponent implements OnInit {
         const alliesCount = response?.allies?.length || 0;
         const referralsCount = response?.referrals?.length || 0;
         if (!alliesCount && !referralsCount) {
-          const debug = response?.debug ? ` Conteos: usuarios aliados ${response.debug.users}, partners ${response.debug.partners}, registros landing ${response.debug.legacy_allies}, referidos ${response.debug.raw_referrals}, leads referidos ${response.debug.lead_referrals}.` : '';
-          this.formError = `No se encontraron aliados ni referidos en la base de datos consultada.${debug}`;
+          const debug = response?.debug ? ` Conteos: usuarios aliados ${response.debug.users}, partners ${response.debug.partners}, registros landing ${response.debug.legacy_allies}, clientes potenciales ${response.debug.raw_referrals}, leads con aliado ${response.debug.lead_referrals}.` : '';
+          this.formError = `No se encontraron aliados ni clientes potenciales en la base de datos consultada.${debug}`;
         }
       },
       error: (err) => {
         const detail = err?.error?.detail ? ` Detalle: ${err.error.detail}.` : '';
         const debug = err?.error?.debug
-          ? ` Conteos: usuarios aliados ${err.error.debug.users || 0}, partners ${err.error.debug.partners || 0}, registros landing ${err.error.debug.legacy_allies || 0}, referidos ${err.error.debug.raw_referrals || 0}, leads referidos ${err.error.debug.lead_referrals || 0}.`
+          ? ` Conteos: usuarios aliados ${err.error.debug.users || 0}, partners ${err.error.debug.partners || 0}, registros landing ${err.error.debug.legacy_allies || 0}, clientes potenciales ${err.error.debug.raw_referrals || 0}, leads con aliado ${err.error.debug.lead_referrals || 0}.`
           : '';
         this.formError = `${err?.error?.error || 'No fue posible cargar aliados.'}${detail}${debug}`;
         if (this.environment.enableDemoData) {
@@ -1359,7 +1321,7 @@ export class AuthPortalComponent implements OnInit {
         this.loadAdminNetwork();
       },
       error: (err) => {
-        this.formError = err?.error?.error || 'No fue posible actualizar el estado del referido.';
+        this.formError = err?.error?.error || 'No fue posible actualizar el estado del cliente potencial.';
       }
     });
   }
@@ -1405,13 +1367,13 @@ export class AuthPortalComponent implements OnInit {
 
   saveReferralPendingPayment(referral: any): void {
     if (referral.source_kind === 'lead') {
-      this.formError = 'Este registro viene de Leads. Convierte o gestiona el referido desde la secci√≥n Leads.';
+      this.formError = 'Este registro viene de Leads. Convierte o gestiona el cliente potencial desde la secciÛn Leads.';
       return;
     }
     const caseAmount = Number(referral.case_amount || 0);
     const percentage = Number(referral.commission_percentage || 0);
     if (!caseAmount || !percentage) {
-      this.formError = 'Ingresa el monto del caso y selecciona el porcentaje de comisi√≥n.';
+      this.formError = 'Ingresa el monto del caso y selecciona el porcentaje de comisiÛn.';
       return;
     }
     this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${referral.id}/commission`), {
@@ -1428,17 +1390,17 @@ export class AuthPortalComponent implements OnInit {
 
   deleteNetworkReferral(referral: any): void {
     if (referral.source_kind === 'lead') {
-      this.formError = 'Este registro viene de Leads. Elim√≠nalo o arch√≠valo desde la secci√≥n Leads.';
+      this.formError = 'Este registro viene de Leads. ElimÌnalo o archÌvalo desde la secciÛn Leads.';
       return;
     }
-    const confirmed = confirm(`¬øDeseas eliminar el referido ${referral.referred_full_name}?`);
+    const confirmed = confirm(`øDeseas eliminar el cliente potencial ${referral.referred_full_name}?`);
     if (!confirmed) return;
     this.http.delete(this.apiUrl(`/api/admin/network-referrals/${referral.id}`), { headers: this.authHeaders() }).subscribe({
       next: () => {
-        this.formMessage = 'Referido eliminado.';
+        this.formMessage = 'Cliente potencial eliminado.';
         this.loadAdminNetwork();
       },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el referido.'
+      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el cliente potencial.'
     });
   }
 
@@ -1473,7 +1435,7 @@ export class AuthPortalComponent implements OnInit {
     this.clientFormMessage = '';
     if (this.clientDocumentForm.invalid) {
       this.clientDocumentForm.markAllAsTouched();
-      this.clientFormError = 'Completa los datos del documento. Tama√±o m√°ximo: 10 MB.';
+      this.clientFormError = 'Completa los datos del documento. TamaÒo m·ximo: 10 MB.';
       return;
     }
     if (!this.clientDocumentFile) {
@@ -1495,10 +1457,10 @@ export class AuthPortalComponent implements OnInit {
         file_name: fileName,
         file_url: uploaded.file_url,
         document_type: fileType,
-        observations: this.clientDocumentForm.value.observations || 'Pendiente de revisi√≥n por el abogado.'
+        observations: this.clientDocumentForm.value.observations || 'Pendiente de revisiÛn por el abogado.'
       }, { headers: this.authHeaders() }));
       this.loading = false;
-      this.clientFormMessage = 'Documento registrado correctamente. Qued√≥ pendiente de revisi√≥n.';
+      this.clientFormMessage = 'Documento registrado correctamente. QuedÛ pendiente de revisiÛn.';
       this.clientDocumentFile = null;
       this.clientDocumentForm.patchValue({ fileName: '', fileType: '', fileSizeMb: 1, observations: '' });
       this.loadClientPortal();
@@ -1513,7 +1475,7 @@ export class AuthPortalComponent implements OnInit {
     this.clientFormMessage = '';
     if (this.clientAppointmentForm.invalid) {
       this.clientAppointmentForm.markAllAsTouched();
-      this.clientFormError = 'Completa la informaci√≥n para solicitar la cita.';
+      this.clientFormError = 'Completa la informaciÛn para solicitar la cita.';
       return;
     }
     if (this.reschedulingAppointmentId) {
@@ -1524,7 +1486,7 @@ export class AuthPortalComponent implements OnInit {
       }, { headers: this.authHeaders() }).subscribe({
         next: () => {
           this.loading = false;
-          this.clientFormMessage = 'Reprogramaci√≥n solicitada. El equipo confirmar√° disponibilidad.';
+          this.clientFormMessage = 'ReprogramaciÛn solicitada. El equipo confirmar· disponibilidad.';
           this.cancelClientAppointmentReschedule();
           this.loadClientPortal();
         },
@@ -1545,7 +1507,7 @@ export class AuthPortalComponent implements OnInit {
     }, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.loading = false;
-        this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmar√° disponibilidad.';
+        this.clientFormMessage = 'Solicitud de cita enviada. El equipo confirmar· disponibilidad.';
         this.clientAppointmentForm.patchValue({ requestedDate: '', reason: '' });
         this.loadClientPortal();
       },
@@ -1582,7 +1544,7 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'No encontramos el identificador de esta cita.';
       return;
     }
-    const reason = window.prompt('Motivo de cancelaci√≥n', 'No podr√© asistir a la cita.');
+    const reason = window.prompt('Motivo de cancelaciÛn', 'No podrÈ asistir a la cita.');
     if (reason === null) return;
     this.loading = true;
     this.http.post<any>(this.apiUrl(`/api/client/appointments/${appointment.id}/cancel`), { reason }, { headers: this.authHeaders() }).subscribe({
@@ -1602,7 +1564,7 @@ export class AuthPortalComponent implements OnInit {
     this.clientFormError = '';
     const support = payment.supportUrl || '';
     if (!support || support === '#' || support === 'Pendiente de soporte') {
-      this.clientFormError = 'Este pago a√∫n no tiene comprobante descargable.';
+      this.clientFormError = 'Este pago a˙n no tiene comprobante descargable.';
       return;
     }
     if (!/^https?:\/\//i.test(support)) {
@@ -1615,7 +1577,7 @@ export class AuthPortalComponent implements OnInit {
   openClientFile(url?: string): void {
     this.clientFormError = '';
     if (!url || url === '#') {
-      this.clientFormError = 'Este archivo a√∫n no tiene enlace descargable.';
+      this.clientFormError = 'Este archivo a˙n no tiene enlace descargable.';
       return;
     }
     const target = /^https?:\/\//i.test(url) ? url : this.apiUrl(url);
@@ -1662,7 +1624,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.post<any>(this.apiUrl(`/api/client/payments/${this.selectedClientPaymentId}/support`), this.clientPaymentSupportForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.loading = false;
-        this.clientFormMessage = 'Soporte de pago registrado. Qued√≥ pendiente de validaci√≥n.';
+        this.clientFormMessage = 'Soporte de pago registrado. QuedÛ pendiente de validaciÛn.';
         this.cancelClientPaymentSupport();
         this.loadClientPortal();
       },
@@ -1701,7 +1663,7 @@ export class AuthPortalComponent implements OnInit {
     }
     const legalCase = this.clientPortalCases.find((item) => item.title === this.clientMessageForm.value.caseTitle) || this.clientPortalCases[0];
     if (!legalCase?.id) {
-      this.clientFormError = 'Selecciona un caso v√°lido para enviar el mensaje.';
+      this.clientFormError = 'Selecciona un caso v·lido para enviar el mensaje.';
       return;
     }
     try {
@@ -1775,7 +1737,7 @@ export class AuthPortalComponent implements OnInit {
         documents: uploaded?.file_url || this.clientServiceForm.value.documents || ''
       }, { headers: this.authHeaders() }));
       this.loading = false;
-      this.clientFormMessage = 'Solicitud enviada. El equipo la revisar√° desde el panel administrativo.';
+      this.clientFormMessage = 'Solicitud enviada. El equipo la revisar· desde el panel administrativo.';
       this.clientServiceAttachmentName = '';
       this.clientServiceFile = null;
       this.clientServiceForm.reset({ urgency: 'Media', email: this.clientProfile.email, phone: this.clientProfile.phone, city: this.clientProfile.city });
@@ -1798,6 +1760,7 @@ export class AuthPortalComponent implements OnInit {
           ...response,
           recentLeads,
           attentionLeads,
+          overdueReferrals: response.overdueReferrals || [],
           actionItems: response.actionItems || [],
           recentActivity: response.recentActivity || [],
           pendingCommissions: response.pendingCommissions || [],
@@ -1899,13 +1862,13 @@ export class AuthPortalComponent implements OnInit {
     if (this.selectedLead.sourceKind === 'referral') {
       this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${this.selectedLead.rawId}/status`), { status: 'Cliente vinculado' }, { headers: this.authHeaders() }).subscribe({
         next: (response) => {
-          this.formMessage = 'Referido marcado como cliente vinculado.';
+          this.formMessage = 'Cliente potencial marcado como cliente vinculado.';
           if (response?.whatsapp_url && typeof window !== 'undefined') window.open(response.whatsapp_url, '_blank', 'noopener');
           this.loadAdminLeads();
           this.loadAdminDashboard();
           this.loadAdminNetwork();
         },
-        error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el referido.'
+        error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el cliente potencial.'
       });
       return;
     }
@@ -1930,7 +1893,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.post<any>(this.apiUrl('/api/admin/cases'), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Caso creado correctamente.';
-        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentaci√≥n inicial' });
+        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentaciÛn inicial' });
         this.loadAdminSectionData('cases');
         this.loadAdminDashboard();
       },
@@ -1980,7 +1943,7 @@ export class AuthPortalComponent implements OnInit {
   }
 
   deleteAdminClient(id: number): void {
-    const confirmed = confirm('Esta acci√≥n eliminar√° permanentemente el cliente, sus casos, mensajes y datos relacionados. ¬øDeseas continuar?');
+    const confirmed = confirm('Esta acciÛn eliminar· permanentemente el cliente, sus casos, mensajes y datos relacionados. øDeseas continuar?');
     if (!confirmed) return;
     this.http.delete(this.apiUrl(`/api/admin/clients/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
       next: () => {
@@ -2012,7 +1975,7 @@ export class AuthPortalComponent implements OnInit {
         next: () => {
           this.formMessage = 'Caso actualizado.';
           this.editingAdminCaseId = null;
-          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentaci√≥n inicial' });
+          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentaciÛn inicial' });
           this.loadAdminSectionData('cases');
           this.loadAdminDashboard();
         },
@@ -2069,7 +2032,7 @@ export class AuthPortalComponent implements OnInit {
   }
 
   deleteAdminAlly(id: number): void {
-    const confirmed = confirm('Esta acci√≥n eliminar√° permanentemente el aliado, sus referidos, comisiones y datos relacionados. ¬øDeseas continuar?');
+    const confirmed = confirm('Esta acciÛn eliminar· permanentemente el aliado, sus clientes potenciales, comisiones y datos relacionados. øDeseas continuar?');
     if (!confirmed) return;
     const endpoint = id < 0
       ? `/api/admin/partner-network/legacy-allies/${Math.abs(id)}/permanent`
@@ -2082,114 +2045,6 @@ export class AuthPortalComponent implements OnInit {
         this.loadAdminDashboard();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el aliado.'
-    });
-  }
-
-  saveAdminLevel(): void {
-    if (this.adminLevelForm.invalid) return this.adminLevelForm.markAllAsTouched();
-    const endpoint = this.editingAdminLevelId ? `/api/admin/partner-network/levels/${this.editingAdminLevelId}` : '/api/admin/partner-network/levels';
-    const request = this.editingAdminLevelId
-      ? this.http.patch(this.apiUrl(endpoint), this.adminLevelForm.value, { headers: this.authHeaders() })
-      : this.http.post(this.apiUrl(endpoint), this.adminLevelForm.value, { headers: this.authHeaders() });
-    request.subscribe({
-      next: () => {
-        this.formMessage = this.editingAdminLevelId ? 'Nivel actualizado.' : 'Nivel creado.';
-        this.cancelAdminLevelEdit();
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el nivel.'
-    });
-  }
-
-  editAdminLevel(level: any): void {
-    this.editingAdminLevelId = level.id;
-    this.adminLevelForm.patchValue(level);
-  }
-
-  cancelAdminLevelEdit(): void {
-    this.editingAdminLevelId = null;
-    this.adminLevelForm.reset({ min_converted_referrals: 0, min_commissions: 0, min_active_allies: 0, sort_order: 1 });
-  }
-
-  archiveAdminLevel(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/levels/${id}`), { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Nivel archivado.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el nivel.'
-    });
-  }
-
-  saveAdminGoal(): void {
-    if (this.adminGoalForm.invalid) return this.adminGoalForm.markAllAsTouched();
-    const endpoint = this.editingAdminGoalId ? `/api/admin/partner-network/goals/${this.editingAdminGoalId}` : '/api/admin/partner-network/goals';
-    const request = this.editingAdminGoalId
-      ? this.http.patch(this.apiUrl(endpoint), this.adminGoalForm.value, { headers: this.authHeaders() })
-      : this.http.post(this.apiUrl(endpoint), this.adminGoalForm.value, { headers: this.authHeaders() });
-    request.subscribe({
-      next: () => {
-        this.formMessage = this.editingAdminGoalId ? 'Meta actualizada.' : 'Meta creada.';
-        this.cancelAdminGoalEdit();
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar la meta.'
-    });
-  }
-
-  editAdminGoal(goal: any): void {
-    this.editingAdminGoalId = goal.id;
-    this.adminGoalForm.patchValue({ ...goal, ally_id: goal.ally_id || '' });
-  }
-
-  cancelAdminGoalEdit(): void {
-    this.editingAdminGoalId = null;
-    this.adminGoalForm.reset({ ally_id: '', month: new Date().toISOString().slice(0, 7), referral_goal: 5, converted_goal: 1, commission_goal: 500000 });
-  }
-
-  archiveAdminGoal(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/goals/${id}`), { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Meta archivada.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar la meta.'
-    });
-  }
-
-  saveAdminResource(): void {
-    if (this.adminResourceForm.invalid) return this.adminResourceForm.markAllAsTouched();
-    const endpoint = this.editingAdminResourceId ? `/api/admin/partner-network/resources/${this.editingAdminResourceId}` : '/api/admin/partner-network/resources';
-    const request = this.editingAdminResourceId
-      ? this.http.patch(this.apiUrl(endpoint), this.adminResourceForm.value, { headers: this.authHeaders() })
-      : this.http.post(this.apiUrl(endpoint), this.adminResourceForm.value, { headers: this.authHeaders() });
-    request.subscribe({
-      next: () => {
-        this.formMessage = this.editingAdminResourceId ? 'Recurso actualizado.' : 'Recurso creado.';
-        this.cancelAdminResourceEdit();
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el recurso.'
-    });
-  }
-
-  editAdminResource(resource: any): void {
-    this.editingAdminResourceId = resource.id;
-    this.adminResourceForm.patchValue(resource);
-  }
-
-  cancelAdminResourceEdit(): void {
-    this.editingAdminResourceId = null;
-    this.adminResourceForm.reset({ resource_type: 'Mensaje' });
-  }
-
-  archiveAdminResource(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/partner-network/resources/${id}`), { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Recurso archivado.';
-        this.loadAdminNetwork();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible archivar el recurso.'
     });
   }
 
@@ -2279,7 +2134,7 @@ export class AuthPortalComponent implements OnInit {
           lawyer: item.assigned_lawyer || 'Equipo Orjuela',
           startDate: item.created_at,
           updatedAt: item.updated_at || item.created_at,
-          nextAction: item.next_action || 'Pendiente de actualizaci√≥n',
+          nextAction: item.next_action || 'Pendiente de actualizaciÛn',
           description: item.description || '',
           timeline: [
             { date: item.created_at, title: 'Caso recibido', description: 'El expediente fue registrado por la firma.', status: 'Completado' },
@@ -2316,7 +2171,7 @@ export class AuthPortalComponent implements OnInit {
           date: item.date || item.scheduled_at,
           type: 'Agenda',
           status: item.status,
-          location: item.notes || 'Pendiente de confirmaci√≥n'
+          location: item.notes || 'Pendiente de confirmaciÛn'
         }));
         this.clientMessages = (response.messages || []).map((msg: any) => ({
           caseTitle: msg.case_type || 'Caso',
@@ -2355,7 +2210,7 @@ export class AuthPortalComponent implements OnInit {
     this.clientFormMessage = '';
     if (this.clientProfileForm.invalid) {
       this.clientProfileForm.markAllAsTouched();
-      this.clientFormError = 'Revisa los datos b√°sicos antes de guardar.';
+      this.clientFormError = 'Revisa los datos b·sicos antes de guardar.';
       return;
     }
     this.clientProfileSaving = true;
@@ -2368,7 +2223,7 @@ export class AuthPortalComponent implements OnInit {
       error: (err) => {
         if (err?.status && err.status !== 404) {
           this.clientProfileSaving = false;
-          this.clientFormError = err.error?.error || 'No fue posible guardar los datos. Int√©ntalo nuevamente.';
+          this.clientFormError = err.error?.error || 'No fue posible guardar los datos. IntÈntalo nuevamente.';
           return;
         }
         this.applyClientProfile({
@@ -2377,7 +2232,7 @@ export class AuthPortalComponent implements OnInit {
           updated_at: new Date().toISOString().slice(0, 10)
         });
         this.clientProfileSaving = false;
-        this.clientFormMessage = 'Datos actualizados localmente. Se sincronizar√°n cuando el API est√© disponible.';
+        this.clientFormMessage = 'Datos actualizados localmente. Se sincronizar·n cuando el API estÈ disponible.';
       }
     });
   }
@@ -2391,9 +2246,9 @@ export class AuthPortalComponent implements OnInit {
     const control = this.clientProfileForm.get(field);
     if (!control) return '';
     if (control.hasError('required')) return 'Este campo es obligatorio.';
-    if (control.hasError('minlength')) return 'Ingresa un dato m√°s completo.';
-    if (control.hasError('maxlength')) return 'El texto supera el tama√±o permitido.';
-    if (control.hasError('pattern')) return 'Ingresa un celular colombiano v√°lido.';
+    if (control.hasError('minlength')) return 'Ingresa un dato m·s completo.';
+    if (control.hasError('maxlength')) return 'El texto supera el tamaÒo permitido.';
+    if (control.hasError('pattern')) return 'Ingresa un celular colombiano v·lido.';
     return 'Revisa este campo.';
   }
 
@@ -2401,7 +2256,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.post(this.apiUrl('/api/client/notifications/read-all'), {}, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.clientNotifications = this.clientNotifications.map((item) => ({ ...item, unread: false }));
-        this.clientFormMessage = 'Notificaciones marcadas como le√≠das.';
+        this.clientFormMessage = 'Notificaciones marcadas como leÌdas.';
       },
       error: (err) => this.clientFormError = err?.error?.error || 'No fue posible actualizar notificaciones.'
     });
@@ -2412,9 +2267,9 @@ export class AuthPortalComponent implements OnInit {
     this.http.post(this.apiUrl(`/api/client/notifications/${item.id}/read`), {}, { headers: this.authHeaders() }).subscribe({
       next: () => {
         item.unread = false;
-        this.clientFormMessage = 'Notificaci√≥n marcada como le√≠da.';
+        this.clientFormMessage = 'NotificaciÛn marcada como leÌda.';
       },
-      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible actualizar la notificaci√≥n.'
+      error: (err) => this.clientFormError = err?.error?.error || 'No fue posible actualizar la notificaciÛn.'
     });
   }
 
@@ -2434,6 +2289,13 @@ export class AuthPortalComponent implements OnInit {
     const period = hour >= 12 ? 'p.m.' : 'a.m.';
     hour = hour % 12 || 12;
     return `${day}/${month}/${year} ${String(hour).padStart(2, '0')}:${minutes} ${period}`;
+  }
+
+  waitingTimeLabel(hours: any): string {
+    const totalHours = Number(hours || 0);
+    if (!totalHours || totalHours < 24) return `hace ${Math.max(1, Math.floor(totalHours))} horas`;
+    const days = Math.floor(totalHours / 24);
+    return `hace ${days} ${days === 1 ? 'dÌa' : 'dÌas'}`;
   }
 
   pipelineCount(status: string): number {
@@ -2458,7 +2320,7 @@ export class AuthPortalComponent implements OnInit {
       'image/webp'
     ];
     if (!allowedTypes.includes(file.type)) {
-      this.clientFormError = 'Adjunta √∫nicamente documentos PDF, DOC, DOCX o im√°genes JPG, PNG, WEBP.';
+      this.clientFormError = 'Adjunta ˙nicamente documentos PDF, DOC, DOCX o im·genes JPG, PNG, WEBP.';
       input.value = '';
       return false;
     }
@@ -2576,7 +2438,9 @@ export class AuthPortalComponent implements OnInit {
       priority: item.priority || 'Media',
       notes: item.notes || '',
       city: item.city || '',
-      allyName: item.ally_name || item.allyName || ''
+      allyName: item.ally_name || item.allyName || '',
+      isOverdue: Boolean(item.is_overdue || item.isOverdue),
+      waitingHours: item.hours_waiting ?? item.waitingHours ?? null
     };
   }
 
@@ -2676,27 +2540,27 @@ export class AuthPortalComponent implements OnInit {
       resources: [
         { title: 'Mensaje para cliente', resource_type: 'WhatsApp', content: this.partnerNetwork.share?.client_message || 'Hola, quiero recomendarte a Orjuela Abogados.' },
         { title: 'Mensaje para invitar aliado', resource_type: 'WhatsApp', content: this.partnerNetwork.share?.ally_message || 'Hola, quiero invitarte al programa de aliados.' },
-        { title: 'Texto para redes sociales', resource_type: 'Redes', content: 'Acompa√±amiento legal claro, profesional y personalizado con Orjuela Abogados.' },
+        { title: 'Texto para redes sociales', resource_type: 'Redes', content: 'AcompaÒamiento legal claro, profesional y personalizado con Orjuela Abogados.' },
         { title: 'Flyer servicios legales', resource_type: 'Flyer', url: '/assets/logoCompleto.jpg' },
         { title: 'PDF portafolio de servicios', resource_type: 'PDF', url: '/assets/logoCompleto.jpg' },
         { title: 'Logo autorizado', resource_type: 'Logo', url: '/assets/logoCompleto.jpg' }
       ],
       activity: [
-        { date: '2026-05-13', type: 'Referido contactado', description: 'El equipo contact√≥ a Maria Rodriguez.', icon: 'bi-telephone', status: 'Contactado' },
-        { date: '2026-05-12', type: 'Comisi√≥n aprobada', description: 'Comisi√≥n directa aprobada por referido efectivo.', icon: 'bi-cash-coin', status: 'approved' },
-        { date: '2026-05-11', type: 'Nuevo aliado unido a mi red', description: 'Camila Red Aliada se uni√≥ a tu red.', icon: 'bi-diagram-3', status: 'Activo' }
+        { date: '2026-05-13', type: 'Cliente potencial contactado', description: 'El equipo contactÛ a Maria Rodriguez.', icon: 'bi-telephone', status: 'Contactado' },
+        { date: '2026-05-12', type: 'ComisiÛn aprobada', description: 'ComisiÛn directa aprobada por cliente vinculado.', icon: 'bi-cash-coin', status: 'approved' },
+        { date: '2026-05-11', type: 'Nuevo aliado unido a mi red', description: 'Camila Red Aliada se uniÛ a tu red.', icon: 'bi-diagram-3', status: 'Activo' }
       ],
       crm_referrals: [
-        { name: 'Maria Rodriguez', phone: '301 444 7788', case_type: 'Inmobiliario', registered_at: '2026-05-08', current_status: 'Contactado', updated_at: '2026-05-13', observations: 'Cliente solicit√≥ revisi√≥n de documentos.' },
+        { name: 'Maria Rodriguez', phone: '301 444 7788', case_type: 'Inmobiliario', registered_at: '2026-05-08', current_status: 'Contactado', updated_at: '2026-05-13', observations: 'Cliente solicitÛ revisiÛn de documentos.' },
         { name: 'Carlos Perez', phone: '312 456 8899', case_type: 'Civil', registered_at: '2026-05-04', current_status: 'Consulta agendada', updated_at: '2026-05-12', observations: 'Cita programada con el equipo civil.' }
       ],
       level: { current: { name: 'Plata', benefits: 'Prioridad en soporte y plantillas avanzadas.' }, next: { name: 'Oro', min_converted_referrals: 8, min_commissions: 1500000, min_active_allies: 3 }, progress: 58 },
-      goals: { referral_goal: 8, converted_goal: 2, commission_goal: 700000, referral_progress: 62, converted_progress: 50, commission_progress: 46, message: 'Vas avanzando bien: prioriza referidos con informaci√≥n completa.' },
+      goals: { referral_goal: 8, converted_goal: 2, commission_goal: 700000, referral_progress: 62, converted_progress: 50, commission_progress: 46, message: 'Vas avanzando bien: prioriza clientes potenciales con informaciÛn completa.' },
       notifications: [
-        { id: 1, title: 'Comisi√≥n aprobada', description: 'Tu comisi√≥n por Maria Rodriguez fue aprobada.', notification_type: 'Comisi√≥n aprobada', is_read: 0, created_at: '2026-05-13' },
+        { id: 1, title: 'ComisiÛn aprobada', description: 'Tu comisiÛn por Maria Rodriguez fue aprobada.', notification_type: 'ComisiÛn aprobada', is_read: 0, created_at: '2026-05-13' },
         { id: 2, title: 'Perfil pendiente', description: 'Completa tus datos de contacto para mantener activo el seguimiento de pagos.', notification_type: 'Perfil', is_read: 0, created_at: '2026-05-12' }
       ],
-      profile: { ...(this.partnerNetwork.partner || {}), document_id: '900111222', phone: '300 111 2233', city: 'Bogot√°', occupation: 'Asesor comercial', status: 'Activo', joined_at: '2026-05-01', bank_name: 'Dato sensible protegido', account_type: 'Dato sensible protegido', account_number: '****' },
+      profile: { ...(this.partnerNetwork.partner || {}), document_id: '900111222', phone: '300 111 2233', city: 'Bogot·', occupation: 'Asesor comercial', status: 'Activo', joined_at: '2026-05-01', bank_name: 'Dato sensible protegido', account_type: 'Dato sensible protegido', account_number: '****' },
       charts: { commissions_by_month: [{ label: '2026-04', value: 380000 }, { label: '2026-05', value: 810000 }], referrals_by_month: [{ label: '2026-04', value: 2 }, { label: '2026-05', value: 7 }], network_growth: [{ label: '2026-05', value: 2 }], direct_vs_indirect: [{ label: 'Directas', value: 860000 }, { label: 'Indirectas', value: 330000 }], pending_vs_paid: [{ label: 'Pendientes', value: 255000 }, { label: 'Pagadas', value: 380000 }] },
     };
   }

@@ -1,4 +1,4 @@
-Ôªøconst express = require('express');
+const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -362,59 +362,6 @@ async function createDatabase() {
       updated_at TEXT NOT NULL
     )`,
 
-    `CREATE TABLE IF NOT EXISTS referral_status_history (
-      id BIGSERIAL PRIMARY KEY,
-      referral_id BIGINT NOT NULL,
-      status TEXT NOT NULL,
-      notes TEXT,
-      visible_to_ally INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (referral_id) REFERENCES referrals(id)
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_activity_logs (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT NOT NULL,
-      event_type TEXT NOT NULL,
-      description TEXT NOT NULL,
-      icon TEXT,
-      status TEXT,
-      created_at TEXT NOT NULL
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_resources (
-      id BIGSERIAL PRIMARY KEY,
-      title TEXT NOT NULL,
-      resource_type TEXT NOT NULL,
-      description TEXT,
-      url TEXT,
-      content TEXT,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_levels (
-      id BIGSERIAL PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
-      min_converted_referrals INTEGER NOT NULL,
-      min_commissions REAL NOT NULL,
-      min_active_allies INTEGER NOT NULL,
-      benefits TEXT,
-      sort_order INTEGER NOT NULL DEFAULT 1,
-      is_active INTEGER NOT NULL DEFAULT 1
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_goals (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT,
-      month TEXT NOT NULL,
-      referral_goal INTEGER NOT NULL DEFAULT 5,
-      converted_goal INTEGER NOT NULL DEFAULT 1,
-      commission_goal REAL NOT NULL DEFAULT 500000,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      updated_at TEXT NOT NULL
-    )`,
-
     `CREATE TABLE IF NOT EXISTS ally_notifications (
       id BIGSERIAL PRIMARY KEY,
       ally_id BIGINT NOT NULL,
@@ -441,42 +388,6 @@ async function createDatabase() {
       created_at TEXT NOT NULL
     )`,
 
-    `CREATE TABLE IF NOT EXISTS ally_legal_acceptances (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT NOT NULL,
-      document_type TEXT NOT NULL,
-      accepted_at TEXT,
-      ip_address TEXT,
-      version TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending'
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_kyc_verifications (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT NOT NULL UNIQUE,
-      front_document_url TEXT,
-      back_document_url TEXT,
-      selfie_url TEXT,
-      bank_name TEXT,
-      account_type TEXT,
-      account_number TEXT,
-      phone_validated INTEGER NOT NULL DEFAULT 0,
-      email_validated INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'Sin verificar',
-      updated_at TEXT NOT NULL
-    )`,
-
-    `CREATE TABLE IF NOT EXISTS ally_electronic_signatures (
-      id BIGSERIAL PRIMARY KEY,
-      ally_id BIGINT NOT NULL,
-      document_type TEXT NOT NULL,
-      full_name TEXT NOT NULL,
-      document_number TEXT NOT NULL,
-      version TEXT NOT NULL,
-      signed_at TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'accepted'
-    )`,
-
     `CREATE TABLE IF NOT EXISTS auth_clients (
       user_id BIGINT PRIMARY KEY,
       document_id TEXT UNIQUE,
@@ -494,31 +405,6 @@ async function createDatabase() {
   pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
     SELECT 10, 3, 1, 1, $1, $2
     WHERE NOT EXISTS (SELECT 1 FROM commission_settings WHERE is_active = 1)`, [new Date().toISOString(), new Date().toISOString()], createPgErrorLogger('seed commission_settings'));
-
-    const seedNow = new Date().toISOString();
-    [
-      ['Bronce', 0, 0, 0, 'Acceso a recursos base, portal de seguimiento y soporte comercial.', 1],
-      ['Plata', 3, 500000, 1, 'Prioridad en soporte, plantillas avanzadas y revisi√≥n mensual de desempe√±o.', 2],
-      ['Oro', 8, 1500000, 3, 'Acompa√±amiento comercial dedicado y materiales personalizados.', 3],
-      ['Elite', 15, 3500000, 5, 'Beneficios preferenciales, sesiones estrat√©gicas y reconocimiento destacado.', 4]
-    ].forEach((item) => {
-      pgRun(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (name) DO NOTHING`, item, createPgErrorLogger('seed ally_levels'));
-    });
-
-    [
-      ['Mensaje para cliente', 'whatsapp', 'Texto base para recomendar servicios legales.', '', 'Hola, quiero recomendarte a Orjuela Abogados. Pueden ayudarte con asesor√≠a jur√≠dica personalizada.'],
-      ['Mensaje para invitar aliado', 'whatsapp', 'Texto base para invitar aliados.', '', 'Hola, quiero invitarte al programa de aliados de Orjuela Abogados.'],
-      ['Texto para redes sociales', 'social', 'Copy breve para publicar en redes.', '', 'Acompa√±amiento legal claro, profesional y personalizado con Orjuela Abogados.'],
-      ['Flyer servicios legales', 'flyer', 'Pieza descargable para compartir.', '/assets/logoCompleto.jpg', ''],
-      ['PDF portafolio de servicios', 'pdf', 'Documento comercial editable.', '/assets/logoCompleto.jpg', ''],
-      ['Logo autorizado', 'logo', 'Uso de marca aprobado para aliados.', '/assets/logoCompleto.jpg', '']
-    ].forEach((item) => {
-      pgRun(`INSERT INTO ally_resources (title, resource_type, description, url, content, created_at)
-        SELECT $1, $2, $3, $4, $5, $6
-        WHERE NOT EXISTS (SELECT 1 FROM ally_resources WHERE title = $7)`, [...item, seedNow, item[0]], createPgErrorLogger('seed ally_resources'));
-    });
 
 }
 
@@ -679,19 +565,39 @@ const ADMIN_LEADS_SQL = `
     r.status,
     COALESCE(u.full_name, 'Equipo aliados') AS assigned_to,
     CONCAT(
-      'Referido por: ', COALESCE(u.full_name, 'Aliado no identificado'),
+      'Cliente potencial traÌdo por: ', COALESCE(u.full_name, 'Aliado no identificado'),
       '. Ciudad: ', COALESCE(r.referred_city, ''),
-      '. Descripci√≥n: ', COALESCE(r.case_description, ''),
+      '. DescripciÛn: ', COALESCE(r.case_description, ''),
       CASE WHEN COALESCE(r.file_notes, '') <> '' THEN CONCAT('. Notas: ', r.file_notes) ELSE '' END
     ) AS notes,
     COALESCE(NULLIF(r.urgency, ''), 'Media') AS priority,
-    'Contactar al referido y calificar necesidad legal' AS next_action,
+    'Contactar al cliente potencial y calificar necesidad legal' AS next_action,
     r.referred_city AS city,
     COALESCE(u.full_name, '') AS ally_name,
     r.created_at,
     r.updated_at
   FROM referrals r
   LEFT JOIN users u ON u.id = r.ally_id
+`;
+
+const OVERDUE_NEW_REFERRALS_SQL = `
+  SELECT
+    r.id,
+    r.referred_full_name,
+    r.referred_phone,
+    r.referred_email,
+    r.referred_city,
+    r.legal_area,
+    r.status,
+    r.created_at,
+    r.updated_at,
+    COALESCE(u.full_name, a.full_name, 'Aliado no identificado') AS ally_name,
+    FLOOR(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - r.created_at::timestamptz)) / 3600) AS hours_waiting
+  FROM referrals r
+  LEFT JOIN users u ON u.id = r.ally_id
+  LEFT JOIN allies a ON a.id = r.ally_id
+  WHERE LOWER(COALESCE(r.status, '')) IN ('nuevo referido', 'new')
+    AND r.created_at::timestamptz <= CURRENT_TIMESTAMP - INTERVAL '48 hours'
 `;
 
 function cleanText(value, maxLength = 180) {
@@ -873,11 +779,11 @@ function verifyGoogleAccessToken(accessToken, callback) {
 
 function validatePasswordStrength(password) {
   const value = String(password || '');
-  if (value.length < 8) return 'La contrase√±a debe tener m√≠nimo 8 caracteres.';
-  if (!/[A-Z]/.test(value)) return 'La contrase√±a debe incluir al menos una letra may√∫scula.';
-  if (!/[a-z]/.test(value)) return 'La contrase√±a debe incluir al menos una letra min√∫scula.';
-  if (!/\d/.test(value)) return 'La contrase√±a debe incluir al menos un n√∫mero.';
-  if (!/[^A-Za-z0-9]/.test(value)) return 'La contrase√±a debe incluir al menos un s√≠mbolo.';
+  if (value.length < 8) return 'La contraseÒa debe tener mÌnimo 8 caracteres.';
+  if (!/[A-Z]/.test(value)) return 'La contraseÒa debe incluir al menos una letra may˙scula.';
+  if (!/[a-z]/.test(value)) return 'La contraseÒa debe incluir al menos una letra min˙scula.';
+  if (!/\d/.test(value)) return 'La contraseÒa debe incluir al menos un n˙mero.';
+  if (!/[^A-Za-z0-9]/.test(value)) return 'La contraseÒa debe incluir al menos un sÌmbolo.';
   return '';
 }
 
@@ -931,7 +837,7 @@ function requireAuth(roles = []) {
   return (req, res, next) => {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     const payload = verifyToken(token);
-    if (!payload) return res.status(401).json({ error: 'Sesi√≥n inv√°lida o expirada.' });
+    if (!payload) return res.status(401).json({ error: 'SesiÛn inv·lida o expirada.' });
     if (roles.length && !roles.includes(payload.role)) return res.status(403).json({ error: 'No tienes permisos para acceder a este recurso.' });
     req.user = payload;
     next();
@@ -1016,7 +922,7 @@ function seedProductionAccessUsers() {
 
       if (user.role === 'ally') {
         pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, company, how_known, occupation, bank_name, account_type, account_number, referral_code, commission_balance, created_at, updated_at)
-          VALUES ($1, $2, '3001234567', 'Bogot√°', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba para producci√≥n', 'Asesor comercial aliado', 'Bancolombia', 'Ahorros', '****6789', 'ORJUELAPRUEBA', 1190000, $3, $4)
+          VALUES ($1, $2, '3001234567', 'Bogot·', 'Independiente', 'Orjuela Abogados', 'Usuario de prueba para producciÛn', 'Asesor comercial aliado', 'Bancolombia', 'Ahorros', '****6789', 'ORJUELAPRUEBA', 1190000, $3, $4)
           ON CONFLICT(user_id) DO UPDATE SET
             document_id = excluded.document_id,
             phone = excluded.phone,
@@ -1047,8 +953,8 @@ function seedProductionAllyDemoData(allyUserId) {
   const now = getTimestamp();
   const month = currentMonthKey();
   const networkUsers = [
-    { fullName: 'Camila Red Aliada', documentId: '900333111', email: 'camila.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003331111', city: 'Medell√≠n', code: 'CAMILAQA', referrals: 3, commissions: 270000 },
-    { fullName: 'Andr√©s Red Aliado', documentId: '900333222', email: 'andres.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003332222', city: 'Cali', code: 'ANDRESQA', referrals: 1, commissions: 60000 }
+    { fullName: 'Camila Red Aliada', documentId: '900333111', email: 'camila.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003331111', city: 'MedellÌn', code: 'CAMILAQA', referrals: 3, commissions: 270000 },
+    { fullName: 'AndrÈs Red Aliado', documentId: '900333222', email: 'andres.red@orjuela.com', password: 'Aliado123!', role: 'ally', phone: '3003332222', city: 'Cali', code: 'ANDRESQA', referrals: 1, commissions: 60000 }
   ];
 
   const networkIds = {};
@@ -1058,18 +964,18 @@ function seedProductionAllyDemoData(allyUserId) {
     if (pendingUsers > 0) return;
 
     const directReferrals = [
-      [3001, allyUserId, 'Mar√≠a Rodr√≠guez', '1020304051', '3014447788', 'maria.rodriguez@example.com', 'Bogot√°', 'Inmobiliario', 'Revisi√≥n de promesa de compraventa y documentos del inmueble.', 'WhatsApp', 'Media', 'Contactado', '2026-05-08T09:00:00.000Z'],
-      [3002, allyUserId, 'Carlos P√©rez', '1020304052', '3124568899', 'carlos.perez@example.com', 'Medell√≠n', 'Civil', 'Asesor√≠a para cobro de obligaci√≥n civil documentada.', 'Llamada', 'Alta', 'Nuevo', '2026-05-04T10:15:00.000Z'],
-      [3003, allyUserId, 'Empresa Andina SAS', '900123456', '3109876543', 'legal@andina.test', 'Cali', 'Contratos', 'Revisi√≥n de contrato de suministro y cl√°usulas de incumplimiento.', 'Correo', 'Baja', 'Cliente activo', '2026-04-29T14:20:00.000Z'],
-      [3004, allyUserId, 'Laura M√©ndez', '1020304054', '3004567890', 'laura@example.com', 'Bogot√°', 'Familia', 'Consulta sobre acuerdo de alimentos y custodia.', 'Referido directo', 'Media', 'En revision', '2026-05-12T08:40:00.000Z'],
-      [3005, allyUserId, 'Jorge Salinas', '1020304055', '3159871122', 'jorge@example.com', 'Ibagu√©', 'Cobro de cartera', 'Revisi√≥n de pagar√© y estrategia de cobro prejur√≠dico.', 'WhatsApp', 'Alta', 'Caso cerrado', '2026-05-10T11:10:00.000Z']
+      [3001, allyUserId, 'MarÌa RodrÌguez', '1020304051', '3014447788', 'maria.rodriguez@example.com', 'Bogot·', 'Inmobiliario', 'RevisiÛn de promesa de compraventa y documentos del inmueble.', 'WhatsApp', 'Media', 'Contactado', '2026-05-08T09:00:00.000Z'],
+      [3002, allyUserId, 'Carlos PÈrez', '1020304052', '3124568899', 'carlos.perez@example.com', 'MedellÌn', 'Civil', 'AsesorÌa para cobro de obligaciÛn civil documentada.', 'Llamada', 'Alta', 'Nuevo', '2026-05-04T10:15:00.000Z'],
+      [3003, allyUserId, 'Empresa Andina SAS', '900123456', '3109876543', 'legal@andina.test', 'Cali', 'Contratos', 'RevisiÛn de contrato de suministro y cl·usulas de incumplimiento.', 'Correo', 'Baja', 'Cliente activo', '2026-04-29T14:20:00.000Z'],
+      [3004, allyUserId, 'Laura MÈndez', '1020304054', '3004567890', 'laura@example.com', 'Bogot·', 'Familia', 'Consulta sobre acuerdo de alimentos y custodia.', 'Referido directo', 'Media', 'En revision', '2026-05-12T08:40:00.000Z'],
+      [3005, allyUserId, 'Jorge Salinas', '1020304055', '3159871122', 'jorge@example.com', 'IbaguÈ', 'Cobro de cartera', 'RevisiÛn de pagarÈ y estrategia de cobro prejurÌdico.', 'WhatsApp', 'Alta', 'Caso cerrado', '2026-05-10T11:10:00.000Z']
     ];
 
     const networkReferrals = [
-      [3006, networkIds['camila.red@orjuela.com'], 'Juliana Mart√≠nez', '1020304056', '3015551199', 'juliana@example.com', 'Medell√≠n', 'Familia', 'Asesor√≠a para proceso de divorcio de mutuo acuerdo.', 'Red de aliado', 'Media', 'En revision', '2026-05-11T15:00:00.000Z'],
-      [3007, networkIds['camila.red@orjuela.com'], 'Inmobiliaria Norte SAS', '900777111', '3112223344', 'contacto@inmobiliaria.test', 'Bogot√°', 'Contratos', 'Revisi√≥n de contratos de corretaje inmobiliario.', 'Red de aliado', 'Media', 'Cliente activo', '2026-05-09T16:25:00.000Z'],
-      [3008, networkIds['andres.red@orjuela.com'], 'Daniel Rojas', '1020304058', '3029998877', 'daniel@example.com', 'Cali', 'Laboral', 'Consulta por terminaci√≥n de contrato laboral.', 'Red de aliado', 'Alta', 'Comision pagada', '2026-04-25T13:30:00.000Z'],
-      [3009, networkIds['camila.red@orjuela.com'], 'Sof√≠a Parra', '1020304059', '3002221144', 'sofia@example.com', 'Barranquilla', 'Comercial', 'Acompa√±amiento en constituci√≥n y contratos comerciales.', 'Red de aliado', 'Baja', 'Nuevo referido', '2026-05-13T09:45:00.000Z']
+      [3006, networkIds['camila.red@orjuela.com'], 'Juliana MartÌnez', '1020304056', '3015551199', 'juliana@example.com', 'MedellÌn', 'Familia', 'AsesorÌa para proceso de divorcio de mutuo acuerdo.', 'Red de aliado', 'Media', 'En revision', '2026-05-11T15:00:00.000Z'],
+      [3007, networkIds['camila.red@orjuela.com'], 'Inmobiliaria Norte SAS', '900777111', '3112223344', 'contacto@inmobiliaria.test', 'Bogot·', 'Contratos', 'RevisiÛn de contratos de corretaje inmobiliario.', 'Red de aliado', 'Media', 'Cliente activo', '2026-05-09T16:25:00.000Z'],
+      [3008, networkIds['andres.red@orjuela.com'], 'Daniel Rojas', '1020304058', '3029998877', 'daniel@example.com', 'Cali', 'Laboral', 'Consulta por terminaciÛn de contrato laboral.', 'Red de aliado', 'Alta', 'Comision pagada', '2026-04-25T13:30:00.000Z'],
+      [3009, networkIds['camila.red@orjuela.com'], 'SofÌa Parra', '1020304059', '3002221144', 'sofia@example.com', 'Barranquilla', 'Comercial', 'AcompaÒamiento en constituciÛn y contratos comerciales.', 'Red de aliado', 'Baja', 'Nuevo referido', '2026-05-13T09:45:00.000Z']
     ];
 
     [...directReferrals, ...networkReferrals].forEach((item) => {
@@ -1116,22 +1022,11 @@ function seedProductionAllyDemoData(allyUserId) {
           paid_at = excluded.paid_at`, item);
     });
 
-    pgRun(`INSERT INTO ally_goals (id, ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
-      VALUES (2001, $1, $2, 8, 2, 700000, 1, $3)
-      ON CONFLICT (id) DO UPDATE SET
-        ally_id = excluded.ally_id,
-        month = excluded.month,
-        referral_goal = excluded.referral_goal,
-        converted_goal = excluded.converted_goal,
-        commission_goal = excluded.commission_goal,
-        is_active = excluded.is_active,
-        updated_at = excluded.updated_at`, [allyUserId, month, now]);
-
     pgRun(`DELETE FROM ally_notifications WHERE ally_id = $1`, [allyUserId], () => {
       [
-        ['Comision aprobada', 'Comisi√≥n aprobada', 'Tu comisi√≥n por Mar√≠a Rodr√≠guez fue aprobada para pago.', 0, '2026-05-13T08:00:00.000Z'],
+        ['Comision aprobada', 'ComisiÛn aprobada', 'Tu comisiÛn por MarÌa RodrÌguez fue aprobada para pago.', 0, '2026-05-13T08:00:00.000Z'],
         ['Nuevo aliado registrado', 'Nuevo aliado en tu red', 'Camila Red Aliada ya aparece activa dentro de tu red.', 0, '2026-05-12T12:00:00.000Z'],
-        ['Cambio de estado', 'Referido actualizado', 'Empresa Andina SAS pas√≥ a Cliente activo.', 1, '2026-05-10T09:00:00.000Z']
+        ['Cambio de estado', 'Referido actualizado', 'Empresa Andina SAS pasÛ a Cliente activo.', 1, '2026-05-10T09:00:00.000Z']
       ].forEach((item) => {
         pgRun(`INSERT INTO ally_notifications (ally_id, notification_type, title, description, is_read, created_at)
           VALUES ($1, $2, $3, $4, $5, $6)`, [allyUserId, ...item]);
@@ -1232,7 +1127,7 @@ function publicReferral(row) {
     updated_at: row.updated_at,
     commission_amount: row.commission_amount || row.amount || 0,
     commission_status: row.commission_status,
-    public_note: 'Seguimiento limitado por protecci√≥n de datos. La firma confirmar√° novedades comerciales relevantes.'
+    public_note: 'Seguimiento limitado por protecciÛn de datos. La firma confirmar· novedades comerciales relevantes.'
   };
 }
 
@@ -1391,12 +1286,12 @@ app.post('/api/auth/register-client', (req, res) => {
     return res.status(400).json({ error: 'Completa todos los campos obligatorios.' });
   }
   if (!isValidEmail(payload.email)) {
-    return res.status(400).json({ error: 'Ingresa un correo electr√≥nico v√°lido.' });
+    return res.status(400).json({ error: 'Ingresa un correo electrÛnico v·lido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
   if (payload.document_id && !normalizeDocument(payload.document_id)) {
-    return res.status(400).json({ error: 'Ingresa una c√©dula v√°lida.' });
+    return res.status(400).json({ error: 'Ingresa una cÈdula v·lida.' });
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('CLIENTE', payload.email);
 
@@ -1407,7 +1302,7 @@ app.post('/api/auth/register-client', (req, res) => {
 
     pgGet(`SELECT id FROM clients WHERE document_id = $1`, [documentId], (clientDocErr, existingClient) => {
       if (clientDocErr) return res.status(500).json({ error: 'Error validando cliente.' });
-      if (existingClient) return res.status(409).json({ error: 'Ya existe un cliente con esa c√©dula.' });
+      if (existingClient) return res.status(409).json({ error: 'Ya existe un cliente con esa cÈdula.' });
 
       pgRun(`INSERT INTO users (full_name, document_id, email, password_hash, role, status, created_at, updated_at)
         VALUES ($1, $2, $3, $4, 'client', 'active', $5, $6)
@@ -1420,13 +1315,13 @@ app.post('/api/auth/register-client', (req, res) => {
           createAdminNotification({
             notification_type: 'new_client',
             title: 'Nuevo cliente registrado',
-            description: `${payload.full_name} cre√≥ cuenta de cliente en la plataforma.`,
+            description: `${payload.full_name} creÛ cuenta de cliente en la plataforma.`,
             entity_type: 'client',
             entity_id: userId,
             contact_name: payload.full_name,
             contact_phone: payload.phone,
             contact_email: payload.email,
-            whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para acompa√±arte en tu proceso.`
+            whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para acompaÒarte en tu proceso.`
           });
           res.status(201).json(createAuthResponse({ id: userId, full_name: payload.full_name, document_id: documentId, email: payload.email, role: 'client', status: 'active', auth_provider: 'password' }));
         });
@@ -1449,15 +1344,15 @@ app.post('/api/auth/register-admin', (req, res) => {
     return res.status(400).json({ error: 'Completa todos los campos obligatorios.' });
   }
   if (payload.admin_registration_code !== ADMIN_REGISTRATION_CODE) {
-    return res.status(403).json({ error: 'C√≥digo interno no v√°lido para crear administradores.' });
+    return res.status(403).json({ error: 'CÛdigo interno no v·lido para crear administradores.' });
   }
   if (!isValidEmail(payload.email)) {
-    return res.status(400).json({ error: 'Ingresa un correo electr√≥nico v√°lido.' });
+    return res.status(400).json({ error: 'Ingresa un correo electrÛnico v·lido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
   if (payload.document_id && !normalizeDocument(payload.document_id)) {
-    return res.status(400).json({ error: 'Ingresa una c√©dula v√°lida.' });
+    return res.status(400).json({ error: 'Ingresa una cÈdula v·lida.' });
   }
   const documentId = normalizeDocument(payload.document_id) || generatedDocumentId('ADMIN', payload.email);
 
@@ -1494,10 +1389,10 @@ app.post('/api/auth/register-partner', (req, res) => {
   };
 
   if (!payload.full_name || !payload.email || !payload.password || payload.terms !== true || payload.data_auth !== true) {
-    return res.status(400).json({ error: 'Completa los campos obligatorios y acepta las pol√≠ticas.' });
+    return res.status(400).json({ error: 'Completa los campos obligatorios y acepta las polÌticas.' });
   }
   if (!isValidEmail(payload.email)) {
-    return res.status(400).json({ error: 'Ingresa un correo electr√≥nico v√°lido.' });
+    return res.status(400).json({ error: 'Ingresa un correo electrÛnico v·lido.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
@@ -1547,7 +1442,7 @@ app.post('/api/auth/register-partner', (req, res) => {
           createAdminNotification({
             notification_type: 'new_ally',
             title: 'Nuevo aliado registrado',
-            description: `${payload.full_name} cre√≥ cuenta de aliado en el portal. Ciudad: ${payload.city}. Tipo: ${payload.partner_type}.`,
+            description: `${payload.full_name} creÛ cuenta de aliado en el portal. Ciudad: ${payload.city}. Tipo: ${payload.partner_type}.`,
             entity_type: 'ally',
             entity_id: userId,
             contact_name: payload.full_name,
@@ -1566,7 +1461,7 @@ app.post('/api/auth/register-partner', (req, res) => {
 app.post('/api/auth/google', (req, res) => {
   const requestedRole = cleanText(req.body.role, 20);
   if (!['ally', 'client', 'admin'].includes(requestedRole)) {
-    return res.status(400).json({ error: 'Selecciona un tipo de acceso v√°lido.' });
+    return res.status(400).json({ error: 'Selecciona un tipo de acceso v·lido.' });
   }
 
   const credential = String(req.body.credential || '');
@@ -1584,7 +1479,7 @@ app.post('/api/auth/google', (req, res) => {
       const existingUser = findUserForRequestedRole(existingUsers, requestedRole);
 
       if (existingUser) {
-        if (existingUser.status !== 'active') return res.status(403).json({ error: 'Esta cuenta no est√° activa.' });
+        if (existingUser.status !== 'active') return res.status(403).json({ error: 'Esta cuenta no est· activa.' });
         if (existingUser.google_sub && googleProfile.google_sub && existingUser.google_sub !== googleProfile.google_sub) {
           return res.status(403).json({ error: 'Esta cuenta ya esta vinculada a otro perfil de Google.' });
         }
@@ -1646,7 +1541,7 @@ app.post('/api/auth/google', (req, res) => {
               createAdminNotification({
                 notification_type: 'new_ally',
                 title: 'Nuevo aliado registrado con Google',
-                description: `${googleProfile.full_name} cre√≥ cuenta de aliado con Google.`,
+                description: `${googleProfile.full_name} creÛ cuenta de aliado con Google.`,
                 entity_type: 'ally',
                 entity_id: user.id,
                 contact_name: googleProfile.full_name,
@@ -1657,7 +1552,7 @@ app.post('/api/auth/google', (req, res) => {
               createAdminNotification({
                 notification_type: 'new_client',
                 title: 'Nuevo cliente registrado con Google',
-                description: `${googleProfile.full_name} cre√≥ cuenta de cliente con Google.`,
+                description: `${googleProfile.full_name} creÛ cuenta de cliente con Google.`,
                 entity_type: 'client',
                 entity_id: user.id,
                 contact_name: googleProfile.full_name,
@@ -1677,7 +1572,7 @@ app.post('/api/auth/login', (req, res) => {
   const requestedRole = cleanText(req.body.role, 20);
 
   if (!email || !password || !requestedRole) {
-    return res.status(400).json({ error: 'Correo y contrase√±a son obligatorios.' });
+    return res.status(400).json({ error: 'Correo y contraseÒa son obligatorios.' });
   }
 
   pgAll(`SELECT id, full_name, document_id, email, password_hash, auth_provider, avatar_url, role, status FROM users WHERE email = $1`, [email], (err, users) => {
@@ -1688,7 +1583,7 @@ app.post('/api/auth/login', (req, res) => {
 
     const user = findUserForRequestedRole(users, requestedRole);
     if (!user || user.status !== 'active' || !verifyPassword(password, user.password_hash)) {
-      return res.status(401).json({ error: 'Credenciales inv√°lidas.' });
+      return res.status(401).json({ error: 'Credenciales inv·lidas.' });
     }
     if (requestedRole === 'admin' && !isAdminRole(user.role)) {
       return res.status(403).json({ error: 'Acceso exclusivo para personal autorizado.' });
@@ -1727,7 +1622,9 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
       attentionLeadsResult,
       recentActivityResult,
       pendingCommissionsResult,
-      caseFollowUpsResult
+      caseFollowUpsResult,
+      overdueReferralsCountResult,
+      overdueReferralsResult
     ] = await Promise.all([
       pool.query(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads`),
       pool.query(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads WHERE LEFT(COALESCE(created_at, ''), 7) = to_char(CURRENT_DATE, 'YYYY-MM')`),
@@ -1751,7 +1648,15 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
       pool.query(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`),
       pool.query(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads
         WHERE LOWER(COALESCE(status, '')) NOT IN ('convertido en caso', 'cliente vinculado', 'won', 'commission_paid', 'comision pagada', 'caso rechazado', 'rejected', 'archivado')
-        ORDER BY created_at DESC LIMIT 8`),
+        ORDER BY
+          CASE
+            WHEN source_kind = 'referral'
+              AND LOWER(COALESCE(status, '')) IN ('nuevo referido', 'new')
+              AND created_at::timestamptz <= CURRENT_TIMESTAMP - INTERVAL '48 hours'
+            THEN 0 ELSE 1
+          END,
+          created_at DESC
+        LIMIT 8`),
       pool.query(`SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 8`),
       pool.query(`SELECT c.id, c.ally_id, c.referral_id, c.percentage, c.amount, c.status, c.created_at,
           COALESCE(u.full_name, a.full_name, 'Aliado no identificado') AS ally_name,
@@ -1768,7 +1673,9 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
         FROM cases ca
         LEFT JOIN clients cl ON cl.id = ca.client_id
         WHERE COALESCE(ca.status, '') NOT IN ('Archivado', 'Finalizado')
-        ORDER BY COALESCE(ca.updated_at, ca.created_at) ASC LIMIT 4`)
+        ORDER BY COALESCE(ca.updated_at, ca.created_at) ASC LIMIT 4`),
+      pool.query(`SELECT COUNT(*) AS total FROM (${OVERDUE_NEW_REFERRALS_SQL}) overdue_referrals`),
+      pool.query(`${OVERDUE_NEW_REFERRALS_SQL} ORDER BY r.created_at ASC LIMIT 12`)
     ]);
 
     const readTotal = (result) => Number(result.rows[0]?.total || 0);
@@ -1782,6 +1689,7 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
       clients: readTotal(activeClients),
       weekly_allies: readTotal(weeklyAllies),
       monthly_allies: readTotal(monthlyAllies),
+      overdue_referrals: readTotal(overdueReferralsCountResult),
       pending_commissions: Number(pendingCommissionsTotal.rows[0]?.total || 0),
       pending_payments: Number(pendingPaymentsTotal.rows[0]?.total || 0)
     };
@@ -1790,10 +1698,19 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
     const attentionLeads = attentionLeadsResult.rows;
     const pendingCommissions = pendingCommissionsResult.rows;
     const caseFollowUps = caseFollowUpsResult.rows;
+    const overdueReferrals = overdueReferralsResult.rows;
     const actionItems = [
+      ...overdueReferrals.slice(0, 4).map((referral) => ({
+        icon: 'bi-alarm',
+        title: `Cliente potencial sin contactar: ${referral.referred_full_name}`,
+        description: `LlegÛ hace ${Math.max(2, Math.floor(Number(referral.hours_waiting || 0) / 24))} dÌas por ${referral.ally_name}. Estado: ${referral.status}.`,
+        date: referral.created_at,
+        section: 'leads',
+        priority: 'critical'
+      })),
       ...attentionLeads.slice(0, 3).map((lead) => ({
         icon: lead.source_kind === 'referral' ? 'bi-person-plus' : 'bi-telephone',
-        title: lead.source_kind === 'referral' ? `Contactar referido: ${lead.name}` : `Contactar lead: ${lead.name}`,
+        title: lead.source_kind === 'referral' ? `Contactar cliente potencial: ${lead.name}` : `Contactar cliente potencial: ${lead.name}`,
         description: `${lead.case_type || 'Caso legal'} - ${lead.phone || lead.email || 'sin contacto registrado'}`,
         date: lead.created_at,
         section: 'leads'
@@ -1801,14 +1718,14 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
       ...caseFollowUps.slice(0, 2).map((legalCase) => ({
         icon: 'bi-folder-check',
         title: `Revisar caso de ${legalCase.client_name || 'cliente'}`,
-        description: legalCase.next_action || legalCase.case_type || 'Sin pr√≥xima acci√≥n registrada',
+        description: legalCase.next_action || legalCase.case_type || 'Sin prÛxima acciÛn registrada',
         date: legalCase.updated_at || legalCase.created_at,
         section: 'cases'
       })),
       ...pendingCommissions.slice(0, 2).map((commission) => ({
         icon: 'bi-cash-coin',
-        title: `Comisi√≥n pendiente para ${commission.ally_name}`,
-        description: `${formatMoney(commission.amount)} por ${commission.referred_full_name || 'referido'}`,
+        title: `ComisiÛn pendiente para ${commission.ally_name}`,
+        description: `${formatMoney(commission.amount)} por ${commission.referred_full_name || 'cliente potencial'}`,
         date: commission.created_at,
         section: 'partner-network'
       }))
@@ -1817,20 +1734,29 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
     res.json({
       reports,
       recentLeads: recentLeadsResult.rows,
-      attentionLeads,
+      attentionLeads: attentionLeads.map((lead) => ({
+        ...lead,
+        is_overdue: lead.source_kind === 'referral' &&
+          ['nuevo referido', 'new'].includes(String(lead.status || '').toLowerCase()) &&
+          new Date(lead.created_at).getTime() <= Date.now() - (48 * 60 * 60 * 1000),
+        hours_waiting: lead.source_kind === 'referral' ? Math.floor((Date.now() - new Date(lead.created_at).getTime()) / (60 * 60 * 1000)) : null
+      })),
+      overdueReferrals,
       recentActivity: recentActivityResult.rows,
       pendingCommissions,
       actionItems,
       monthlyPerformance: [
-        { label: 'Leads del mes', value: String(reports.monthly_leads), help: 'Solicitudes y referidos recibidos' },
-        { label: 'Referidos del mes', value: String(reports.referrals), help: 'Entradas generadas por aliados' },
+        { label: 'Clientes potenciales del mes', value: String(reports.monthly_leads), help: 'Solicitudes y referidos recibidos' },
+        { label: 'Clientes potenciales de aliados', value: String(reports.referrals), help: 'Entradas con necesidad legal real' },
+        { label: 'Sin contacto 48h', value: String(reports.overdue_referrals), help: 'Clientes potenciales nuevos con m·s de 48 horas' },
         { label: 'Aliados nuevos', value: String(reports.monthly_allies), help: 'Registros creados este mes' },
-        { label: 'Conversi√≥n estimada', value: `${reports.conversion_rate}%`, help: 'Casos activos frente a leads del mes' },
+        { label: 'ConversiÛn estimada', value: `${reports.conversion_rate}%`, help: 'Casos activos frente a clientes potenciales' },
         { label: 'Clientes activos', value: String(reports.clients), help: 'Clientes no archivados' }
       ],
       metrics: [
-        { label: 'Leads nuevos hoy', value: String(reports.today_leads) },
-        { label: 'Referidos hoy', value: String(reports.today_referrals) },
+        { label: 'Clientes potenciales hoy', value: String(reports.today_leads) },
+        { label: 'Clientes de aliados hoy', value: String(reports.today_referrals) },
+        { label: 'Sin contacto 48h', value: String(reports.overdue_referrals) },
         { label: 'Aliados semana', value: String(reports.weekly_allies) },
         { label: 'Casos activos', value: String(reports.cases) },
         { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
@@ -1846,23 +1772,42 @@ app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), 
 app.get('/api/admin/notifications', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   pgAll(`SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 150`, (err, rows) => {
     if (err) return res.status(500).json({ error: 'No fue posible cargar notificaciones.' });
-    res.json(rows);
+    pgAll(`${OVERDUE_NEW_REFERRALS_SQL} ORDER BY r.created_at ASC LIMIT 30`, (overdueErr, overdueRows) => {
+      if (overdueErr) return res.status(500).json({ error: 'No fue posible cargar alertas de clientes potenciales.' });
+      const overdueNotifications = overdueRows.map((referral) => ({
+        id: `overdue-referral-${referral.id}`,
+        virtual: true,
+        notification_type: 'overdue_referral',
+        title: 'Cliente potencial sin contacto por m·s de 48 horas',
+        description: `${referral.referred_full_name} llegÛ hace ${Math.max(2, Math.floor(Number(referral.hours_waiting || 0) / 24))} dÌas por ${referral.ally_name} y sigue como ${referral.status}.`,
+        entity_type: 'referral',
+        entity_id: referral.id,
+        contact_name: referral.referred_full_name,
+        contact_phone: referral.referred_phone,
+        contact_email: referral.referred_email,
+        whatsapp_url: whatsappLink(referral.referred_phone, `Hola ${referral.referred_full_name || ''}, te contactamos de Orjuela Abogados para orientarte sobre tu solicitud legal.`),
+        email_url: mailtoLink(referral.referred_email, 'Seguimiento a tu solicitud legal'),
+        is_read: 0,
+        created_at: referral.created_at
+      }));
+      res.json([...overdueNotifications, ...(rows || [])]);
+    });
   });
 });
 
 app.post('/api/admin/notifications/:id/read', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Notificaci√≥n inv√°lida.' });
+  if (!id) return res.status(400).json({ error: 'NotificaciÛn inv·lida.' });
   pgRun(`UPDATE admin_notifications SET is_read = 1 WHERE id = $1`, [id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificaci√≥n.' });
-    res.json({ message: 'Notificaci√≥n marcada como le√≠da.' });
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificaciÛn.' });
+    res.json({ message: 'NotificaciÛn marcada como leÌda.' });
   });
 });
 
 app.post('/api/admin/notifications/read-all', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   pgRun(`UPDATE admin_notifications SET is_read = 1`, (err) => {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar notificaciones.' });
-    res.json({ message: 'Notificaciones marcadas como le√≠das.' });
+    res.json({ message: 'Notificaciones marcadas como leÌdas.' });
   });
 });
 
@@ -1885,8 +1830,8 @@ app.post('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (re
     next_action: cleanText(req.body.next_action || 'Contactar al lead', 180),
     notes: cleanText(req.body.notes, 1000)
   };
-  if (!payload.name || !payload.phone || !payload.case_type) return res.status(400).json({ error: 'Nombre, tel√©fono y tipo de caso son obligatorios.' });
-  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv√°lido.' });
+  if (!payload.name || !payload.phone || !payload.case_type) return res.status(400).json({ error: 'Nombre, telÈfono y tipo de caso son obligatorios.' });
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv·lido.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO leads (name, phone, email, case_type, source, status, assigned_to, notes, priority, next_action, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, 'Nuevo', $6, $7, $8, $9, $10, $11)
@@ -1902,7 +1847,7 @@ app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente'])
   const status = cleanText(req.body.status, 40);
   const assignedTo = cleanText(req.body.assigned_to, 100);
   const nextAction = cleanText(req.body.next_action, 180);
-  if (!id) return res.status(400).json({ error: 'Lead inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Lead inv·lido.' });
   pgRun(`UPDATE leads SET
       status = COALESCE(NULLIF($1, ''), status),
       assigned_to = COALESCE(NULLIF($2, ''), assigned_to),
@@ -1917,7 +1862,7 @@ app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente'])
 
 app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Lead inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Lead inv·lido.' });
   pgGet(`SELECT * FROM leads WHERE id = $1`, [id], (leadErr, lead) => {
     if (leadErr) return res.status(500).json({ error: 'No fue posible cargar el lead.' });
     if (!lead) return res.status(404).json({ error: 'Lead no encontrado.' });
@@ -1928,7 +1873,7 @@ app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asist
         pgRun(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
           VALUES ($1, $2, $3, 'Recibido', $4, $5, $6, $7)
           RETURNING id`,
-          [clientId, lead.case_type, lead.notes || '', lead.assigned_to || 'Equipo Orjuela', lead.next_action || 'Revisar documentaci√≥n inicial', now, now], function (caseErr) {
+          [clientId, lead.case_type, lead.notes || '', lead.assigned_to || 'Equipo Orjuela', lead.next_action || 'Revisar documentaciÛn inicial', now, now], function (caseErr) {
             if (caseErr) return res.status(500).json({ error: 'No fue posible crear el caso.' });
             pgRun(`UPDATE leads SET status = 'Convertido en caso', updated_at = $1 WHERE id = $2`, [now, id]);
             res.status(201).json({ message: 'Lead convertido en caso.', case_id: this.lastID, client_id: clientId });
@@ -1959,8 +1904,8 @@ app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (
     address: cleanText(req.body.address, 160),
     verified: req.body.verified ? 1 : 0
   };
-  if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y tel√©fono son obligatorios.' });
-  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv√°lido.' });
+  if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y telÈfono son obligatorios.' });
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv·lido.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, 'Activo', $8, $9)
@@ -1983,7 +1928,7 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
     status: cleanText(req.body.status, 30),
     verified: req.body.verified === undefined ? null : req.body.verified ? 1 : 0
   };
-  if (!id) return res.status(400).json({ error: 'Cliente inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Cliente inv·lido.' });
   pgRun(`UPDATE clients SET
       name = COALESCE(NULLIF($1, ''), name),
       document_id = COALESCE(NULLIF($2, ''), document_id),
@@ -2004,7 +1949,7 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
 
 app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Cliente inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Cliente inv·lido.' });
   pgRun(`UPDATE clients SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar cliente.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
@@ -2015,7 +1960,7 @@ app.delete('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente
 
 app.delete('/api/admin/clients/:id/permanent', requireAuth(['admin']), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Cliente inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Cliente inv·lido.' });
 
   const client = await pool.connect();
   try {
@@ -2079,9 +2024,9 @@ app.post('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (re
     description: cleanText(req.body.description, 1000),
     status: cleanText(req.body.status || 'Recibido', 40),
     assigned_lawyer: cleanText(req.body.assigned_lawyer || req.user.full_name, 100),
-    next_action: cleanText(req.body.next_action || 'Revisar documentaci√≥n inicial', 180)
+    next_action: cleanText(req.body.next_action || 'Revisar documentaciÛn inicial', 180)
   };
-  if (!payload.client_name || !payload.client_phone || !payload.case_type) return res.status(400).json({ error: 'Cliente, tel√©fono y tipo de caso son obligatorios.' });
+  if (!payload.client_name || !payload.client_phone || !payload.case_type) return res.status(400).json({ error: 'Cliente, telÈfono y tipo de caso son obligatorios.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified) VALUES ($1, $2, $3, '', $4, $5, 0)
     RETURNING id`,
@@ -2106,7 +2051,7 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
     assigned_lawyer: cleanText(req.body.assigned_lawyer, 100),
     next_action: cleanText(req.body.next_action, 180)
   };
-  if (!id) return res.status(400).json({ error: 'Caso inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Caso inv·lido.' });
   pgRun(`UPDATE cases SET
       case_type = COALESCE(NULLIF($1, ''), case_type),
       description = COALESCE(NULLIF($2, ''), description),
@@ -2124,7 +2069,7 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
 
 app.delete('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Caso inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Caso inv·lido.' });
   pgRun(`UPDATE cases SET archived_at = $1, status = 'Archivado', updated_at = $2 WHERE id = $3`, [getTimestamp(), getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar caso.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
@@ -2149,7 +2094,7 @@ app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), 
     support_url: cleanText(req.body.support_url, 220)
   };
   if (!payload.related_id || Number.isNaN(payload.amount) || payload.amount < 0) return res.status(400).json({ error: 'Relacionado y monto son obligatorios.' });
-  if (!['Nequi 3144278339', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no v√°lido.' });
+  if (!['Nequi 3144278339', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no v·lido.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_method, payment_date, support_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -2163,7 +2108,7 @@ app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), 
 app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const amount = req.body.amount === undefined ? null : Number(req.body.amount);
-  if (!id) return res.status(400).json({ error: 'Pago inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Pago inv·lido.' });
   pgRun(`UPDATE payments SET
       concept = COALESCE(NULLIF($1, ''), concept),
       amount = COALESCE($2, amount),
@@ -2191,7 +2136,7 @@ app.patch('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente
 
 app.delete('/api/admin/payments/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Pago inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Pago inv·lido.' });
   pgRun(`UPDATE payments SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar pago.' });
     auditAdminAction(req, 'archivar', 'pago', id, 'Pago archivado');
@@ -2228,7 +2173,7 @@ app.post('/api/admin/documents', requireAuth(['admin', 'abogado', 'asistente']),
 
 app.patch('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Documento inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Documento inv·lido.' });
   pgRun(`UPDATE case_documents SET
       file_name = COALESCE(NULLIF($1, ''), file_name),
       document_type = COALESCE(NULLIF($2, ''), document_type),
@@ -2243,7 +2188,7 @@ app.patch('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistent
 
 app.delete('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Documento inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Documento inv·lido.' });
   pgRun(`UPDATE case_documents SET status = 'Archivado' WHERE id = $1`, [id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar documento.' });
     auditAdminAction(req, 'archivar', 'documento', id, 'Documento archivado');
@@ -2277,7 +2222,7 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
     status: cleanText(req.body.status || 'Programada', 40),
     notes: cleanText(req.body.notes, 500)
   };
-  if (!payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'T√≠tulo y fecha son obligatorios.' });
+  if (!payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'TÌtulo y fecha son obligatorios.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -2290,7 +2235,7 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
 
 app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Agenda inv√°lida.' });
+  if (!id) return res.status(400).json({ error: 'Agenda inv·lida.' });
   pgRun(`UPDATE admin_agenda SET
       title = COALESCE(NULLIF($1, ''), title),
       client_name = COALESCE(NULLIF($2, ''), client_name),
@@ -2308,7 +2253,7 @@ app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']
 
 app.delete('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Agenda inv√°lida.' });
+  if (!id) return res.status(400).json({ error: 'Agenda inv·lida.' });
   pgRun(`UPDATE admin_agenda SET status = 'Archivado', updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar agenda.' });
     auditAdminAction(req, 'archivar', 'agenda', id, 'Agenda archivada');
@@ -2368,10 +2313,10 @@ app.patch('/api/client/profile', requireAuth(['client']), (req, res) => {
   };
 
   if (!payload.full_name || payload.full_name.length < 3 || !payload.phone || !payload.city) {
-    return res.status(400).json({ error: 'Nombre, tel√©fono y ciudad son obligatorios.' });
+    return res.status(400).json({ error: 'Nombre, telÈfono y ciudad son obligatorios.' });
   }
   if (!/^3\d{9}$|^\+57\s?3\d{9}$/.test(payload.phone)) {
-    return res.status(400).json({ error: 'Ingresa un celular colombiano v√°lido.' });
+    return res.status(400).json({ error: 'Ingresa un celular colombiano v·lido.' });
   }
 
   const updatedAt = getTimestamp();
@@ -2494,7 +2439,7 @@ app.post('/api/client/uploads', requireAuth(['client']), (req, res) => {
   try {
     buffer = Buffer.from(dataBase64, 'base64');
   } catch (err) {
-    return res.status(400).json({ error: 'Archivo no v√°lido.' });
+    return res.status(400).json({ error: 'Archivo no v·lido.' });
   }
   if (!buffer.length || buffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'El archivo no puede superar 10 MB.' });
 
@@ -2580,18 +2525,18 @@ app.patch('/api/client/appointments/:id/reschedule', requireAuth(['client']), (r
       if (!appointment) return res.status(403).json({ error: 'No puedes reprogramar esta cita.' });
       if (['Cancelada', 'Archivado', 'Realizada'].includes(appointment.status)) return res.status(400).json({ error: 'Esta cita ya no se puede reprogramar.' });
 
-      pgRun(`UPDATE admin_agenda SET scheduled_at = $1, status = 'Reprogramaci√≥n solicitada', notes = COALESCE(NULLIF($2, ''), notes), updated_at = $3 WHERE id = $4`,
+      pgRun(`UPDATE admin_agenda SET scheduled_at = $1, status = 'ReprogramaciÛn solicitada', notes = COALESCE(NULLIF($2, ''), notes), updated_at = $3 WHERE id = $4`,
         [payload.scheduled_at, payload.notes, getTimestamp(), appointmentId], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible reprogramar la cita.' });
-          createClientNotification(appointment.client_id, 'Citas', 'Reprogramaci√≥n solicitada', `Recibimos tu nueva fecha para ${appointment.case_type || appointment.title}.`);
-          sendNotificationEmail('Cliente solicit√≥ reprogramar cita', `
-            <h2>Solicitud de reprogramaci√≥n</h2>
+          createClientNotification(appointment.client_id, 'Citas', 'ReprogramaciÛn solicitada', `Recibimos tu nueva fecha para ${appointment.case_type || appointment.title}.`);
+          sendNotificationEmail('Cliente solicitÛ reprogramar cita', `
+            <h2>Solicitud de reprogramaciÛn</h2>
             <p><strong>Cliente:</strong> ${escapeHtml(req.user.full_name)}</p>
             <p><strong>Cita:</strong> ${escapeHtml(appointment.title)}</p>
             <p><strong>Nueva fecha:</strong> ${escapeHtml(payload.scheduled_at)}</p>
             <p>${escapeHtml(payload.notes)}</p>
           `);
-          res.json({ message: 'Reprogramaci√≥n solicitada.' });
+          res.json({ message: 'ReprogramaciÛn solicitada.' });
         });
     });
 });
@@ -2599,7 +2544,7 @@ app.patch('/api/client/appointments/:id/reschedule', requireAuth(['client']), (r
 app.post('/api/client/appointments/:id/cancel', requireAuth(['client']), (req, res) => {
   const appointmentId = parseInt(req.params.id, 10);
   const reason = cleanText(req.body.reason || 'Cancelada por el cliente', 500);
-  if (!appointmentId) return res.status(400).json({ error: 'Cita inv√°lida.' });
+  if (!appointmentId) return res.status(400).json({ error: 'Cita inv·lida.' });
 
   pgGet(`SELECT ag.*, ca.case_type, cl.id AS client_id
     FROM admin_agenda ag
@@ -2616,7 +2561,7 @@ app.post('/api/client/appointments/:id/cancel', requireAuth(['client']), (req, r
         [notes, getTimestamp(), appointmentId], function (err) {
           if (err) return res.status(500).json({ error: 'No fue posible cancelar la cita.' });
           createClientNotification(appointment.client_id, 'Citas', 'Cita cancelada', `Cancelamos tu cita ${appointment.title}.`);
-          sendNotificationEmail('Cliente cancel√≥ una cita', `
+          sendNotificationEmail('Cliente cancelÛ una cita', `
             <h2>Cita cancelada por cliente</h2>
             <p><strong>Cliente:</strong> ${escapeHtml(req.user.full_name)}</p>
             <p><strong>Cita:</strong> ${escapeHtml(appointment.title)}</p>
@@ -2634,10 +2579,10 @@ app.post('/api/client/payments/:id/support', requireAuth(['client']), (req, res)
     payment_method: cleanText(req.body.payment_method || 'Nequi 3118924111', 80),
     payment_date: cleanText(req.body.payment_date, 40)
   };
-  if (!paymentId) return res.status(400).json({ error: 'Pago inv√°lido.' });
+  if (!paymentId) return res.status(400).json({ error: 'Pago inv·lido.' });
   if (!payload.support_url) return res.status(400).json({ error: 'Registra el enlace o referencia del comprobante.' });
   if (!['Nequi 3118924111', 'Nequi 3144278339', 'Efectivo', 'Transferencia', 'Otro'].includes(payload.payment_method)) {
-    return res.status(400).json({ error: 'Medio de pago no v√°lido.' });
+    return res.status(400).json({ error: 'Medio de pago no v·lido.' });
   }
 
   pgGet(`SELECT id, name FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
@@ -2736,9 +2681,9 @@ app.post('/api/client/service-requests', requireAuth(['client']), (req, res) => 
   };
 
   if (!payload.service_type || !payload.description || payload.description.length < 12 || !payload.city || !payload.email || !payload.phone) {
-    return res.status(400).json({ error: 'Completa tipo de servicio, descripci√≥n, ciudad, correo y tel√©fono.' });
+    return res.status(400).json({ error: 'Completa tipo de servicio, descripciÛn, ciudad, correo y telÈfono.' });
   }
-  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Ingresa un correo electr√≥nico v√°lido.' });
+  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Ingresa un correo electrÛnico v·lido.' });
 
   pgGet(`SELECT id, name, phone, email, city FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
@@ -2789,13 +2734,13 @@ app.post('/api/client/service-requests', requireAuth(['client']), (req, res) => 
 
 app.post('/api/client/notifications/:id/read', requireAuth(['client']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Notificaci√≥n inv√°lida.' });
+  if (!id) return res.status(400).json({ error: 'NotificaciÛn inv·lida.' });
   pgGet(`SELECT id FROM clients WHERE email = $1 OR document_id = $2`, [req.user.email, req.user.document_id], (clientErr, client) => {
     if (clientErr) return res.status(500).json({ error: 'No fue posible validar tu perfil.' });
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
     pgRun(`UPDATE client_notifications SET is_read = 1 WHERE client_id = $1 AND id = $2`, [client.id, id], function (err) {
-      if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificaci√≥n.' });
-      res.json({ message: 'Notificaci√≥n marcada como le√≠da.' });
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar la notificaciÛn.' });
+      res.json({ message: 'NotificaciÛn marcada como leÌda.' });
     });
   });
 });
@@ -2806,7 +2751,7 @@ app.post('/api/client/notifications/read-all', requireAuth(['client']), (req, re
     if (!client) return res.status(404).json({ error: 'No encontramos tu perfil de cliente.' });
     pgRun(`UPDATE client_notifications SET is_read = 1 WHERE client_id = $1`, [client.id], function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar notificaciones.' });
-      res.json({ message: 'Notificaciones marcadas como le√≠das.' });
+      res.json({ message: 'Notificaciones marcadas como leÌdas.' });
     });
   });
 });
@@ -2826,10 +2771,12 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
         LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = $1 AND c.commission_type = 'direct'
         WHERE r.ally_id = $2
         ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (refErr, directReferrals) => {
-        if (refErr) return res.status(500).json({ error: 'Error al cargar tus referidos.' });
+        if (refErr) return res.status(500).json({ error: 'Error al cargar tus clientes potenciales.' });
 
         pgAll(`SELECT p.user_id, p.city, p.referral_code, p.created_at, u.full_name, u.status,
-            COUNT(r.id) AS referrals_count,
+            COUNT(DISTINCT r.id) AS referrals_count,
+            COUNT(DISTINCT r.id) AS client_leads_count,
+            (SELECT COUNT(*) FROM partners child WHERE child.invited_by_partner_id = p.user_id) AS invited_allies_count,
             COALESCE(SUM(c.amount), 0) AS generated_commissions
           FROM partners p
           JOIN users u ON u.id = p.user_id
@@ -2848,7 +2795,7 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
             LEFT JOIN commissions c ON c.referral_id = r.id AND c.ally_id = $1
             WHERE p.invited_by_partner_id = $2
             ORDER BY r.created_at DESC`, [req.user.id, req.user.id], (networkErr, networkReferrals) => {
-            if (networkErr) return res.status(500).json({ error: 'Error al cargar referidos de tu red.' });
+            if (networkErr) return res.status(500).json({ error: 'Error al cargar clientes potenciales de tu red.' });
 
             pgAll(`SELECT c.*, r.referred_full_name, r.legal_area, u.full_name AS source_ally_name
               FROM commissions c
@@ -2863,6 +2810,8 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
 
                 const summary = {
                   total_referrals: directReferrals.length,
+                  total_client_leads: directReferrals.length,
+                  invited_allies: team.length,
                   in_review: directReferrals.filter((item) => ['new', 'in_progress', 'Nuevo referido', 'En revision'].includes(item.status)).length,
                   converted: directReferrals.filter((item) => ['won', 'Cliente vinculado'].includes(item.status)).length,
                   pending_commission: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0),
@@ -2893,7 +2842,7 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                     source_ally_name: item.source_ally_name,
                     commission_amount: item.commission_amount || 0,
                     commission_status: item.commission_status,
-                    public_note: 'Seguimiento limitado por protecci√≥n de datos.'
+                    public_note: 'Seguimiento limitado por protecciÛn de datos.'
                   })),
                   commissions: commissions.map((item) => ({
                     ...item,
@@ -2903,8 +2852,8 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                   activity: [
                     ...directReferrals.slice(0, 4).map((item) => ({
                       date: item.created_at,
-                      type: 'Referido registrado',
-                      description: `${item.referred_full_name} fue registrado en el programa.`,
+                      type: 'Cliente potencial registrado',
+                      description: `${item.referred_full_name} fue registrado como cliente potencial.`,
                       icon: 'bi-person-plus',
                       status: item.status
                     })),
@@ -2931,8 +2880,8 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                     registered_at: item.created_at,
                     current_status: item.status,
                     updated_at: item.updated_at,
-                    public_note: 'Seguimiento limitado por protecci√≥n de datos. No se comparte informaci√≥n sensible del referido.',
-                    observations: 'La firma actualizar√° novedades comerciales visibles para el aliado.',
+                    public_note: 'Seguimiento limitado por protecciÛn de datos. No se comparte informaciÛn sensible del cliente potencial.',
+                    observations: 'La firma actualizar· novedades comerciales visibles para el aliado.',
                   })),
                   resources: [],
                   level: {},
@@ -2949,7 +2898,7 @@ app.get('/api/partner/network', requireAuth(['ally']), (req, res) => {
                     invite_link: inviteLink,
                     status: partner.status,
                     joined_at: partner.created_at,
-                    bank_name: 'Requiere aprobaci√≥n administrativa',
+                    bank_name: 'Requiere aprobaciÛn administrativa',
                     account_type: 'Dato sensible protegido',
                     account_number: '****'
                   },
@@ -3013,23 +2962,23 @@ app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => 
     return res.status(400).json({ error: 'Completa los campos obligatorios y confirma la autorizacion de datos.' });
   }
   if (payload.client_email && !isValidEmail(payload.client_email)) {
-    return res.status(400).json({ error: 'El correo del referido no tiene un formato valido.' });
+    return res.status(400).json({ error: 'El correo del cliente potencial no tiene un formato valido.' });
   }
 
   pgGet(`SELECT id FROM referrals WHERE client_identification = $1 OR referred_phone = $2 OR referred_email = $3`, [payload.client_identification, payload.client_phone, payload.client_email], (dupErr, duplicate) => {
     if (dupErr) return res.status(500).json({ error: 'Error al validar duplicados.' });
-    if (duplicate) return res.status(409).json({ error: 'Este referido ya existe por cedula, telefono o correo.' });
+    if (duplicate) return res.status(409).json({ error: 'Este cliente potencial ya existe por cedula, telefono o correo.' });
 
     const createdAt = getTimestamp();
     pgRun(`INSERT INTO referrals (ally_id, referred_full_name, client_identification, referred_phone, referred_email, referred_city, legal_area, case_description, referral_channel, status, created_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'Nuevo referido', $10, $11)
       RETURNING id`,
       [req.user.id, payload.client_name, payload.client_identification, payload.client_phone, payload.client_email, payload.city, payload.legal_area, payload.description, payload.referral_channel, createdAt, createdAt], function (insertErr) {
-      if (insertErr) return res.status(500).json({ error: 'No fue posible guardar el referido.' });
+      if (insertErr) return res.status(500).json({ error: 'No fue posible guardar el cliente potencial.' });
       const referralId = this.lastID;
       createCommissionRows(referralId, req.user.id, (commissionErr) => {
         if (commissionErr) console.error(commissionErr);
-        res.status(201).json({ message: 'Referido enviado correctamente. Quedo asociado a tu cuenta de aliado.', id: referralId });
+        res.status(201).json({ message: 'Cliente potencial enviado correctamente. Quedo asociado a tu cuenta de aliado.', id: referralId });
       });
     });
   });
@@ -3038,116 +2987,94 @@ app.post('/api/partner/network/referrals', requireAuth(['ally']), (req, res) => 
 app.get('/api/partner/advanced', requireAuth(['ally']), (req, res) => {
   const allyId = req.user.id;
   const month = currentMonthKey();
-  const response = {};
-
   getPartnerProfile(allyId, (profileErr, partner) => {
-      if (!profileErr && partner) {
-        const referralCode = partner.referral_code || 'ORJUELAPRUEBA';
-        response.profile = {
-          full_name: partner.full_name,
-          document_id: partner.document_id,
-          phone: partner.phone,
-          email: partner.email,
-          city: partner.city,
-          partner_type: partner.partner_type,
-          company: partner.company,
-          how_known: partner.how_known,
-          occupation: partner.occupation || partner.partner_type,
-          referral_code: referralCode,
-          invite_link: `${getBaseUrl(req)}/aliados/registro?ref=${encodeURIComponent(referralCode)}`,
-          status: partner.status,
-          joined_at: partner.created_at,
-          bank_name: partner.bank_name || 'Bancolombia',
-          account_type: partner.account_type || 'Ahorros',
-          account_number: partner.account_number || '****6789',
-          commission_balance: partner.commission_balance || 0
-        };
+    if (profileErr || !partner) return res.status(404).json({ error: 'No encontramos tu perfil de aliado.' });
+    const referralCode = partner.referral_code || 'ORJUELAPRUEBA';
+    const response = {
+      profile: {
+        full_name: partner.full_name,
+        document_id: partner.document_id,
+        phone: partner.phone,
+        email: partner.email,
+        city: partner.city,
+        partner_type: partner.partner_type,
+        company: partner.company,
+        how_known: partner.how_known,
+        occupation: partner.occupation || partner.partner_type,
+        referral_code: referralCode,
+        invite_link: `${getBaseUrl(req)}/aliados/registro?ref=${encodeURIComponent(referralCode)}`,
+        status: partner.status,
+        joined_at: partner.created_at,
+        bank_name: partner.bank_name || 'Bancolombia',
+        account_type: partner.account_type || 'Ahorros',
+        account_number: partner.account_number || '****6789',
+        commission_balance: partner.commission_balance || 0
       }
-    });
+    };
 
-    pgAll(`SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type, title`, (resourceErr, resources) => {
-      if (resourceErr) return res.status(500).json({ error: 'Error al cargar recursos.' });
-      response.resources = resources;
-
-      pgAll(`SELECT * FROM ally_notifications WHERE ally_id = $1 ORDER BY created_at DESC`, [allyId], (notificationErr, notifications) => {
-        if (notificationErr) return res.status(500).json({ error: 'Error al cargar notificaciones.' });
-        response.notifications = notifications;
-
-          pgGet(`SELECT * FROM ally_kyc_verifications WHERE ally_id = $1`, [allyId], (kycErr, kyc) => {
-            if (kycErr) return res.status(500).json({ error: 'Error al cargar verificacion.' });
-            response.kyc = kyc || { status: 'Sin verificar', phone_validated: 0, email_validated: 0 };
-
-            pgAll(`SELECT * FROM ally_legal_acceptances WHERE ally_id = $1 ORDER BY document_type`, [allyId], (legalErr, legalDocuments) => {
-              if (legalErr) return res.status(500).json({ error: 'Error al cargar documentos legales.' });
-              response.legal_documents = legalDocuments;
-
-              pgGet(`SELECT * FROM ally_goals WHERE (ally_id = $1 OR ally_id IS NULL) AND month = $2 AND is_active = 1 ORDER BY ally_id DESC LIMIT 1`, [allyId, month], (goalErr, goal) => {
-                if (goalErr) return res.status(500).json({ error: 'Error al cargar metas.' });
-                const activeGoal = goal || { month, referral_goal: 5, converted_goal: 1, commission_goal: 500000 };
-
-                pgAll(`SELECT r.status, r.created_at FROM referrals r WHERE r.ally_id = $1`, [allyId], (refErr, refs) => {
-                  if (refErr) return res.status(500).json({ error: 'Error al cargar referidos.' });
-                  pgAll(`SELECT commission_type, amount, status, created_at FROM commissions WHERE ally_id = $1`, [allyId], (commErr, commissions) => {
-                    if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
-                    pgAll(`SELECT * FROM ally_levels WHERE is_active = 1 ORDER BY sort_order`, (levelErr, levels) => {
-                      if (levelErr) return res.status(500).json({ error: 'Error al cargar niveles.' });
-
-                      const converted = refs.filter((item) => ['Cliente activo', 'Cliente vinculado', 'won'].includes(item.status)).length;
-                      const totalCommissions = commissions.reduce((sum, item) => sum + money(item.amount), 0);
-                      pgAll(`SELECT user_id FROM partners WHERE invited_by_partner_id = $1`, [allyId], (teamErr, team) => {
-                        if (teamErr) return res.status(500).json({ error: 'Error al cargar red.' });
-                        const activeAllies = team.length;
-                        const currentLevel = [...levels].reverse().find((level) =>
-                          converted >= level.min_converted_referrals &&
-                          totalCommissions >= level.min_commissions &&
-                          activeAllies >= level.min_active_allies
-                        ) || levels[0];
-                        const nextLevel = levels.find((level) => level.sort_order > currentLevel.sort_order);
-
-                        response.level = {
-                          current: currentLevel,
-                          next: nextLevel,
-                          progress: nextLevel ? Math.min(100, Math.round((
-                            progressPercent(converted, nextLevel.min_converted_referrals) +
-                            progressPercent(totalCommissions, nextLevel.min_commissions) +
-                            progressPercent(activeAllies, nextLevel.min_active_allies)
-                          ) / 3)) : 100
-                        };
-                        response.goals = {
-                          ...activeGoal,
-                          referral_progress: progressPercent(refs.length, activeGoal.referral_goal),
-                          converted_progress: progressPercent(converted, activeGoal.converted_goal),
-                          commission_progress: progressPercent(totalCommissions, activeGoal.commission_goal),
-                          message: 'Mant√©n referidos de calidad y seguimiento oportuno. Las comisiones dependen de validaci√≥n interna.'
-                        };
-                        const byMonth = (rows, valueFn = () => 1) => {
-                          const grouped = {};
-                          rows.forEach((row) => {
-                            const key = String(row.created_at || '').slice(0, 7) || month;
-                            grouped[key] = (grouped[key] || 0) + valueFn(row);
-                          });
-                          return Object.entries(grouped).map(([label, value]) => ({ label, value }));
-                        };
-                        response.charts = {
-                          commissions_by_month: byMonth(commissions, (item) => money(item.amount)),
-                          referrals_by_month: byMonth(refs),
-                          conversion_rate: refs.length ? Math.round((converted / refs.length) * 100) : 0,
-                          network_growth: [{ label: month, value: activeAllies }],
-                          direct_vs_indirect: [
-                            { label: 'Directas', value: commissions.filter((item) => item.commission_type === 'direct').reduce((sum, item) => sum + money(item.amount), 0) },
-                            { label: 'Indirectas', value: commissions.filter((item) => item.commission_type !== 'direct').reduce((sum, item) => sum + money(item.amount), 0) }
-                          ],
-                          pending_vs_paid: [
-                            { label: 'Pendientes', value: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0) },
-                            { label: 'Pagadas', value: commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + money(item.amount), 0) }
-                          ]
-                        };
-                        res.json(response);
-                    });
-                  });
-                });
+    pgAll(`SELECT * FROM ally_notifications WHERE ally_id = $1 ORDER BY created_at DESC`, [allyId], (notificationErr, notifications) => {
+      if (notificationErr) return res.status(500).json({ error: 'Error al cargar notificaciones.' });
+      pgAll(`SELECT id, status, created_at FROM referrals WHERE ally_id = $1`, [allyId], (refErr, refs) => {
+        if (refErr) return res.status(500).json({ error: 'Error al cargar clientes potenciales.' });
+        pgAll(`SELECT commission_type, amount, status, created_at FROM commissions WHERE ally_id = $1`, [allyId], (commErr, commissions) => {
+          if (commErr) return res.status(500).json({ error: 'Error al cargar comisiones.' });
+          pgAll(`SELECT p.user_id, p.city, p.created_at, u.full_name, u.status,
+              COUNT(r.id) AS referrals_count,
+              COALESCE(SUM(c.amount), 0) AS generated_commissions
+            FROM partners p
+            JOIN users u ON u.id = p.user_id
+            LEFT JOIN referrals r ON r.ally_id = p.user_id
+            LEFT JOIN commissions c ON c.source_ally_id = p.user_id AND c.ally_id = $1
+            WHERE p.invited_by_partner_id = $2
+            GROUP BY p.user_id, p.city, p.created_at, u.full_name, u.status
+            ORDER BY p.created_at DESC`, [allyId, allyId], (teamErr, team) => {
+            if (teamErr) return res.status(500).json({ error: 'Error al cargar red.' });
+            const byMonth = (rows, valueFn = () => 1) => {
+              const grouped = {};
+              rows.forEach((row) => {
+                const key = String(row.created_at || '').slice(0, 7) || month;
+                grouped[key] = (grouped[key] || 0) + valueFn(row);
               });
-            });
+              return Object.entries(grouped).map(([label, value]) => ({ label, value }));
+            };
+            response.notifications = notifications;
+            response.activity = refs.slice(0, 5).map((item) => ({
+              date: item.created_at,
+              type: 'Cliente potencial registrado',
+              description: `Cliente potencial registrado en estado ${item.status}.`,
+              icon: 'bi-person-plus',
+              status: item.status
+            }));
+            response.charts = {
+              commissions_by_month: byMonth(commissions, (item) => money(item.amount)),
+              referrals_by_month: byMonth(refs),
+              network_growth: [{ label: month, value: team.length }],
+              direct_vs_indirect: [
+                { label: 'Directas', value: commissions.filter((item) => item.commission_type === 'direct').reduce((sum, item) => sum + money(item.amount), 0) },
+                { label: 'Indirectas', value: commissions.filter((item) => item.commission_type !== 'direct').reduce((sum, item) => sum + money(item.amount), 0) }
+              ],
+              pending_vs_paid: [
+                { label: 'Pendientes', value: commissions.filter((item) => item.status === 'pending').reduce((sum, item) => sum + money(item.amount), 0) },
+                { label: 'Pagadas', value: commissions.filter((item) => item.status === 'paid').reduce((sum, item) => sum + money(item.amount), 0) }
+              ]
+            };
+            response.network_tree = {
+              name: partner.full_name,
+              level: 'Aliado principal',
+              status: partner.status,
+              referrals_count: refs.length,
+              commissions: commissions.reduce((sum, item) => sum + money(item.amount), 0),
+              children: team.map((item) => ({
+                name: item.full_name,
+                level: 'Aliado invitado',
+                status: item.status,
+                city: item.city,
+                referrals_count: Number(item.referrals_count || 0),
+                commissions: Number(item.generated_commissions || 0)
+              }))
+            };
+            res.json(response);
+          });
         });
       });
     });
@@ -3166,34 +3093,6 @@ app.post('/api/partner/notifications/read-all', requireAuth(['ally']), (req, res
   });
 });
 
-app.post('/api/partner/legal-acceptances', requireAuth(['ally']), (req, res) => {
-  const documentType = cleanText(req.body.document_type, 80);
-  const version = cleanText(req.body.version || 'v1.0', 20);
-  if (!documentType) return res.status(400).json({ error: 'Tipo de documento obligatorio.' });
-  pgRun(`INSERT INTO ally_legal_acceptances (ally_id, document_type, accepted_at, ip_address, version, status)
-    VALUES ($1, $2, $3, $4, $5, 'accepted')
-    RETURNING id`, [req.user.id, documentType, getTimestamp(), req.ip || '', version], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible registrar la aceptacion.' });
-    res.status(201).json({ message: 'Documento aceptado correctamente.', id: this.lastID });
-  });
-});
-
-app.post('/api/partner/electronic-signatures', requireAuth(['ally']), (req, res) => {
-  const payload = {
-    document_type: cleanText(req.body.document_type, 80),
-    full_name: cleanText(req.body.full_name, 140),
-    document_number: normalizeDocument(req.body.document_number),
-    version: cleanText(req.body.version || 'v1.0', 20)
-  };
-  if (!payload.document_type || !payload.full_name || !payload.document_number) return res.status(400).json({ error: 'Datos de firma incompletos.' });
-  pgRun(`INSERT INTO ally_electronic_signatures (ally_id, document_type, full_name, document_number, version, signed_at, status)
-    VALUES ($1, $2, $3, $4, $5, $6, 'accepted')
-    RETURNING id`, [req.user.id, payload.document_type, payload.full_name, payload.document_number, payload.version, getTimestamp()], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible registrar la firma.' });
-    res.status(201).json({ message: 'Firma electronica registrada.', id: this.lastID });
-  });
-});
-
 app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
   const payload = {
     phone: cleanText(req.body.phone, 60),
@@ -3206,7 +3105,7 @@ app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
     account_number: cleanText(req.body.account_number, 80)
   };
   if (!payload.phone || !payload.city || !payload.partner_type) {
-    return res.status(400).json({ error: 'Tel√©fono, ciudad y tipo de aliado son obligatorios.' });
+    return res.status(400).json({ error: 'TelÈfono, ciudad y tipo de aliado son obligatorios.' });
   }
   pgRun(`UPDATE partners SET phone = $1, city = $2, partner_type = $3, company = $4, occupation = $5,
       bank_name = COALESCE(NULLIF($6, ''), bank_name),
@@ -3218,28 +3117,8 @@ app.patch('/api/partner/profile', requireAuth(['ally']), (req, res) => {
     function (err) {
       if (err) return res.status(500).json({ error: 'No fue posible actualizar tu perfil.' });
       if (this.changes === 0) return res.status(404).json({ error: 'No encontramos tu perfil de aliado.' });
-      res.json({ message: 'Perfil actualizado. Los datos de pago quedan sujetos a validaci√≥n administrativa.' });
+      res.json({ message: 'Perfil actualizado. Los datos de pago quedan sujetos a validaciÛn administrativa.' });
     });
-});
-
-app.post('/api/partner/kyc', requireAuth(['ally']), (req, res) => {
-  const payload = {
-    front_document_url: cleanText(req.body.front_document_url, 300),
-    back_document_url: cleanText(req.body.back_document_url, 300),
-    selfie_url: cleanText(req.body.selfie_url, 300),
-    bank_name: cleanText(req.body.bank_name, 100),
-    account_type: cleanText(req.body.account_type, 60),
-    account_number: cleanText(req.body.account_number, 80)
-  };
-  const now = getTimestamp();
-  pgRun(`INSERT INTO ally_kyc_verifications (ally_id, front_document_url, back_document_url, selfie_url, bank_name, account_type, account_number, status, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, 'En revision', $8)
-    ON CONFLICT(ally_id) DO UPDATE SET front_document_url = excluded.front_document_url, back_document_url = excluded.back_document_url,
-      selfie_url = excluded.selfie_url, bank_name = excluded.bank_name, account_type = excluded.account_type, account_number = excluded.account_number,
-      status = 'En revision', updated_at = excluded.updated_at`, [req.user.id, payload.front_document_url, payload.back_document_url, payload.selfie_url, payload.bank_name, payload.account_type, payload.account_number, now], (err) => {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar la verificacion.' });
-    res.json({ message: 'Verificacion enviada a revision.' });
-  });
 });
 
 app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) => {
@@ -3281,13 +3160,13 @@ app.post('/api/partner/network/invitations', requireAuth(['ally']), (req, res) =
         createAdminNotification({
           notification_type: 'new_ally',
           title: 'Nuevo aliado invitado',
-          description: `${req.user.full_name} invit√≥ a ${payload.full_name} a la red de aliados. Ciudad: ${payload.city}.`,
+          description: `${req.user.full_name} invitÛ a ${payload.full_name} a la red de aliados. Ciudad: ${payload.city}.`,
           entity_type: 'ally',
           entity_id: invitedUserId,
           contact_name: payload.full_name,
           contact_phone: payload.phone,
           contact_email: payload.email,
-          whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para confirmar tu invitaci√≥n al programa de aliados.`
+          whatsapp_message: `Hola ${payload.full_name}, te contactamos de Orjuela Abogados para confirmar tu invitaciÛn al programa de aliados.`
         });
         res.status(201).json({ message: 'Invitacion registrada correctamente. El nuevo aliado quedo asociado a tu red.' });
       });
@@ -3323,9 +3202,6 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         LEFT JOIN referrals r ON r.id = c.referral_id
         ORDER BY c.created_at DESC`);
     const settingsResult = await safeQuery('commission_settings', `SELECT direct_percentage, level_1_percentage, level_2_percentage FROM commission_settings WHERE is_active = 1 ORDER BY id DESC LIMIT 1`);
-    const resourcesResult = await safeQuery('ally_resources', `SELECT * FROM ally_resources WHERE is_active = 1 ORDER BY resource_type`);
-    const kycResult = await safeQuery('ally_kyc_verifications', `SELECT k.*, u.full_name FROM ally_kyc_verifications k JOIN users u ON u.id = k.ally_id ORDER BY k.updated_at DESC`);
-    const goalsResult = await safeQuery('ally_goals', `SELECT * FROM ally_goals WHERE is_active = 1 ORDER BY updated_at DESC`);
 
     const users = usersResult.rows || [];
     const partners = partnersResult.rows || [];
@@ -3364,6 +3240,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
     const resolveLegacyForUser = (user) => legacyByEmail.get(normalizeEmail(user.email)) || legacyByDocument.get(normalizeDocument(user.document_id));
     const referralBelongsToUser = (referral, user, legacy) => Number(referral.ally_id) === Number(user.id) || (legacy && Number(referral.ally_id) === Number(legacy.id));
     const referralBelongsToLegacyOnly = (referral, legacy) => Number(referral.ally_id) === Number(legacy.id);
+    const invitedAlliesCount = (allyId) => partners.filter((partner) => Number(partner.invited_by_partner_id) === Number(allyId)).length;
 
     const allies = users.map((user) => {
       const partner = partnerByUserId.get(Number(user.id)) || {};
@@ -3387,6 +3264,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: user.status || legacy.status || 'active',
         invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
         referrals_count: userReferrals.length,
+        client_leads_count: userReferrals.length,
+        invited_allies_count: invitedAlliesCount(user.id),
         commissions_total: paidCommissionsTotal,
         paid_commissions_total: paidCommissionsTotal,
         created_at: user.created_at || partner.created_at || legacy.created_at,
@@ -3416,6 +3295,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: legacy.status,
         invited_by_name: 'Principal',
         referrals_count: legacyReferrals.length,
+        client_leads_count: legacyReferrals.length,
+        invited_allies_count: 0,
         commissions_total: legacyPaidCommissionsTotal,
         paid_commissions_total: legacyPaidCommissionsTotal,
         created_at: legacy.created_at,
@@ -3444,6 +3325,8 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         status: 'active',
         invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
         referrals_count: partnerReferrals.length,
+        client_leads_count: partnerReferrals.length,
+        invited_allies_count: invitedAlliesCount(partner.user_id),
         commissions_total: partnerPaidCommissionsTotal,
         paid_commissions_total: partnerPaidCommissionsTotal,
         created_at: partner.created_at,
@@ -3496,9 +3379,6 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       referrals: referralsRows,
       commissions,
       settings: settingsResult.rows?.[0] || { direct_percentage: 10, level_1_percentage: 3, level_2_percentage: 1 },
-      resources: resourcesResult.rows || [],
-      kyc: kycResult.rows || [],
-      goals: goalsResult.rows || [],
       debug: {
         users: debugSnapshot.users,
         partners: debugSnapshot.partners,
@@ -3527,8 +3407,8 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
   if (!id || !NETWORK_REFERRAL_STATUSES.includes(status)) return res.status(400).json({ error: 'Estado no valido.' });
   const updatedAt = getTimestamp();
   pgRun(`UPDATE referrals SET status = $1, updated_at = $2 WHERE id = $3`, [status, updatedAt, id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar el referido.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Referido no encontrado.' });
+    if (err) return res.status(500).json({ error: 'No fue posible actualizar el cliente potencial.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Cliente potencial no encontrado.' });
 
     if (status !== 'Cliente vinculado') {
       return res.json({ message: 'Estado actualizado correctamente.' });
@@ -3548,18 +3428,18 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
       const emailSent = sendTransactionalEmail(referral.referred_email, 'Crea tu cuenta de cliente en Orjuela Abogados', `
         <h2>Tu proceso ya puede continuar como cliente</h2>
         <p>Hola ${escapeHtml(referredName)},</p>
-        <p>Orjuela Abogados y Asociados confirm√≥ tu vinculaci√≥n como cliente. Crea tu cuenta para consultar el seguimiento, documentos, pagos y mensajes de tu proceso.</p>
+        <p>Orjuela Abogados y Asociados confirmÛ tu vinculaciÛn como cliente. Crea tu cuenta para consultar el seguimiento, documentos, pagos y mensajes de tu proceso.</p>
         <p><a href="${escapeHtml(registerUrl)}">Crear cuenta de cliente</a></p>
-        <p>Si el bot√≥n no funciona, copia este enlace:</p>
+        <p>Si el botÛn no funciona, copia este enlace:</p>
         <p>${escapeHtml(registerUrl)}</p>
       `);
 
-      const whatsappMessage = `Hola ${referredName}, te contactamos de Orjuela Abogados. Tu proceso ya fue vinculado como cliente. Crea tu cuenta aqu√≠: ${registerUrl}`;
+      const whatsappMessage = `Hola ${referredName}, te contactamos de Orjuela Abogados. Tu proceso ya fue vinculado como cliente. Crea tu cuenta aquÌ: ${registerUrl}`;
       const whatsappUrl = whatsappLink(referral.referred_phone, whatsappMessage);
 
       createAdminNotification({
         notification_type: 'client_invite',
-        title: 'Enviar acceso de cliente al referido',
+        title: 'Enviar acceso de cliente al cliente potencial',
         description: `${referredName} fue marcado como Cliente vinculado. Usa WhatsApp o correo para enviarle el enlace de registro.`,
         entity_type: 'referral',
         entity_id: referral.id,
@@ -3574,13 +3454,13 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
         createAllyNotification(
           referral.ally_id,
           'Comision aprobada',
-          'Referido convertido en cliente',
-          `${referredName} ya fue marcado como cliente vinculado. Tu comisi√≥n qued√≥ aprobada y pendiente de pago.`
+          'Cliente potencial convertido en cliente',
+          `${referredName} ya fue marcado como cliente vinculado. Tu comisiÛn quedÛ aprobada y pendiente de pago.`
         );
         res.json({
           message: emailSent
-            ? 'Referido marcado como cliente. Se notific√≥ al aliado y se envi√≥ correo de registro al referido.'
-            : 'Referido marcado como cliente. Se notific√≥ al aliado y qued√≥ lista la acci√≥n de contacto por WhatsApp/correo.',
+            ? 'Cliente potencial marcado como cliente. Se notificÛ al aliado y se enviÛ correo de registro.'
+            : 'Cliente potencial marcado como cliente. Se notificÛ al aliado y quedÛ lista la acciÛn de contacto por WhatsApp/correo.',
           whatsapp_url: whatsappUrl,
           register_url: registerUrl
         });
@@ -3601,9 +3481,9 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
     commission_percentage: Number(req.body.commission_percentage ?? 10),
     status: cleanText(req.body.status || 'active', 20)
   };
-  if (!payload.full_name || !payload.email || !payload.phone || !payload.city) return res.status(400).json({ error: 'Nombre, correo, tel√©fono y ciudad son obligatorios.' });
-  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv√°lido.' });
-  if (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100) return res.status(400).json({ error: 'Porcentaje de comisi√≥n no v√°lido.' });
+  if (!payload.full_name || !payload.email || !payload.phone || !payload.city) return res.status(400).json({ error: 'Nombre, correo, telÈfono y ciudad son obligatorios.' });
+  if (!isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inv·lido.' });
+  if (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100) return res.status(400).json({ error: 'Porcentaje de comisiÛn no v·lido.' });
   const now = getTimestamp();
   const password = hashPassword(`Aliado${crypto.randomInt(1000, 9999)}!`);
   pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
@@ -3628,7 +3508,7 @@ app.post('/api/admin/partner-network/allies', requireAuth(['admin']), (req, res)
 
 app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Aliado inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Aliado inv·lido.' });
   const payload = {
     full_name: cleanText(req.body.full_name, 140),
     phone: cleanText(req.body.phone, 60),
@@ -3638,7 +3518,7 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
     commission_percentage: req.body.commission_percentage === undefined ? null : Number(req.body.commission_percentage),
     status: cleanText(req.body.status, 20)
   };
-  if (payload.commission_percentage !== null && (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100)) return res.status(400).json({ error: 'Porcentaje de comisi√≥n no v√°lido.' });
+  if (payload.commission_percentage !== null && (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100)) return res.status(400).json({ error: 'Porcentaje de comisiÛn no v·lido.' });
   pgRun(`UPDATE users SET full_name = COALESCE(NULLIF($1, ''), full_name), status = COALESCE(NULLIF($2, ''), status), updated_at = $3 WHERE id = $4 AND role = 'ally'`,
     [payload.full_name, payload.status, getTimestamp(), id], function (userErr) {
     if (userErr) return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
@@ -3663,7 +3543,7 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
 
 app.delete('/api/admin/partner-network/allies/:id', requireAuth(['admin']), (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Aliado inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Aliado inv·lido.' });
   pgRun(`UPDATE users SET status = 'archived', updated_at = $1 WHERE id = $2 AND role = 'ally'`, [getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible archivar aliado.' });
     auditAdminAction(req, 'archivar', 'aliado', id, 'Aliado archivado');
@@ -3673,7 +3553,7 @@ app.delete('/api/admin/partner-network/allies/:id', requireAuth(['admin']), (req
 
 app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admin']), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Aliado inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Aliado inv·lido.' });
 
   const client = await pool.connect();
   try {
@@ -3689,14 +3569,8 @@ app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admi
       return res.status(404).json({ error: 'Aliado no encontrado.' });
     }
 
-    await client.query(`DELETE FROM ally_electronic_signatures WHERE ally_id = $1`, [id]);
-    await client.query(`DELETE FROM ally_kyc_verifications WHERE ally_id = $1`, [id]);
-    await client.query(`DELETE FROM ally_legal_acceptances WHERE ally_id = $1`, [id]);
     await client.query(`DELETE FROM ally_notifications WHERE ally_id = $1`, [id]);
-    await client.query(`DELETE FROM ally_activity_logs WHERE ally_id = $1`, [id]);
-    await client.query(`DELETE FROM ally_goals WHERE ally_id = $1`, [id]);
     await client.query(`DELETE FROM commissions WHERE ally_id = $1 OR source_ally_id = $1 OR referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
-    await client.query(`DELETE FROM referral_status_history WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
     await client.query(`DELETE FROM referrals WHERE ally_id = $1`, [id]);
     await client.query(`UPDATE partners SET invited_by_partner_id = NULL WHERE invited_by_partner_id = $1`, [id]);
     await client.query(`DELETE FROM partners WHERE user_id = $1`, [id]);
@@ -3719,7 +3593,7 @@ app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admi
 
 app.delete('/api/admin/partner-network/legacy-allies/:id/permanent', requireAuth(['admin']), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Aliado inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Aliado inv·lido.' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -3730,7 +3604,6 @@ app.delete('/api/admin/partner-network/legacy-allies/:id/permanent', requireAuth
       return res.status(404).json({ error: 'Aliado no encontrado.' });
     }
     await client.query(`DELETE FROM commissions WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
-    await client.query(`DELETE FROM referral_status_history WHERE referral_id IN (SELECT id FROM referrals WHERE ally_id = $1)`, [id]);
     await client.query(`DELETE FROM referrals WHERE ally_id = $1`, [id]);
     await client.query(`DELETE FROM admin_notifications WHERE entity_type IN ('ally', 'partner') AND entity_id = $1`, [id]);
     await client.query(`DELETE FROM allies WHERE id = $1`, [id]);
@@ -3770,29 +3643,29 @@ app.patch('/api/admin/network-referrals/:id/commission', requireAuth(['admin', '
   const caseAmount = Number(req.body.case_amount || 0);
   const percentage = Number(req.body.percentage || 0);
   if (!referralId || Number.isNaN(caseAmount) || caseAmount < 0 || ![5, 10, 20].includes(percentage)) {
-    return res.status(400).json({ error: 'Monto del caso o porcentaje de comisi√≥n no v√°lido.' });
+    return res.status(400).json({ error: 'Monto del caso o porcentaje de comisiÛn no v·lido.' });
   }
   const commissionAmount = Math.round(caseAmount * (percentage / 100));
   pgGet(`SELECT id, ally_id, referred_full_name FROM referrals WHERE id = $1`, [referralId], (refErr, referral) => {
-    if (refErr) return res.status(500).json({ error: 'No fue posible cargar el referido.' });
-    if (!referral) return res.status(404).json({ error: 'Referido no encontrado.' });
+    if (refErr) return res.status(500).json({ error: 'No fue posible cargar el cliente potencial.' });
+    if (!referral) return res.status(404).json({ error: 'Cliente potencial no encontrado.' });
 
     pgGet(`SELECT id FROM commissions WHERE referral_id = $1 AND commission_type = 'direct' ORDER BY id DESC LIMIT 1`, [referralId], (commissionErr, commission) => {
-      if (commissionErr) return res.status(500).json({ error: 'No fue posible cargar la comisi√≥n.' });
+      if (commissionErr) return res.status(500).json({ error: 'No fue posible cargar la comisiÛn.' });
       const notifyAlly = () => {
         createAllyNotification(
           referral.ally_id,
           'Pago pendiente',
-          'Comisi√≥n pendiente registrada',
-          `Se registr√≥ una comisi√≥n pendiente de ${formatMoney(commissionAmount)} por el referido ${referral.referred_full_name}.`
+          'ComisiÛn pendiente registrada',
+          `Se registrÛ una comisiÛn pendiente de ${formatMoney(commissionAmount)} por el cliente potencial ${referral.referred_full_name}.`
         );
       };
 
       if (commission?.id) {
         pgRun(`UPDATE commissions SET percentage = $1, amount = $2, status = 'approved', paid_at = NULL WHERE id = $3`, [percentage, commissionAmount, commission.id], function (updateErr) {
-          if (updateErr) return res.status(500).json({ error: 'No fue posible guardar la comisi√≥n.' });
+          if (updateErr) return res.status(500).json({ error: 'No fue posible guardar la comisiÛn.' });
           notifyAlly();
-          res.json({ message: 'Comisi√≥n pendiente guardada y notificada al aliado.', commission_id: commission.id, amount: commissionAmount, percentage });
+          res.json({ message: 'ComisiÛn pendiente guardada y notificada al aliado.', commission_id: commission.id, amount: commissionAmount, percentage });
         });
         return;
       }
@@ -3800,9 +3673,9 @@ app.patch('/api/admin/network-referrals/:id/commission', requireAuth(['admin', '
       pgRun(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
         VALUES ($1, $2, $3, 'direct', $4, $5, 'approved', $6)
         RETURNING id`, [referral.ally_id, referralId, referral.ally_id, percentage, commissionAmount, getTimestamp()], function (insertErr) {
-        if (insertErr) return res.status(500).json({ error: 'No fue posible crear la comisi√≥n. Verifica que el aliado tenga perfil activo.' });
+        if (insertErr) return res.status(500).json({ error: 'No fue posible crear la comisiÛn. Verifica que el aliado tenga perfil activo.' });
         notifyAlly();
-        res.json({ message: 'Comisi√≥n pendiente guardada y notificada al aliado.', commission_id: this.lastID, amount: commissionAmount, percentage });
+        res.json({ message: 'ComisiÛn pendiente guardada y notificada al aliado.', commission_id: this.lastID, amount: commissionAmount, percentage });
       });
     });
   });
@@ -3810,26 +3683,25 @@ app.patch('/api/admin/network-referrals/:id/commission', requireAuth(['admin', '
 
 app.delete('/api/admin/network-referrals/:id', requireAuth(['admin']), async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Referido inv√°lido.' });
+  if (!id) return res.status(400).json({ error: 'Cliente potencial inv·lido.' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const referralResult = await client.query(`SELECT referred_full_name FROM referrals WHERE id = $1`, [id]);
     if (!referralResult.rows[0]) {
       await client.query('ROLLBACK');
-      return res.status(404).json({ error: 'Referido no encontrado.' });
+      return res.status(404).json({ error: 'Cliente potencial no encontrado.' });
     }
     await client.query(`DELETE FROM commissions WHERE referral_id = $1`, [id]);
-    await client.query(`DELETE FROM referral_status_history WHERE referral_id = $1`, [id]);
     await client.query(`DELETE FROM admin_notifications WHERE entity_type = 'referral' AND entity_id = $1`, [id]);
     await client.query(`DELETE FROM referrals WHERE id = $1`, [id]);
     await client.query('COMMIT');
-    auditAdminAction(req, 'eliminar', 'referido', id, referralResult.rows[0].referred_full_name || 'Referido eliminado');
-    res.json({ message: 'Referido eliminado correctamente.' });
+    auditAdminAction(req, 'eliminar', 'cliente potencial', id, referralResult.rows[0].referred_full_name || 'Cliente potencial eliminado');
+    res.json({ message: 'Cliente potencial eliminado correctamente.' });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[admin/network-referrals] delete failed:', err);
-    res.status(500).json({ error: 'No fue posible eliminar el referido.' });
+    res.status(500).json({ error: 'No fue posible eliminar el cliente potencial.' });
   } finally {
     client.release();
   }
@@ -3852,190 +3724,9 @@ app.patch('/api/admin/commission-settings', requireAuth(['admin']), (req, res) =
   });
 });
 
-app.post('/api/admin/partner-network/levels', requireAuth(['admin']), (req, res) => {
-  const payload = {
-    name: cleanText(req.body.name, 80),
-    min_converted_referrals: parseInt(req.body.min_converted_referrals, 10),
-    min_commissions: Number(req.body.min_commissions),
-    min_active_allies: parseInt(req.body.min_active_allies, 10),
-    benefits: cleanText(req.body.benefits, 500),
-    sort_order: parseInt(req.body.sort_order, 10) || 1
-  };
-  if (!payload.name || [payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies].some((value) => Number.isNaN(value) || value < 0)) {
-    return res.status(400).json({ error: 'Completa los requisitos del nivel con valores v√°lidos.' });
-  }
-  pgRun(`INSERT INTO ally_levels (name, min_converted_referrals, min_commissions, min_active_allies, benefits, sort_order, is_active)
-    VALUES ($1, $2, $3, $4, $5, $6, 1)
-    RETURNING id`, [payload.name, payload.min_converted_referrals, payload.min_commissions, payload.min_active_allies, payload.benefits, payload.sort_order], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible crear el nivel.' });
-    auditAdminAction(req, 'crear', 'nivel_aliado', this.lastID, payload.name);
-    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
-  });
-});
-
-app.patch('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const payload = {
-    name: cleanText(req.body.name, 80),
-    min_converted_referrals: req.body.min_converted_referrals === undefined ? null : parseInt(req.body.min_converted_referrals, 10),
-    min_commissions: req.body.min_commissions === undefined ? null : Number(req.body.min_commissions),
-    min_active_allies: req.body.min_active_allies === undefined ? null : parseInt(req.body.min_active_allies, 10),
-    benefits: cleanText(req.body.benefits, 500),
-    sort_order: req.body.sort_order === undefined ? null : parseInt(req.body.sort_order, 10)
-  };
-  if (!id) return res.status(400).json({ error: 'Nivel inv√°lido.' });
-  pgRun(`UPDATE ally_levels SET
-      name = COALESCE(NULLIF($1, ''), name),
-      min_converted_referrals = COALESCE($2, min_converted_referrals),
-      min_commissions = COALESCE($3, min_commissions),
-      min_active_allies = COALESCE($4, min_active_allies),
-      benefits = COALESCE(NULLIF($5, ''), benefits),
-      sort_order = COALESCE($6, sort_order)
-    WHERE id = $7`, [
-    payload.name,
-    payload.min_converted_referrals !== null && !Number.isNaN(payload.min_converted_referrals) ? payload.min_converted_referrals : null,
-    payload.min_commissions !== null && !Number.isNaN(payload.min_commissions) ? payload.min_commissions : null,
-    payload.min_active_allies !== null && !Number.isNaN(payload.min_active_allies) ? payload.min_active_allies : null,
-    payload.benefits,
-    payload.sort_order !== null && !Number.isNaN(payload.sort_order) ? payload.sort_order : null,
-    id
-  ], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar el nivel.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Nivel no encontrado.' });
-    auditAdminAction(req, 'actualizar', 'nivel_aliado', id, payload.name || 'Nivel actualizado');
-    res.json({ message: 'Nivel actualizado.' });
-  });
-});
-
-app.delete('/api/admin/partner-network/levels/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Nivel inv√°lido.' });
-  pgRun(`UPDATE ally_levels SET is_active = 0 WHERE id = $1`, [id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible archivar el nivel.' });
-    auditAdminAction(req, 'archivar', 'nivel_aliado', id, 'Nivel archivado');
-    res.json({ message: 'Nivel archivado.' });
-  });
-});
-
-app.post('/api/admin/partner-network/goals', requireAuth(['admin']), (req, res) => {
-  const payload = {
-    ally_id: req.body.ally_id ? parseInt(req.body.ally_id, 10) : null,
-    month: cleanText(req.body.month, 20),
-    referral_goal: parseInt(req.body.referral_goal, 10),
-    converted_goal: parseInt(req.body.converted_goal, 10),
-    commission_goal: Number(req.body.commission_goal)
-  };
-  if (!payload.month || [payload.referral_goal, payload.converted_goal, payload.commission_goal].some((value) => Number.isNaN(value) || value < 0)) {
-    return res.status(400).json({ error: 'Completa la meta con valores v√°lidos.' });
-  }
-  pgRun(`INSERT INTO ally_goals (ally_id, month, referral_goal, converted_goal, commission_goal, is_active, updated_at)
-    VALUES ($1, $2, $3, $4, $5, 1, $6)
-    RETURNING id`, [payload.ally_id, payload.month, payload.referral_goal, payload.converted_goal, payload.commission_goal, getTimestamp()], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible crear la meta.' });
-    auditAdminAction(req, 'crear', 'meta_aliado', this.lastID, payload.month);
-    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
-  });
-});
-
-app.patch('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const payload = {
-    ally_id: req.body.ally_id === '' ? null : (req.body.ally_id === undefined ? undefined : parseInt(req.body.ally_id, 10)),
-    month: cleanText(req.body.month, 20),
-    referral_goal: req.body.referral_goal === undefined ? null : parseInt(req.body.referral_goal, 10),
-    converted_goal: req.body.converted_goal === undefined ? null : parseInt(req.body.converted_goal, 10),
-    commission_goal: req.body.commission_goal === undefined ? null : Number(req.body.commission_goal)
-  };
-  if (!id) return res.status(400).json({ error: 'Meta inv√°lida.' });
-  pgRun(`UPDATE ally_goals SET
-      ally_id = CASE WHEN $1 = '__KEEP__' THEN ally_id ELSE $2 END,
-      month = COALESCE(NULLIF($3, ''), month),
-      referral_goal = COALESCE($4, referral_goal),
-      converted_goal = COALESCE($5, converted_goal),
-      commission_goal = COALESCE($6, commission_goal),
-      updated_at = $7
-    WHERE id = $8`, [
-    payload.ally_id === undefined ? '__KEEP__' : '',
-    payload.ally_id === undefined || Number.isNaN(payload.ally_id) ? null : payload.ally_id,
-    payload.month,
-    payload.referral_goal !== null && !Number.isNaN(payload.referral_goal) ? payload.referral_goal : null,
-    payload.converted_goal !== null && !Number.isNaN(payload.converted_goal) ? payload.converted_goal : null,
-    payload.commission_goal !== null && !Number.isNaN(payload.commission_goal) ? payload.commission_goal : null,
-    getTimestamp(),
-    id
-  ], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar la meta.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Meta no encontrada.' });
-    auditAdminAction(req, 'actualizar', 'meta_aliado', id, payload.month || 'Meta actualizada');
-    res.json({ message: 'Meta actualizada.' });
-  });
-});
-
-app.delete('/api/admin/partner-network/goals/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Meta inv√°lida.' });
-  pgRun(`UPDATE ally_goals SET is_active = 0, updated_at = $1 WHERE id = $2`, [getTimestamp(), id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible archivar la meta.' });
-    auditAdminAction(req, 'archivar', 'meta_aliado', id, 'Meta archivada');
-    res.json({ message: 'Meta archivada.' });
-  });
-});
-
-app.post('/api/admin/partner-network/resources', requireAuth(['admin']), (req, res) => {
-  const payload = {
-    title: cleanText(req.body.title, 140),
-    resource_type: cleanText(req.body.resource_type || 'Mensaje', 60),
-    description: cleanText(req.body.description, 500),
-    url: cleanText(req.body.url, 220),
-    content: cleanText(req.body.content, 2000)
-  };
-  if (!payload.title || !payload.resource_type) return res.status(400).json({ error: 'T√≠tulo y tipo son obligatorios.' });
-  pgRun(`INSERT INTO ally_resources (title, resource_type, description, url, content, is_active, created_at)
-    VALUES ($1, $2, $3, $4, $5, 1, $6)
-    RETURNING id`, [payload.title, payload.resource_type, payload.description, payload.url, payload.content, getTimestamp()], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible crear el recurso.' });
-    auditAdminAction(req, 'crear', 'recurso_aliado', this.lastID, payload.title);
-    res.status(201).json({ id: this.lastID, ...payload, is_active: 1 });
-  });
-});
-
-app.patch('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Recurso inv√°lido.' });
-  pgRun(`UPDATE ally_resources SET
-      title = COALESCE(NULLIF($1, ''), title),
-      resource_type = COALESCE(NULLIF($2, ''), resource_type),
-      description = COALESCE(NULLIF($3, ''), description),
-      url = COALESCE(NULLIF($4, ''), url),
-      content = COALESCE(NULLIF($5, ''), content)
-    WHERE id = $6`, [
-    cleanText(req.body.title, 140),
-    cleanText(req.body.resource_type, 60),
-    cleanText(req.body.description, 500),
-    cleanText(req.body.url, 220),
-    cleanText(req.body.content, 2000),
-    id
-  ], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible actualizar el recurso.' });
-    if (this.changes === 0) return res.status(404).json({ error: 'Recurso no encontrado.' });
-    auditAdminAction(req, 'actualizar', 'recurso_aliado', id, cleanText(req.body.title, 140) || 'Recurso actualizado');
-    res.json({ message: 'Recurso actualizado.' });
-  });
-});
-
-app.delete('/api/admin/partner-network/resources/:id', requireAuth(['admin']), (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!id) return res.status(400).json({ error: 'Recurso inv√°lido.' });
-  pgRun(`UPDATE ally_resources SET is_active = 0 WHERE id = $1`, [id], function (err) {
-    if (err) return res.status(500).json({ error: 'No fue posible archivar el recurso.' });
-    auditAdminAction(req, 'archivar', 'recurso_aliado', id, 'Recurso archivado');
-    res.json({ message: 'Recurso archivado.' });
-  });
-});
-
 app.post('/api/auth/recovery/request', (req, res) => {
   const email = normalizeEmail(req.body.email);
-  if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Ingresa un correo v√°lido.' });
+  if (!email || !isValidEmail(email)) return res.status(400).json({ error: 'Ingresa un correo v·lido.' });
 
   pgGet(`SELECT id, full_name, email, role, status FROM users WHERE email = $1`, [email], (selectErr, user) => {
     if (selectErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
@@ -4051,13 +3742,13 @@ app.post('/api/auth/recovery/request', (req, res) => {
     pgRun(`UPDATE users SET reset_token_hash = $1, reset_token_expires_at = $2, updated_at = $3 WHERE id = $4`, [tokenHash, expiresAt, getTimestamp(), user.id], (updateErr) => {
       if (updateErr) return res.status(500).json({ error: 'No fue posible procesar la solicitud.' });
 
-      const sent = sendTransactionalEmail(user.email, 'Restablece tu contrase√±a Orjuela Abogados', `
-        <h2>Restablecimiento de contrase√±a</h2>
+      const sent = sendTransactionalEmail(user.email, 'Restablece tu contraseÒa Orjuela Abogados', `
+        <h2>Restablecimiento de contraseÒa</h2>
         <p>Hola ${escapeHtml(user.full_name || 'usuario')}, recibimos una solicitud para recuperar tu acceso.</p>
         <p>Este enlace vence en 30 minutos y funciona para tu portal de ${escapeHtml(user.role)}:</p>
-        <p><a href="${escapeHtml(resetUrl)}">Crear nueva contrase√±a</a></p>
-        <p>C√≥digo temporal: ${escapeHtml(rawCode)}</p>
-        <p>Si el bot√≥n no funciona, copia este enlace:</p>
+        <p><a href="${escapeHtml(resetUrl)}">Crear nueva contraseÒa</a></p>
+        <p>CÛdigo temporal: ${escapeHtml(rawCode)}</p>
+        <p>Si el botÛn no funciona, copia este enlace:</p>
         <p>${escapeHtml(resetUrl)}</p>
         <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
       `);
@@ -4074,20 +3765,20 @@ app.post('/api/auth/recovery/reset', (req, res) => {
   const code = String(req.body.codigo || req.body.token || '').trim();
   const password = String(req.body.password || '');
   const passwordError = validatePasswordStrength(password);
-  if (!code || passwordError) return res.status(400).json({ error: passwordError || 'C√≥digo no v√°lido.' });
+  if (!code || passwordError) return res.status(400).json({ error: passwordError || 'CÛdigo no v·lido.' });
 
   const tokenHash = crypto.createHash('sha256').update(code).digest('hex');
   pgGet(`SELECT id, reset_token_expires_at FROM users WHERE reset_token_hash = $1`, [tokenHash], (err, user) => {
     if (err || !user || new Date(user.reset_token_expires_at).getTime() < Date.now()) {
-      return res.status(400).json({ error: 'C√≥digo inv√°lido o vencido.' });
+      return res.status(400).json({ error: 'CÛdigo inv·lido o vencido.' });
     }
 
     pgRun(`UPDATE users SET password_hash = $1, reset_token_hash = NULL, reset_token_expires_at = NULL, updated_at = $2 WHERE id = $3`, [hashPassword(password), getTimestamp(), user.id], (updateErr) => {
-      if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la contrase√±a.' });
+      if (updateErr) return res.status(500).json({ error: 'No fue posible actualizar la contraseÒa.' });
       pgGet(`SELECT id, full_name, document_id, email, auth_provider, avatar_url, role, status FROM users WHERE id = $1`, [user.id], (userErr, updatedUser) => {
-        if (userErr || !updatedUser) return res.status(500).json({ error: 'Contrase√±a actualizada, pero no fue posible iniciar sesi√≥n autom√°ticamente.' });
+        if (userErr || !updatedUser) return res.status(500).json({ error: 'ContraseÒa actualizada, pero no fue posible iniciar sesiÛn autom·ticamente.' });
         res.json({
-          message: 'Contrase√±a actualizada correctamente.',
+          message: 'ContraseÒa actualizada correctamente.',
           ...createAuthResponse(updatedUser)
         });
       });
@@ -4117,15 +3808,15 @@ app.post('/api/allies', (req, res) => {
     return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos y aceptar el tratamiento de datos.' });
   }
   if (payload.password !== payload.confirm_password) {
-    return res.status(400).json({ error: 'Las contrase√±as no coinciden.' });
+    return res.status(400).json({ error: 'Las contraseÒas no coinciden.' });
   }
   const passwordError = validatePasswordStrength(payload.password);
   if (passwordError) return res.status(400).json({ error: passwordError });
   if (!isValidEmail(payload.email)) {
-    return res.status(400).json({ error: 'El correo electr√≥nico no tiene un formato v√°lido.' });
+    return res.status(400).json({ error: 'El correo electrÛnico no tiene un formato v·lido.' });
   }
   if (!isOneOf(payload.ally_type, ALLY_TYPES)) {
-    return res.status(400).json({ error: 'El tipo de aliado seleccionado no es v√°lido.' });
+    return res.status(400).json({ error: 'El tipo de aliado seleccionado no es v·lido.' });
   }
 
   pgAll(`SELECT id, role FROM users WHERE email = $1`, [payload.email], (roleErr, existingUsers) => {
@@ -4140,7 +3831,7 @@ app.post('/api/allies', (req, res) => {
     [payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, payload.how_known, payload.bank_name, payload.account_type, payload.account_number, createdAt, createdAt], function (err) {
     if (err) {
       if (err.message.includes('UNIQUE')) {
-        return res.status(409).json({ error: 'Ya existe un aliado registrado con esa c√©dula.' });
+        return res.status(409).json({ error: 'Ya existe un aliado registrado con esa cÈdula.' });
       }
       console.error(err);
       return res.status(500).json({ error: 'Error interno al guardar el aliado.' });
@@ -4174,19 +3865,19 @@ app.post('/api/allies', (req, res) => {
     sendNotificationEmail('Nuevo aliado registrado', `
       <h2>Nuevo registro de aliado</h2>
       <p><strong>Nombre:</strong> ${escapeHtml(payload.full_name)}</p>
-      <p><strong>C√©dula:</strong> ${escapeHtml(payload.document_number)}</p>
-      <p><strong>Tel√©fono:</strong> ${escapeHtml(payload.phone)}</p>
+      <p><strong>CÈdula:</strong> ${escapeHtml(payload.document_number)}</p>
+      <p><strong>TelÈfono:</strong> ${escapeHtml(payload.phone)}</p>
       <p><strong>Correo:</strong> ${escapeHtml(payload.email)}</p>
       <p><strong>Ciudad:</strong> ${escapeHtml(payload.city)}</p>
       <p><strong>Tipo de aliado:</strong> ${escapeHtml(payload.ally_type)}</p>
-      <p><strong>C√≥mo conoci√≥ la firma:</strong> ${escapeHtml(payload.how_known)}</p>
+      <p><strong>CÛmo conociÛ la firma:</strong> ${escapeHtml(payload.how_known)}</p>
       <p><strong>Fecha:</strong> ${createdAt}</p>
     `);
 
     createAdminNotification({
       notification_type: 'new_ally',
       title: 'Nuevo aliado registrado',
-      description: `${payload.full_name} se registr√≥ como aliado desde la landing. Ciudad: ${payload.city}. Tipo: ${payload.ally_type}.`,
+      description: `${payload.full_name} se registrÛ como aliado desde la landing. Ciudad: ${payload.city}. Tipo: ${payload.ally_type}.`,
       entity_type: 'ally',
       entity_id: this.lastID,
       contact_name: payload.full_name,
@@ -4195,7 +3886,7 @@ app.post('/api/allies', (req, res) => {
       whatsapp_message: `Hola ${payload.full_name}, bienvenido al programa de aliados de Orjuela Abogados. Queremos confirmar tu registro.`
     });
 
-    res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Ya puedes ingresar al portal de aliados con tu correo y contrase√±a.' });
+    res.status(201).json({ message: 'Tu registro como aliado fue recibido correctamente. Ya puedes ingresar al portal de aliados con tu correo y contraseÒa.' });
   });
   });
 });
@@ -4216,13 +3907,13 @@ app.post('/api/referrals', (req, res) => {
   };
 
   if (!payload.ally_document_number || !payload.ally_email || !payload.referred_full_name || !payload.referred_phone || !payload.referred_city || !payload.legal_area || !payload.case_description || payload.contact_authorization !== true) {
-    return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos y el referido debe autorizar el contacto.' });
+    return res.status(400).json({ error: 'Todos los campos obligatorios deben estar completos y el cliente potencial debe autorizar el contacto.' });
   }
   if (!isValidEmail(payload.ally_email) || (payload.referred_email && !isValidEmail(payload.referred_email))) {
-    return res.status(400).json({ error: 'Uno de los correos no tiene un formato v√°lido.' });
+    return res.status(400).json({ error: 'Uno de los correos no tiene un formato v·lido.' });
   }
   if (!isOneOf(payload.legal_area, LEGAL_AREAS)) {
-    return res.status(400).json({ error: 'El √°rea legal seleccionada no es v√°lida.' });
+    return res.status(400).json({ error: 'El ·rea legal seleccionada no es v·lida.' });
   }
 
   pgGet(`SELECT id, full_name, email, status, source_kind FROM (
@@ -4247,10 +3938,10 @@ app.post('/api/referrals', (req, res) => {
       return res.status(500).json({ error: 'Error interno al verificar el aliado.' });
     }
     if (!ally) {
-      return res.status(404).json({ error: 'No se encontr√≥ un aliado registrado con la c√©dula y correo proporcionados.' });
+      return res.status(404).json({ error: 'No se encontrÛ un aliado registrado con la cÈdula y correo proporcionados.' });
     }
     if (['inactive', 'suspended'].includes(String(ally.status || '').toLowerCase())) {
-      return res.status(403).json({ error: 'El aliado se encuentra inactivo. Comun√≠cate con Orjuela Abogados.' });
+      return res.status(403).json({ error: 'El aliado se encuentra inactivo. ComunÌcate con Orjuela Abogados.' });
     }
 
     const createdAt = getTimestamp();
@@ -4260,27 +3951,27 @@ app.post('/api/referrals', (req, res) => {
       [ally.id, payload.referred_full_name, payload.referred_phone, payload.referred_email || '', payload.referred_city, payload.legal_area, payload.case_description, payload.urgency, payload.file_notes, createdAt, createdAt], function (insertErr) {
       if (insertErr) {
         console.error(insertErr);
-        return res.status(500).json({ error: 'Error interno al guardar el referido.' });
+        return res.status(500).json({ error: 'Error interno al guardar el cliente potencial.' });
       }
       const referralId = this.lastID;
 
-      sendNotificationEmail('Nuevo referido desde aliado', `
-        <h2>Nuevo referido recibido</h2>
+      sendNotificationEmail('Nuevo cliente potencial desde aliado', `
+        <h2>Nuevo cliente potencial recibido</h2>
         <p><strong>Aliado:</strong> ${escapeHtml(ally.full_name)} (${escapeHtml(payload.ally_document_number)})</p>
-        <p><strong>Nombre referido:</strong> ${escapeHtml(payload.referred_full_name)}</p>
-        <p><strong>Tel√©fono referido:</strong> ${escapeHtml(payload.referred_phone)}</p>
-        <p><strong>Correo referido:</strong> ${escapeHtml(payload.referred_email || 'No proporcionado')}</p>
-        <p><strong>Ciudad referido:</strong> ${escapeHtml(payload.referred_city)}</p>
-        <p><strong>√Årea legal:</strong> ${escapeHtml(payload.legal_area)}</p>
+        <p><strong>Nombre cliente potencial:</strong> ${escapeHtml(payload.referred_full_name)}</p>
+        <p><strong>TelÈfono cliente potencial:</strong> ${escapeHtml(payload.referred_phone)}</p>
+        <p><strong>Correo cliente potencial:</strong> ${escapeHtml(payload.referred_email || 'No proporcionado')}</p>
+        <p><strong>Ciudad cliente potencial:</strong> ${escapeHtml(payload.referred_city)}</p>
+        <p><strong>¡rea legal:</strong> ${escapeHtml(payload.legal_area)}</p>
         <p><strong>Urgencia:</strong> ${escapeHtml(payload.urgency)}</p>
-        <p><strong>Descripci√≥n:</strong> ${escapeHtml(payload.case_description)}</p>
+        <p><strong>DescripciÛn:</strong> ${escapeHtml(payload.case_description)}</p>
         <p><strong>Fecha:</strong> ${createdAt}</p>
       `);
 
       createAdminNotification({
         notification_type: 'new_referral',
-        title: 'Nuevo referido recibido',
-        description: `${ally.full_name} registr√≥ a ${payload.referred_full_name}. √Årea: ${payload.legal_area}. Ciudad: ${payload.referred_city}.`,
+        title: 'Nuevo cliente potencial recibido',
+        description: `${ally.full_name} registrÛ a ${payload.referred_full_name}. ¡rea: ${payload.legal_area}. Ciudad: ${payload.referred_city}.`,
         entity_type: 'referral',
         entity_id: referralId,
         contact_name: payload.referred_full_name,
@@ -4291,7 +3982,7 @@ app.post('/api/referrals', (req, res) => {
 
       createCommissionRows(referralId, ally.id, (commissionErr) => {
         if (commissionErr) console.error('[referrals] Error creando comisiones:', commissionErr);
-        res.status(201).json({ message: 'Referido enviado correctamente. Qued√≥ asociado al perfil del aliado y el equipo de Orjuela Abogados fue notificado.', id: referralId });
+        res.status(201).json({ message: 'Cliente potencial enviado correctamente. QuedÛ asociado al perfil del aliado y el equipo de Orjuela Abogados fue notificado.', id: referralId });
       });
     });
   });
@@ -4310,10 +4001,10 @@ app.post('/api/leads', (req, res) => {
   };
 
   if (!payload.name || !payload.phone || !payload.case_type) {
-    return res.status(400).json({ error: 'Nombre, tel√©fono y tipo de caso son obligatorios.' });
+    return res.status(400).json({ error: 'Nombre, telÈfono y tipo de caso son obligatorios.' });
   }
   if (payload.email && !isValidEmail(payload.email)) {
-    return res.status(400).json({ error: 'El correo electr√≥nico no tiene un formato v√°lido.' });
+    return res.status(400).json({ error: 'El correo electrÛnico no tiene un formato v·lido.' });
   }
 
   const createdAt = getTimestamp();
@@ -4328,7 +4019,7 @@ app.post('/api/leads', (req, res) => {
     sendNotificationEmail('Nuevo lead desde la web', `
       <h2>Nuevo lead comercial</h2>
       <p><strong>Nombre:</strong> ${escapeHtml(payload.name)}</p>
-      <p><strong>Tel√©fono:</strong> ${escapeHtml(payload.phone)}</p>
+      <p><strong>TelÈfono:</strong> ${escapeHtml(payload.phone)}</p>
       <p><strong>Correo:</strong> ${escapeHtml(payload.email)}</p>
       <p><strong>Tipo de caso:</strong> ${escapeHtml(payload.case_type)}</p>
       <p><strong>Fuente:</strong> ${escapeHtml(payload.source)}</p>
@@ -4338,7 +4029,7 @@ app.post('/api/leads', (req, res) => {
     createAdminNotification({
       notification_type: 'new_lead',
       title: 'Nuevo cliente potencial',
-      description: `${payload.name} solicit√≥ contacto por ${payload.case_type}. Fuente: ${payload.source}.`,
+      description: `${payload.name} solicitÛ contacto por ${payload.case_type}. Fuente: ${payload.source}.`,
       entity_type: 'lead',
       entity_id: this.lastID,
       contact_name: payload.name,
@@ -4347,7 +4038,7 @@ app.post('/api/leads', (req, res) => {
       whatsapp_message: `Hola ${payload.name}, te contactamos de Orjuela Abogados. Recibimos tu solicitud sobre ${payload.case_type}.`
     });
 
-    res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactar√° pronto.' });
+    res.status(201).json({ message: 'Tu solicitud fue recibida. El equipo de Orjuela Abogados te contactar· pronto.' });
   });
 });
 
