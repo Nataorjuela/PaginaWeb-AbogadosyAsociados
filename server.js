@@ -1844,19 +1844,45 @@ app.post('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (re
 
 app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
+  const name = cleanText(req.body.name, 140);
+  const phone = cleanText(req.body.phone, 60);
+  const email = req.body.email === undefined ? undefined : normalizeEmail(req.body.email);
+  const caseType = cleanText(req.body.case_type, 80);
+  const source = cleanText(req.body.source, 40);
   const status = cleanText(req.body.status, 40);
   const assignedTo = cleanText(req.body.assigned_to, 100);
+  const priority = cleanText(req.body.priority, 20);
   const nextAction = cleanText(req.body.next_action, 180);
+  const notes = cleanText(req.body.notes, 1000);
   if (!id) return res.status(400).json({ error: 'Lead inválido.' });
+  if (email && !isValidEmail(email)) return res.status(400).json({ error: 'Correo inválido.' });
   pgRun(`UPDATE leads SET
-      status = COALESCE(NULLIF($1, ''), status),
-      assigned_to = COALESCE(NULLIF($2, ''), assigned_to),
-      next_action = COALESCE(NULLIF($3, ''), next_action),
-      updated_at = $4
-    WHERE id = $5`, [status, assignedTo, nextAction, getTimestamp(), id], function (err) {
+      name = COALESCE(NULLIF($1, ''), name),
+      phone = COALESCE(NULLIF($2, ''), phone),
+      email = COALESCE($3, email),
+      case_type = COALESCE(NULLIF($4, ''), case_type),
+      source = COALESCE(NULLIF($5, ''), source),
+      status = COALESCE(NULLIF($6, ''), status),
+      assigned_to = COALESCE(NULLIF($7, ''), assigned_to),
+      priority = COALESCE(NULLIF($8, ''), priority),
+      next_action = COALESCE(NULLIF($9, ''), next_action),
+      notes = COALESCE($10, notes),
+      updated_at = $11
+    WHERE id = $12`, [name, phone, email, caseType, source, status, assignedTo, priority, nextAction, notes || null, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el lead.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Lead no encontrado.' });
     res.json({ message: 'Lead actualizado.' });
+  });
+});
+
+app.delete('/api/admin/leads/:id', requireAuth(['admin']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Lead inválido.' });
+  pgRun(`DELETE FROM leads WHERE id = $1`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible eliminar el lead.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Lead no encontrado.' });
+    auditAdminAction(req, 'eliminar', 'lead', id, 'Lead eliminado');
+    res.json({ message: 'Lead eliminado correctamente.' });
   });
 });
 
@@ -3401,6 +3427,54 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
   }
 });
 
+app.patch('/api/admin/network-referrals/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Cliente potencial inválido.' });
+  const payload = {
+    referred_full_name: cleanText(req.body.referred_full_name, 140),
+    client_identification: cleanText(req.body.client_identification, 40),
+    referred_phone: cleanText(req.body.referred_phone, 60),
+    referred_email: normalizeEmail(req.body.referred_email),
+    referred_city: cleanText(req.body.referred_city, 80),
+    legal_area: cleanText(req.body.legal_area, 80),
+    case_description: cleanText(req.body.case_description, 1000),
+    referral_channel: cleanText(req.body.referral_channel, 80),
+    urgency: cleanText(req.body.urgency, 20),
+    file_notes: cleanText(req.body.file_notes, 500),
+    status: cleanText(req.body.status, 40)
+  };
+  if (!payload.referred_full_name || !payload.referred_phone || !payload.legal_area) {
+    return res.status(400).json({ error: 'Nombre, celular y área legal son obligatorios.' });
+  }
+  if (payload.referred_email && !isValidEmail(payload.referred_email)) {
+    return res.status(400).json({ error: 'Correo inválido.' });
+  }
+  if (payload.status && !NETWORK_REFERRAL_STATUSES.includes(payload.status)) {
+    return res.status(400).json({ error: 'Estado no válido.' });
+  }
+  pgRun(`UPDATE referrals SET
+      referred_full_name = $1,
+      client_identification = $2,
+      referred_phone = $3,
+      referred_email = $4,
+      referred_city = COALESCE(NULLIF($5, ''), referred_city),
+      legal_area = $6,
+      case_description = COALESCE(NULLIF($7, ''), case_description),
+      referral_channel = COALESCE(NULLIF($8, ''), referral_channel),
+      urgency = COALESCE(NULLIF($9, ''), urgency),
+      file_notes = COALESCE(NULLIF($10, ''), file_notes),
+      status = COALESCE(NULLIF($11, ''), status),
+      updated_at = $12
+    WHERE id = $13`,
+    [payload.referred_full_name, payload.client_identification, payload.referred_phone, payload.referred_email, payload.referred_city, payload.legal_area, payload.case_description, payload.referral_channel, payload.urgency, payload.file_notes, payload.status, getTimestamp(), id],
+    function (err) {
+      if (err) return res.status(500).json({ error: 'No fue posible actualizar el cliente potencial.' });
+      if (this.changes === 0) return res.status(404).json({ error: 'Cliente potencial no encontrado.' });
+      auditAdminAction(req, 'actualizar', 'cliente potencial', id, payload.referred_full_name);
+      res.json({ message: 'Cliente potencial actualizado.' });
+    });
+});
+
 app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const status = cleanText(req.body.status, 40);
@@ -3511,6 +3585,8 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
   if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
   const payload = {
     full_name: cleanText(req.body.full_name, 140),
+    document_id: cleanText(req.body.document_id, 40),
+    email: req.body.email === undefined ? undefined : normalizeEmail(req.body.email),
     phone: cleanText(req.body.phone, 60),
     city: cleanText(req.body.city, 80),
     partner_type: cleanText(req.body.partner_type, 60),
@@ -3518,15 +3594,26 @@ app.patch('/api/admin/partner-network/allies/:id', requireAuth(['admin', 'abogad
     commission_percentage: req.body.commission_percentage === undefined ? null : Number(req.body.commission_percentage),
     status: cleanText(req.body.status, 20)
   };
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   if (payload.commission_percentage !== null && (Number.isNaN(payload.commission_percentage) || payload.commission_percentage < 0 || payload.commission_percentage > 100)) return res.status(400).json({ error: 'Porcentaje de comisión no válido.' });
-  pgRun(`UPDATE users SET full_name = COALESCE(NULLIF($1, ''), full_name), status = COALESCE(NULLIF($2, ''), status), updated_at = $3 WHERE id = $4 AND role = 'ally'`,
-    [payload.full_name, payload.status, getTimestamp(), id], function (userErr) {
-    if (userErr) return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
+  pgRun(`UPDATE users SET
+      full_name = COALESCE(NULLIF($1, ''), full_name),
+      document_id = COALESCE(NULLIF($2, ''), document_id),
+      email = COALESCE($3, email),
+      status = COALESCE(NULLIF($4, ''), status),
+      updated_at = $5
+    WHERE id = $6 AND role = 'ally'`,
+    [payload.full_name, payload.document_id, payload.email, payload.status, getTimestamp(), id], function (userErr) {
+    if (userErr) {
+      if (userErr.code === '23505') return res.status(409).json({ error: 'Ya existe otro aliado con ese correo o documento.' });
+      return res.status(500).json({ error: 'No fue posible actualizar aliado.' });
+    }
     pgRun(`INSERT INTO partners (user_id, document_id, phone, city, partner_type, occupation, referral_code, commission_percentage, commission_balance, created_at, updated_at)
       SELECT u.id, COALESCE(NULLIF(u.document_id, ''), $1), $2, $3, COALESCE(NULLIF($4, ''), 'Independiente'), $5, $6, COALESCE($7, 10), 0, $8, $9
       FROM users u
       WHERE u.id = $10 AND u.role = 'ally'
       ON CONFLICT (user_id) DO UPDATE SET
+        document_id = COALESCE(NULLIF(excluded.document_id, ''), partners.document_id),
         phone = COALESCE(NULLIF(excluded.phone, ''), partners.phone),
         city = COALESCE(NULLIF(excluded.city, ''), partners.city),
         partner_type = COALESCE(NULLIF(excluded.partner_type, ''), partners.partner_type),
@@ -3589,6 +3676,41 @@ app.delete('/api/admin/partner-network/allies/:id/permanent', requireAuth(['admi
   } finally {
     client.release();
   }
+});
+
+app.patch('/api/admin/partner-network/legacy-allies/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Aliado inválido.' });
+  const payload = {
+    full_name: cleanText(req.body.full_name, 140),
+    document_number: cleanText(req.body.document_id || req.body.document_number, 40),
+    phone: cleanText(req.body.phone, 60),
+    email: req.body.email === undefined ? undefined : normalizeEmail(req.body.email),
+    city: cleanText(req.body.city, 80),
+    ally_type: cleanText(req.body.partner_type || req.body.ally_type || req.body.occupation, 80),
+    status: cleanText(req.body.status, 20)
+  };
+  if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  pgRun(`UPDATE allies SET
+      full_name = COALESCE(NULLIF($1, ''), full_name),
+      document_number = COALESCE(NULLIF($2, ''), document_number),
+      phone = COALESCE(NULLIF($3, ''), phone),
+      email = COALESCE($4, email),
+      city = COALESCE(NULLIF($5, ''), city),
+      ally_type = COALESCE(NULLIF($6, ''), ally_type),
+      status = COALESCE(NULLIF($7, ''), status),
+      updated_at = $8
+    WHERE id = $9`,
+    [payload.full_name, payload.document_number, payload.phone, payload.email, payload.city, payload.ally_type, payload.status, getTimestamp(), id],
+    function (err) {
+      if (err) {
+        if (err.code === '23505') return res.status(409).json({ error: 'Ya existe otro aliado con esa cédula.' });
+        return res.status(500).json({ error: 'No fue posible actualizar el aliado.' });
+      }
+      if (this.changes === 0) return res.status(404).json({ error: 'Aliado no encontrado.' });
+      auditAdminAction(req, 'actualizar', 'aliado_landing', id, payload.full_name || 'Aliado actualizado');
+      res.json({ message: 'Aliado actualizado.' });
+    });
 });
 
 app.delete('/api/admin/partner-network/legacy-allies/:id/permanent', requireAuth(['admin']), async (req, res) => {
