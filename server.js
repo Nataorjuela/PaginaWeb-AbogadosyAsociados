@@ -1709,60 +1709,138 @@ app.get('/api/auth/me', requireAuth(AUTH_ROLES), (req, res) => {
   res.json({ user: req.user });
 });
 
-app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  const reports = {};
-  pgGet(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads`, (leadErr, leadCount) => {
-    if (leadErr) return res.status(500).json({ error: 'No fue posible cargar dashboard.' });
-    pgGet(`SELECT COUNT(*) AS total FROM cases`, (caseErr, caseCount) => {
-      if (caseErr) return res.status(500).json({ error: 'No fue posible cargar casos.' });
-      pgGet(`SELECT COUNT(*) AS total FROM clients`, (clientErr, clientCount) => {
-        if (clientErr) return res.status(500).json({ error: 'No fue posible cargar clientes.' });
-        pgGet(`SELECT COUNT(*) AS total FROM referrals`, (refErr, refCount) => {
-          if (refErr) return res.status(500).json({ error: 'No fue posible cargar referidos.' });
-          pgGet(`SELECT COUNT(*) AS total FROM (
-              SELECT email, document_id, created_at FROM users WHERE role = 'ally'
-              UNION
-              SELECT email, document_number AS document_id, created_at FROM allies
-            ) monthly_allies
-            WHERE created_at >= date_trunc('month', CURRENT_DATE)::text`, (allyErr, allyCount) => {
-            if (allyErr) return res.status(500).json({ error: 'No fue posible cargar aliados.' });
-            pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status = 'pending'`, (commErr, comm) => {
-              if (commErr) return res.status(500).json({ error: 'No fue posible cargar comisiones.' });
-              pgGet(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`, (payErr, pendingPayments) => {
-                if (payErr) return res.status(500).json({ error: 'No fue posible cargar pagos.' });
-                pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`, (recentErr, recentLeads) => {
-                  if (recentErr) return res.status(500).json({ error: 'No fue posible cargar leads.' });
-                  reports.leads = leadCount.total || 0;
-                  reports.cases = caseCount.total || 0;
-                  reports.clients = clientCount.total || 0;
-                  reports.referrals = refCount.total || 0;
-                  reports.monthly_allies = allyCount.total || 0;
-                  reports.pending_commissions = comm.total || 0;
-                  reports.pending_payments = pendingPayments.total || 0;
-                  reports.conversion_rate = reports.leads ? Math.round((reports.cases / reports.leads) * 100) : 0;
-                  res.json({
-                    reports,
-                    recentLeads,
-                    deadlines: [],
-                    appointments: [],
-                    metrics: [
-                      { label: 'Nuevos leads', value: String(reports.leads) },
-                      { label: 'Aliados del mes', value: String(reports.monthly_allies) },
-                      { label: 'Casos activos', value: String(reports.cases) },
-                      { label: 'Referidos del mes', value: String(reports.referrals) },
-                      { label: 'Clientes activos', value: String(reports.clients) },
-                      { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
-                      { label: 'Pagos pendientes', value: formatMoney(reports.pending_payments) }
-                    ]
-                  });
-                });
-              });
-            });
-          });
-        });
-      });
+app.get('/api/admin/dashboard', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
+  try {
+    const [
+      totalLeads,
+      monthlyLeads,
+      todayLeads,
+      monthlyReferrals,
+      todayReferrals,
+      activeCases,
+      activeClients,
+      weeklyAllies,
+      monthlyAllies,
+      pendingCommissionsTotal,
+      pendingPaymentsTotal,
+      recentLeadsResult,
+      attentionLeadsResult,
+      recentActivityResult,
+      pendingCommissionsResult,
+      caseFollowUpsResult
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads`),
+      pool.query(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads WHERE LEFT(COALESCE(created_at, ''), 7) = to_char(CURRENT_DATE, 'YYYY-MM')`),
+      pool.query(`SELECT COUNT(*) AS total FROM (${ADMIN_LEADS_SQL}) admin_leads WHERE LEFT(COALESCE(created_at, ''), 10) = CURRENT_DATE::text`),
+      pool.query(`SELECT COUNT(*) AS total FROM referrals WHERE LEFT(COALESCE(created_at, ''), 7) = to_char(CURRENT_DATE, 'YYYY-MM')`),
+      pool.query(`SELECT COUNT(*) AS total FROM referrals WHERE LEFT(COALESCE(created_at, ''), 10) = CURRENT_DATE::text`),
+      pool.query(`SELECT COUNT(*) AS total FROM cases WHERE COALESCE(status, '') NOT IN ('Archivado', 'Finalizado')`),
+      pool.query(`SELECT COUNT(*) AS total FROM clients WHERE COALESCE(status, 'Activo') <> 'Archivado'`),
+      pool.query(`SELECT COUNT(*) AS total FROM (
+        SELECT email, document_id, created_at FROM users WHERE role = 'ally'
+        UNION
+        SELECT email, document_number AS document_id, created_at FROM allies
+      ) weekly_allies WHERE created_at >= (CURRENT_DATE - INTERVAL '7 days')::text`),
+      pool.query(`SELECT COUNT(*) AS total FROM (
+        SELECT email, document_id, created_at FROM users WHERE role = 'ally'
+        UNION
+        SELECT email, document_number AS document_id, created_at FROM allies
+      ) monthly_allies WHERE LEFT(COALESCE(created_at, ''), 7) = to_char(CURRENT_DATE, 'YYYY-MM')`),
+      pool.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM commissions WHERE status IN ('pending', 'approved')`),
+      pool.query(`SELECT COALESCE(SUM(amount), 0) AS total FROM payments WHERE status <> 'Pagado'`),
+      pool.query(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY created_at DESC LIMIT 8`),
+      pool.query(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads
+        WHERE LOWER(COALESCE(status, '')) NOT IN ('convertido en caso', 'cliente vinculado', 'won', 'commission_paid', 'comision pagada', 'caso rechazado', 'rejected', 'archivado')
+        ORDER BY created_at DESC LIMIT 8`),
+      pool.query(`SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 8`),
+      pool.query(`SELECT c.id, c.ally_id, c.referral_id, c.percentage, c.amount, c.status, c.created_at,
+          COALESCE(u.full_name, a.full_name, 'Aliado no identificado') AS ally_name,
+          r.referred_full_name
+        FROM commissions c
+        LEFT JOIN referrals r ON r.id = c.referral_id
+        LEFT JOIN partners p ON p.user_id = c.ally_id
+        LEFT JOIN users u ON u.id = COALESCE(p.user_id, c.ally_id)
+        LEFT JOIN allies a ON a.email = u.email
+        WHERE c.status IN ('pending', 'approved')
+        ORDER BY c.created_at DESC LIMIT 6`),
+      pool.query(`SELECT ca.id, ca.case_type, ca.status, ca.next_action, ca.created_at, ca.updated_at,
+          cl.name AS client_name
+        FROM cases ca
+        LEFT JOIN clients cl ON cl.id = ca.client_id
+        WHERE COALESCE(ca.status, '') NOT IN ('Archivado', 'Finalizado')
+        ORDER BY COALESCE(ca.updated_at, ca.created_at) ASC LIMIT 4`)
+    ]);
+
+    const readTotal = (result) => Number(result.rows[0]?.total || 0);
+    const reports = {
+      leads: readTotal(totalLeads),
+      monthly_leads: readTotal(monthlyLeads),
+      today_leads: readTotal(todayLeads),
+      referrals: readTotal(monthlyReferrals),
+      today_referrals: readTotal(todayReferrals),
+      cases: readTotal(activeCases),
+      clients: readTotal(activeClients),
+      weekly_allies: readTotal(weeklyAllies),
+      monthly_allies: readTotal(monthlyAllies),
+      pending_commissions: Number(pendingCommissionsTotal.rows[0]?.total || 0),
+      pending_payments: Number(pendingPaymentsTotal.rows[0]?.total || 0)
+    };
+    reports.conversion_rate = reports.monthly_leads ? Math.round((reports.cases / reports.monthly_leads) * 100) : 0;
+
+    const attentionLeads = attentionLeadsResult.rows;
+    const pendingCommissions = pendingCommissionsResult.rows;
+    const caseFollowUps = caseFollowUpsResult.rows;
+    const actionItems = [
+      ...attentionLeads.slice(0, 3).map((lead) => ({
+        icon: lead.source_kind === 'referral' ? 'bi-person-plus' : 'bi-telephone',
+        title: lead.source_kind === 'referral' ? `Contactar referido: ${lead.name}` : `Contactar lead: ${lead.name}`,
+        description: `${lead.case_type || 'Caso legal'} - ${lead.phone || lead.email || 'sin contacto registrado'}`,
+        date: lead.created_at,
+        section: 'leads'
+      })),
+      ...caseFollowUps.slice(0, 2).map((legalCase) => ({
+        icon: 'bi-folder-check',
+        title: `Revisar caso de ${legalCase.client_name || 'cliente'}`,
+        description: legalCase.next_action || legalCase.case_type || 'Sin próxima acción registrada',
+        date: legalCase.updated_at || legalCase.created_at,
+        section: 'cases'
+      })),
+      ...pendingCommissions.slice(0, 2).map((commission) => ({
+        icon: 'bi-cash-coin',
+        title: `Comisión pendiente para ${commission.ally_name}`,
+        description: `${formatMoney(commission.amount)} por ${commission.referred_full_name || 'referido'}`,
+        date: commission.created_at,
+        section: 'partner-network'
+      }))
+    ].slice(0, 7);
+
+    res.json({
+      reports,
+      recentLeads: recentLeadsResult.rows,
+      attentionLeads,
+      recentActivity: recentActivityResult.rows,
+      pendingCommissions,
+      actionItems,
+      monthlyPerformance: [
+        { label: 'Leads del mes', value: String(reports.monthly_leads), help: 'Solicitudes y referidos recibidos' },
+        { label: 'Referidos del mes', value: String(reports.referrals), help: 'Entradas generadas por aliados' },
+        { label: 'Aliados nuevos', value: String(reports.monthly_allies), help: 'Registros creados este mes' },
+        { label: 'Conversión estimada', value: `${reports.conversion_rate}%`, help: 'Casos activos frente a leads del mes' },
+        { label: 'Clientes activos', value: String(reports.clients), help: 'Clientes no archivados' }
+      ],
+      metrics: [
+        { label: 'Leads nuevos hoy', value: String(reports.today_leads) },
+        { label: 'Referidos hoy', value: String(reports.today_referrals) },
+        { label: 'Aliados semana', value: String(reports.weekly_allies) },
+        { label: 'Casos activos', value: String(reports.cases) },
+        { label: 'Comisiones pendientes', value: formatMoney(reports.pending_commissions) },
+        { label: 'Pagos pendientes', value: formatMoney(reports.pending_payments) }
+      ]
     });
-  });
+  } catch (err) {
+    console.error('[admin/dashboard] No fue posible cargar dashboard:', err);
+    res.status(500).json({ error: 'No fue posible cargar dashboard.' });
+  }
 });
 
 app.get('/api/admin/notifications', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {

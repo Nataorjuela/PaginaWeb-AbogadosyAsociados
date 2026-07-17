@@ -309,7 +309,7 @@
       <header class="dashboard-header">
         <div *ngIf="kind !== 'admin' || adminSection === 'dashboard'">
           <span class="secure-pill">{{ kind === 'partner' ? 'Cuenta activa' : kind === 'client' ? 'Caso protegido' : 'Acceso interno seguro' }}</span>
-          <h1>{{ kind === 'partner' ? 'Mi red de referidores' : kind === 'client' ? 'Portal clientes' : 'CRM jurídico administrativo' }}</h1>
+          <h1>{{ kind === 'partner' ? 'Mi red de referidores' : kind === 'client' ? 'Portal clientes' : 'Centro de control' }}</h1>
         </div>
         <div class="dashboard-actions">
           <div class="user-chip"><span>{{ currentUser?.full_name || 'Usuario Orjuela' }}</span><i class="bi bi-bell"></i><div class="avatar">{{ (currentUser?.full_name || 'O').charAt(0) }}</div></div>
@@ -738,41 +738,111 @@
         <div *ngIf="clientFormMessage" class="alert alert-success">{{ clientFormMessage }}</div>
       </div>
       <div class="content-grid" *ngIf="kind === 'admin' && adminSection === 'dashboard'">
-        <section class="data-card wide">
-          <h2>Leads recientes</h2>
-          <div class="table-responsive"><table class="table"><thead><tr><th>Nombre</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th></tr></thead><tbody><tr *ngFor="let lead of adminLeads"><td>{{ lead.name }}</td><td>{{ lead.caseType }}</td><td>{{ lead.source }}</td><td><span class="status-badge">{{ lead.status }}</span></td><td>{{ lead.owner }}</td><td>{{ formatDate12Hour(lead.date) }}</td></tr></tbody></table></div>
+        <section class="lead-hero-card admin-control-hero wide">
+          <div>
+            <span class="secure-pill">Prioridades de hoy</span>
+            <h2>Gestiona leads, aliados, casos y pagos desde una sola vista</h2>
+            <p>El panel muestra pendientes reales de contacto, actividad reciente, comisiones por pagar y rendimiento comercial del mes.</p>
+          </div>
+          <button class="btn btn-primary" type="button" (click)="loadAdminDashboard()">
+            <i class="bi bi-arrow-clockwise"></i>
+            Actualizar
+          </button>
         </section>
-        <section class="data-card">
-          <h2>Casos próximos a vencerse</h2>
-          <div class="deadline-list">
-            <article>
-              <strong>Contestación demanda civil</strong>
-              <span>Vence en 2 días</span>
-            </article>
-            <article>
-              <strong>Subsanación proceso inmobiliario</strong>
-              <span>Vence en 4 días</span>
-            </article>
-            <article>
-              <strong>Radicación recurso</strong>
-              <span>Vence en 6 días</span>
+
+        <section class="data-card wide">
+          <div class="data-card-heading">
+            <div>
+              <span class="section-kicker">Acción inmediata</span>
+              <h2>Pendientes por atender</h2>
+            </div>
+            <button class="btn btn-outline-dark btn-sm" type="button" (click)="setAdminSection('notifications')">Ver notificaciones</button>
+          </div>
+          <div class="control-list" *ngIf="adminDashboard.actionItems?.length; else emptyActionItems">
+            <article *ngFor="let item of adminDashboard.actionItems">
+              <i class="bi" [ngClass]="item.icon || 'bi-exclamation-circle'"></i>
+              <div>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.description }}</p>
+                <span>{{ formatDate12Hour(item.date) }}</span>
+              </div>
+              <button class="btn btn-outline-dark btn-sm" type="button" *ngIf="item.section" (click)="setAdminSection(item.section)">Abrir</button>
             </article>
           </div>
+          <ng-template #emptyActionItems><p class="empty-state">No hay pendientes críticos en este momento.</p></ng-template>
+        </section>
+
+        <section class="data-card wide">
+          <div class="data-card-heading">
+            <div>
+              <span class="section-kicker">Comercial</span>
+              <h2>Leads y referidos por atender</h2>
+            </div>
+            <button class="btn btn-outline-dark btn-sm" type="button" (click)="setAdminSection('leads')">Gestionar leads</button>
+          </div>
+          <div class="table-responsive" *ngIf="adminDashboard.attentionLeads?.length; else emptyAttentionLeads">
+            <table class="table">
+              <thead><tr><th>Nombre</th><th>Celular</th><th>Tipo caso</th><th>Fuente</th><th>Estado</th><th>Responsable</th><th>Fecha</th><th></th></tr></thead>
+              <tbody>
+                <tr *ngFor="let lead of adminDashboard.attentionLeads">
+                  <td><strong>{{ lead.name }}</strong></td>
+                  <td>{{ lead.phone }}</td>
+                  <td>{{ lead.caseType }}</td>
+                  <td>{{ lead.source }}</td>
+                  <td><span class="status-badge">{{ lead.status }}</span></td>
+                  <td>{{ lead.owner }}</td>
+                  <td>{{ formatDate12Hour(lead.date) }}</td>
+                  <td><button class="btn btn-outline-dark btn-sm icon-action" type="button" title="Ver detalle" aria-label="Ver detalle" (click)="selectLead(lead); setAdminSection('leads')"><i class="bi bi-eye"></i></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <ng-template #emptyAttentionLeads><p class="empty-state">No hay leads pendientes por atender.</p></ng-template>
         </section>
         <section class="data-card">
-          <h2>Próximas citas</h2>
-          <div class="appointment-list">
-            <article>
-              <span>Hoy · 3:00 p. m.</span>
-              <strong>Asesoría contrato comercial</strong>
+          <div class="data-card-heading compact-heading">
+            <div>
+              <span class="section-kicker">Movimiento</span>
+              <h2>Actividad reciente</h2>
+            </div>
+          </div>
+          <div class="dashboard-activity-list" *ngIf="adminDashboard.recentActivity?.length; else emptyActivity">
+            <article *ngFor="let item of adminDashboard.recentActivity">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.description }}</p>
+              <span>{{ formatDate12Hour(item.created_at) }}</span>
             </article>
-            <article>
-              <span>Mañana · 9:30 a. m.</span>
-              <strong>Revisión compraventa inmueble</strong>
+          </div>
+          <ng-template #emptyActivity><p class="empty-state">Aún no hay actividad reciente registrada.</p></ng-template>
+        </section>
+        <section class="data-card">
+          <div class="data-card-heading compact-heading">
+            <div>
+              <span class="section-kicker">Aliados</span>
+              <h2>Comisiones pendientes</h2>
+            </div>
+          </div>
+          <div class="commission-pending-list" *ngIf="adminDashboard.pendingCommissions?.length; else emptyCommissions">
+            <article *ngFor="let item of adminDashboard.pendingCommissions">
+              <div><strong>{{ item.ally_name }}</strong><span>{{ item.referred_full_name || 'Referido sin nombre' }}</span></div>
+              <b>{{ formatCurrency(item.amount) }}</b>
             </article>
-            <article>
-              <span>Viernes · 11:00 a. m.</span>
-              <strong>Seguimiento cobro de cartera</strong>
+          </div>
+          <ng-template #emptyCommissions><p class="empty-state">No hay comisiones pendientes por pagar.</p></ng-template>
+        </section>
+        <section class="data-card wide">
+          <div class="data-card-heading">
+            <div>
+              <span class="section-kicker">Mes actual</span>
+              <h2>Rendimiento del mes</h2>
+            </div>
+            <button class="btn btn-outline-dark btn-sm" type="button" (click)="setAdminSection('reports')">Ver reportes</button>
+          </div>
+          <div class="performance-grid">
+            <article *ngFor="let item of adminDashboard.monthlyPerformance">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+              <small>{{ item.help }}</small>
             </article>
           </div>
         </section>

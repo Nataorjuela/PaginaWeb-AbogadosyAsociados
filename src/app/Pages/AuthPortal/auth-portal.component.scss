@@ -642,6 +642,35 @@ h2 {
   grid-column: 1 / -1;
 }
 
+.admin-control-hero {
+  grid-column: 1 / -1;
+}
+
+.data-card-heading {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.data-card-heading h2 {
+  margin: 0.2rem 0 0;
+}
+
+.compact-heading {
+  align-items: start;
+}
+
+.section-kicker {
+  color: #0f766e;
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .data-toolbar {
   align-items: center;
   display: grid;
@@ -729,6 +758,95 @@ h2 {
 .deadline-list strong,
 .appointment-list strong {
   color: #1e3650;
+}
+
+.control-list,
+.dashboard-activity-list,
+.commission-pending-list,
+.performance-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.control-list article {
+  align-items: center;
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  padding: 0.95rem;
+}
+
+.control-list i {
+  align-items: center;
+  background: #eefcf8;
+  border-radius: 50%;
+  color: #0f766e;
+  display: flex;
+  font-size: 1.05rem;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.control-list strong,
+.dashboard-activity-list strong,
+.commission-pending-list strong,
+.performance-grid strong {
+  color: #1e3650;
+}
+
+.control-list p,
+.dashboard-activity-list p {
+  color: #667085;
+  margin: 0.15rem 0;
+}
+
+.control-list span,
+.dashboard-activity-list span,
+.commission-pending-list span,
+.performance-grid span,
+.performance-grid small {
+  color: #667085;
+  display: block;
+}
+
+.dashboard-activity-list article,
+.commission-pending-list article,
+.performance-grid article {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 16px;
+  padding: 0.95rem;
+}
+
+.dashboard-activity-list article {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.commission-pending-list article {
+  align-items: center;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.commission-pending-list b {
+  color: #0f766e;
+  white-space: nowrap;
+}
+
+.performance-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.performance-grid strong {
+  display: block;
+  font-size: 1.5rem;
+  margin: 0.2rem 0;
 }
 
 .deadline-list span {
@@ -1881,6 +1999,7 @@ h2 {
   .network-form,
   .content-grid,
   .data-toolbar,
+  .performance-grid,
   .metric-grid {
     grid-template-columns: 1fr;
   }
@@ -1932,7 +2051,23 @@ h2 {
   }
 
   .dashboard-header,
+  .data-card-heading,
   .form-options {
+    align-items: start;
+    flex-direction: column;
+  }
+
+  .control-list article {
+    align-items: start;
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .control-list article .btn {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .commission-pending-list article {
     align-items: start;
     flex-direction: column;
   }

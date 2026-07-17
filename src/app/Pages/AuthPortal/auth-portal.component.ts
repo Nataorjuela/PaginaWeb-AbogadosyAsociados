@@ -123,7 +123,7 @@ export class AuthPortalComponent implements OnInit {
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
   selectedAdminAlly: any = null;
   commissionOptions = [5, 10, 20];
-  adminDashboard: any = { metrics: [], recentLeads: [], deadlines: [], appointments: [], reports: {} };
+  adminDashboard: any = { metrics: [], recentLeads: [], attentionLeads: [], actionItems: [], recentActivity: [], pendingCommissions: [], monthlyPerformance: [], reports: {} };
   adminClients: any[] = [];
   adminCases: any[] = [];
   adminPayments: any[] = [];
@@ -1792,10 +1792,20 @@ export class AuthPortalComponent implements OnInit {
     if (!token) return;
     this.http.get<any>(this.apiUrl('/api/admin/dashboard'), { headers: this.authHeaders() }).subscribe({
       next: (response) => {
-        this.adminDashboard = response;
+        const recentLeads = (response.recentLeads || []).map((item: any) => this.mapAdminLead(item));
+        const attentionLeads = (response.attentionLeads || []).map((item: any) => this.mapAdminLead(item));
+        this.adminDashboard = {
+          ...response,
+          recentLeads,
+          attentionLeads,
+          actionItems: response.actionItems || [],
+          recentActivity: response.recentActivity || [],
+          pendingCommissions: response.pendingCommissions || [],
+          monthlyPerformance: response.monthlyPerformance || []
+        };
         this.adminMetrics = response.metrics || this.adminMetrics;
         if (this.adminSection === 'dashboard') {
-          this.adminLeads = (response.recentLeads || []).map((item: any) => this.mapAdminLead(item));
+          this.adminLeads = recentLeads;
           this.selectedLead = this.adminLeads[0] || this.selectedLead;
         }
       }
