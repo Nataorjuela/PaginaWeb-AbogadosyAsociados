@@ -624,6 +624,47 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function syncClientFromPotential(data, callback) {
+  const now = getTimestamp();
+  const payload = {
+    name: cleanText(data.name || data.referred_full_name, 140),
+    document_id: cleanText(data.document_id || data.client_identification, 40),
+    phone: cleanText(data.phone || data.referred_phone, 60),
+    email: normalizeEmail(data.email || data.referred_email),
+    city: cleanText(data.city || data.referred_city, 80)
+  };
+  if (!payload.name || !payload.phone) return callback(new Error('missing_client_data'));
+  if (payload.email && !isValidEmail(payload.email)) return callback(new Error('invalid_client_email'));
+
+  pgGet(`SELECT id FROM clients
+    WHERE ($1 <> '' AND email = $1)
+       OR ($2 <> '' AND phone = $2)
+       OR ($3 <> '' AND document_id = $3)
+    ORDER BY id DESC LIMIT 1`, [payload.email, payload.phone, payload.document_id], (selectErr, client) => {
+    if (selectErr) return callback(selectErr);
+    if (client?.id) {
+      pgRun(`UPDATE clients SET
+          name = COALESCE(NULLIF($1, ''), name),
+          document_id = COALESCE(NULLIF($2, ''), document_id),
+          phone = COALESCE(NULLIF($3, ''), phone),
+          email = COALESCE(NULLIF($4, ''), email),
+          city = COALESCE(NULLIF($5, ''), city),
+          status = 'Activo',
+          updated_at = $6
+        WHERE id = $7`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, now, client.id], (updateErr) => {
+        callback(updateErr, { id: client.id, created: false });
+      });
+      return;
+    }
+
+    pgRun(`INSERT INTO clients (name, document_id, phone, email, city, status, created_at, updated_at, verified)
+      VALUES ($1, $2, $3, $4, $5, 'Activo', $6, $7, 0)
+      RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, now, now], function (insertErr) {
+      callback(insertErr, { id: this?.lastID, created: true });
+    });
+  });
+}
+
 function getJsonFromUrl(url, headers, callback) {
   https.get(url, { headers }, (response) => {
     let raw = '';
@@ -1871,7 +1912,16 @@ app.patch('/api/admin/leads/:id', requireAuth(['admin', 'abogado', 'asistente'])
     WHERE id = $12`, [name, phone, email, caseType, source, status, assignedTo, priority, nextAction, notes || null, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar el lead.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Lead no encontrado.' });
-    res.json({ message: 'Lead actualizado.' });
+    if (String(status || '').toLowerCase() !== 'cliente vinculado') {
+      return res.json({ message: 'Lead actualizado.' });
+    }
+    pgGet(`SELECT * FROM leads WHERE id = $1`, [id], (leadErr, lead) => {
+      if (leadErr || !lead) return res.status(500).json({ error: 'Lead actualizado, pero no fue posible cargarlo para crear el cliente.' });
+      syncClientFromPotential(lead, (clientErr, client) => {
+        if (clientErr) return res.status(500).json({ error: 'Lead actualizado, pero no fue posible crear o actualizar el cliente.' });
+        res.json({ message: 'Lead actualizado y reflejado en clientes.', client_id: client.id });
+      });
+    });
   });
 });
 
@@ -3263,6 +3313,9 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
       if (partner) return `Aliado #${partner.user_id}`;
       return legacyById.get(numericId)?.full_name || 'Aliado no identificado';
     };
+    const resolveInviterName = (partner) => partner?.invited_by_partner_id
+      ? resolveAllyName(partner.invited_by_partner_id)
+      : 'Registro directo';
     const resolveLegacyForUser = (user) => legacyByEmail.get(normalizeEmail(user.email)) || legacyByDocument.get(normalizeDocument(user.document_id));
     const referralBelongsToUser = (referral, user, legacy) => Number(referral.ally_id) === Number(user.id) || (legacy && Number(referral.ally_id) === Number(legacy.id));
     const referralBelongsToLegacyOnly = (referral, legacy) => Number(referral.ally_id) === Number(legacy.id);
@@ -3288,7 +3341,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         full_name: user.full_name,
         email: user.email,
         status: user.status || legacy.status || 'active',
-        invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
+        invited_by_name: resolveInviterName(partner),
         referrals_count: userReferrals.length,
         client_leads_count: userReferrals.length,
         invited_allies_count: invitedAlliesCount(user.id),
@@ -3319,7 +3372,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         full_name: legacy.full_name,
         email: legacy.email,
         status: legacy.status,
-        invited_by_name: 'Principal',
+        invited_by_name: 'Registro directo',
         referrals_count: legacyReferrals.length,
         client_leads_count: legacyReferrals.length,
         invited_allies_count: 0,
@@ -3349,7 +3402,7 @@ app.get('/api/admin/partner-network', requireAuth(['admin', 'abogado', 'asistent
         full_name: `Aliado #${partner.user_id}`,
         email: '',
         status: 'active',
-        invited_by_name: partner.invited_by_partner_id ? resolveAllyName(partner.invited_by_partner_id) : 'Principal',
+        invited_by_name: resolveInviterName(partner),
         referrals_count: partnerReferrals.length,
         client_leads_count: partnerReferrals.length,
         invited_allies_count: invitedAlliesCount(partner.user_id),
@@ -3471,7 +3524,16 @@ app.patch('/api/admin/network-referrals/:id', requireAuth(['admin', 'abogado', '
       if (err) return res.status(500).json({ error: 'No fue posible actualizar el cliente potencial.' });
       if (this.changes === 0) return res.status(404).json({ error: 'Cliente potencial no encontrado.' });
       auditAdminAction(req, 'actualizar', 'cliente potencial', id, payload.referred_full_name);
-      res.json({ message: 'Cliente potencial actualizado.' });
+      if (payload.status !== 'Cliente vinculado') {
+        return res.json({ message: 'Cliente potencial actualizado.' });
+      }
+      pgGet(`SELECT * FROM referrals WHERE id = $1`, [id], (refErr, referral) => {
+        if (refErr || !referral) return res.status(500).json({ error: 'Cliente potencial actualizado, pero no fue posible cargarlo para crear el cliente.' });
+        syncClientFromPotential(referral, (clientErr, client) => {
+          if (clientErr) return res.status(500).json({ error: 'Cliente potencial actualizado, pero no fue posible crear o actualizar el cliente.' });
+          res.json({ message: 'Cliente potencial actualizado y reflejado en clientes.', client_id: client.id });
+        });
+      });
     });
 });
 
@@ -3511,6 +3573,11 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
       const whatsappMessage = `Hola ${referredName}, te contactamos de Orjuela Abogados. Tu proceso ya fue vinculado como cliente. Crea tu cuenta aquí: ${registerUrl}`;
       const whatsappUrl = whatsappLink(referral.referred_phone, whatsappMessage);
 
+      syncClientFromPotential(referral, (clientSyncErr, syncedClient) => {
+        if (clientSyncErr) {
+          return res.status(500).json({ error: 'Cliente potencial marcado como cliente, pero no fue posible crearlo en la sección Clientes.' });
+        }
+
       createAdminNotification({
         notification_type: 'client_invite',
         title: 'Enviar acceso de cliente al cliente potencial',
@@ -3536,8 +3603,10 @@ app.patch('/api/admin/network-referrals/:id/status', requireAuth(['admin', 'abog
             ? 'Cliente potencial marcado como cliente. Se notificó al aliado y se envió correo de registro.'
             : 'Cliente potencial marcado como cliente. Se notificó al aliado y quedó lista la acción de contacto por WhatsApp/correo.',
           whatsapp_url: whatsappUrl,
-          register_url: registerUrl
+          register_url: registerUrl,
+          client_id: syncedClient.id
         });
+      });
       });
     });
   });

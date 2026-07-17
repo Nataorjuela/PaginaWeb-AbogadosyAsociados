@@ -1335,6 +1335,8 @@ export class AuthPortalComponent implements OnInit {
           window.open(response.whatsapp_url, '_blank', 'noopener');
         }
         this.loadAdminNetwork();
+        this.loadAdminSectionData('clients');
+        this.loadAdminDashboard();
       },
       error: (err) => {
         this.formError = err?.error?.error || 'No fue posible actualizar el estado del cliente potencial.';
@@ -1458,6 +1460,7 @@ export class AuthPortalComponent implements OnInit {
         this.formMessage = 'Cliente potencial actualizado.';
         this.cancelNetworkReferralEdit();
         this.loadAdminNetwork();
+        this.loadAdminSectionData('clients');
         this.loadAdminLeads();
         this.loadAdminDashboard();
       },
@@ -1930,6 +1933,7 @@ export class AuthPortalComponent implements OnInit {
       next: () => {
         this.formMessage = 'Lead actualizado.';
         this.loadAdminLeads();
+        this.loadAdminSectionData('clients');
         this.loadAdminDashboard();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el lead.'
@@ -1946,6 +1950,7 @@ export class AuthPortalComponent implements OnInit {
           this.loadAdminLeads();
           this.loadAdminDashboard();
           this.loadAdminNetwork();
+          this.loadAdminSectionData('clients');
         },
         error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el cliente potencial.'
       });
