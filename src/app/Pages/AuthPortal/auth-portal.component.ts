@@ -123,8 +123,10 @@ export class AuthPortalComponent implements OnInit {
   adminNetwork: any = { allies: [], referrals: [], commissions: [], settings: {} };
   selectedAdminAlly: any = null;
   commissionOptions = [5, 10, 20];
+  caseCommissionOptions = [5, 10, 15, 20];
   adminDashboard: any = { metrics: [], recentLeads: [], attentionLeads: [], overdueReferrals: [], actionItems: [], recentActivity: [], pendingCommissions: [], monthlyPerformance: [], reports: {} };
   adminClients: any[] = [];
+  selectedAdminClient: any = null;
   adminCases: any[] = [];
   adminPayments: any[] = [];
   adminDocuments: any[] = [];
@@ -140,6 +142,7 @@ export class AuthPortalComponent implements OnInit {
   showLeadDetail = false;
   editingAdminClientId: number | null = null;
   editingAdminCaseId: number | null = null;
+  convertingLeadToCase = false;
   editingAdminAllyId: number | null = null;
   editingAdminReferral: any = null;
   showAllyProfileForm = false;
@@ -324,6 +327,7 @@ export class AuthPortalComponent implements OnInit {
   partnerTypes = ['Inmobiliaria', 'Asesor comercial', 'Cliente', 'Empresa', 'Independiente', 'Otro'];
   legalAreas = ['Familia', 'Civil', 'Laboral', 'Comercial', 'Penal', 'Inmobiliario', 'Otro'];
   referralStatuses = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente vinculado', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
+  clientStatuses = ['Nuevo cliente', 'Contactado', 'Caso en proceso', 'Finalizado'];
   commissionStatuses = ['pending', 'approved', 'paid', 'rejected'];
   constructor(private fb: FormBuilder, private http: HttpClient) {}
 
@@ -474,7 +478,13 @@ export class AuthPortalComponent implements OnInit {
       description: [''],
       status: ['Recibido', Validators.required],
       assigned_lawyer: ['Equipo Orjuela'],
-      next_action: ['Revisar documentación inicial']
+      next_action: ['Revisar documentación inicial'],
+      documentation_url: [''],
+      admin_notes: [''],
+      case_amount: [0, [Validators.required, Validators.min(0)]],
+      commission_percentage: [10, Validators.required],
+      source_referral_id: [''],
+      source_lead_id: ['']
     });
 
     this.adminClientForm = this.fb.group({
@@ -484,7 +494,10 @@ export class AuthPortalComponent implements OnInit {
       email: ['', Validators.email],
       city: [''],
       address: [''],
-      status: ['Activo'],
+      status: ['Nuevo cliente'],
+      case_type: [''],
+      case_description: [''],
+      source: ['Registro manual'],
       verified: [false]
     });
 
@@ -1932,6 +1945,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.patch<any>(this.apiUrl(endpoint), { status: nextStatus }, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Lead actualizado.';
+        this.selectedLead = { ...this.selectedLead, status: nextStatus };
         this.loadAdminLeads();
         this.loadAdminSectionData('clients');
         this.loadAdminDashboard();
@@ -1941,29 +1955,7 @@ export class AuthPortalComponent implements OnInit {
   }
 
   convertSelectedLeadToCase(): void {
-    if (!(this.selectedLead as any)?.id) return;
-    if (this.selectedLead.sourceKind === 'referral') {
-      this.http.patch<any>(this.apiUrl(`/api/admin/network-referrals/${this.selectedLead.rawId}/status`), { status: 'Cliente vinculado' }, { headers: this.authHeaders() }).subscribe({
-        next: (response) => {
-          this.formMessage = 'Cliente potencial marcado como cliente vinculado.';
-          if (response?.whatsapp_url && typeof window !== 'undefined') window.open(response.whatsapp_url, '_blank', 'noopener');
-          this.loadAdminLeads();
-          this.loadAdminDashboard();
-          this.loadAdminNetwork();
-          this.loadAdminSectionData('clients');
-        },
-        error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el cliente potencial.'
-      });
-      return;
-    }
-    this.http.post<any>(this.apiUrl(`/api/admin/leads/${(this.selectedLead as any).id}/convert`), {}, { headers: this.authHeaders() }).subscribe({
-      next: () => {
-        this.formMessage = 'Lead convertido en cliente y caso.';
-        this.setAdminSection('cases');
-        this.loadAdminDashboard();
-      },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible convertir el lead.'
-    });
+    this.prepareSelectedLeadCase();
   }
 
   createAdminCase(): void {
@@ -1977,9 +1969,12 @@ export class AuthPortalComponent implements OnInit {
     this.http.post<any>(this.apiUrl('/api/admin/cases'), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Caso creado correctamente.';
-        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial' });
+        this.convertingLeadToCase = false;
+        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: 0, commission_percentage: 10 });
         this.loadAdminSectionData('cases');
         this.loadAdminDashboard();
+        this.loadAdminLeads();
+        this.loadAdminNetwork();
       },
       error: (err) => this.formError = err?.error?.error || 'No fue posible crear el caso.'
     });
@@ -2001,7 +1996,7 @@ export class AuthPortalComponent implements OnInit {
         this.formMessage = this.editingAdminClientId ? 'Cliente actualizado.' : 'Cliente creado.';
         this.editingAdminClientId = null;
         this.showAdminClientForm = false;
-        this.adminClientForm.reset({ status: 'Activo', verified: false });
+        this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual', verified: false });
         this.loadAdminSectionData('clients');
         this.loadAdminDashboard();
       },
@@ -2013,6 +2008,82 @@ export class AuthPortalComponent implements OnInit {
     this.editingAdminClientId = client.id;
     this.showAdminClientForm = true;
     this.adminClientForm.patchValue({ ...client, verified: Boolean(client.verified) });
+  }
+
+  viewAdminClient(client: any): void {
+    this.selectedAdminClient = client;
+    this.formError = '';
+    this.formMessage = '';
+  }
+
+  cancelAdminClientEdit(): void {
+    this.editingAdminClientId = null;
+    this.showAdminClientForm = false;
+    this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual', verified: false });
+  }
+
+  updateAdminClientStatus(client: any, status: string): void {
+    this.http.patch<any>(this.apiUrl(`/api/admin/clients/${client.id}`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        client.status = status;
+        if (this.selectedAdminClient?.id === client.id) this.selectedAdminClient.status = status;
+        this.formMessage = 'Estado del cliente actualizado.';
+        this.loadAdminDashboard();
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el estado del cliente.'
+    });
+  }
+
+  contactSelectedLead(): void {
+    if (!(this.selectedLead as any)?.id) return;
+    const message = `Hola ${this.selectedLead.name}, te contactamos de Orjuela Abogados para orientarte sobre tu solicitud de ${this.selectedLead.caseType}.`;
+    const phone = String(this.selectedLead.phone || '').replace(/\D/g, '');
+    const normalized = phone.length === 10 && phone.startsWith('3') ? `57${phone}` : phone;
+    if (normalized && typeof window !== 'undefined') window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+    if (this.selectedLead.status !== 'Contactado') this.updateLeadStatus('Contactado');
+  }
+
+  scheduleSelectedLeadAppointment(): void {
+    if (!(this.selectedLead as any)?.id) return;
+    this.adminAgendaForm.patchValue({
+      title: `Cita inicial - ${this.selectedLead.caseType}`,
+      client_name: this.selectedLead.name,
+      related_type: this.selectedLead.sourceKind === 'referral' ? 'referral' : 'lead',
+      related_id: this.selectedLead.rawId || this.selectedLead.id,
+      assigned_to: this.selectedLead.owner || this.currentUser?.full_name || 'Equipo Orjuela',
+      scheduled_at: '',
+      status: 'Programada',
+      notes: `Teléfono: ${this.selectedLead.phone}. Correo: ${this.selectedLead.email || 'Sin correo'}. ${this.selectedLead.notes || ''}`
+    });
+    this.showAdminAgendaForm = true;
+    this.setAdminSection('agenda');
+    if (this.selectedLead.status !== 'Agendado' && this.selectedLead.status !== 'Contactado') this.updateLeadStatus('Agendado');
+  }
+
+  prepareSelectedLeadCase(): void {
+    if (!(this.selectedLead as any)?.id || this.isLeadConverted(this.selectedLead)) return;
+    this.convertingLeadToCase = true;
+    this.adminCaseForm.patchValue({
+      client_name: this.selectedLead.name,
+      client_phone: this.selectedLead.phone,
+      client_email: this.selectedLead.email,
+      case_type: this.selectedLead.caseType,
+      description: this.selectedLead.notes || '',
+      status: 'Recibido',
+      assigned_lawyer: this.currentUser?.full_name || this.selectedLead.owner || 'Equipo Orjuela',
+      next_action: 'Solicitar documentación inicial y validar alcance del caso',
+      documentation_url: '',
+      admin_notes: '',
+      case_amount: 0,
+      commission_percentage: 10,
+      source_referral_id: this.selectedLead.sourceKind === 'referral' ? this.selectedLead.rawId : '',
+      source_lead_id: this.selectedLead.sourceKind === 'lead' ? this.selectedLead.rawId : ''
+    });
+    this.setAdminSection('cases');
+  }
+
+  isLeadConverted(lead: AdminLead): boolean {
+    return ['Cliente vinculado', 'Convertido en caso', 'Caso en proceso', 'Finalizado'].includes(String(lead?.status || ''));
   }
 
   archiveAdminClient(id: number): void {
@@ -2032,6 +2103,7 @@ export class AuthPortalComponent implements OnInit {
     this.http.delete(this.apiUrl(`/api/admin/clients/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Cliente eliminado permanentemente.';
+        if (this.selectedAdminClient?.id === id) this.selectedAdminClient = null;
         this.loadAdminSectionData('clients');
         this.loadAdminDashboard();
       },
@@ -2049,7 +2121,13 @@ export class AuthPortalComponent implements OnInit {
       description: item.description,
       status: item.status,
       assigned_lawyer: item.assigned_lawyer,
-      next_action: item.next_action
+      next_action: item.next_action,
+      documentation_url: item.documentation_url || '',
+      admin_notes: item.admin_notes || '',
+      case_amount: item.case_amount || 0,
+      commission_percentage: item.commission_percentage || 10,
+      source_referral_id: item.source_referral_id || '',
+      source_lead_id: item.source_lead_id || ''
     });
   }
 
@@ -2059,7 +2137,8 @@ export class AuthPortalComponent implements OnInit {
         next: () => {
           this.formMessage = 'Caso actualizado.';
           this.editingAdminCaseId = null;
-          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial' });
+          this.convertingLeadToCase = false;
+          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: 0, commission_percentage: 10 });
           this.loadAdminSectionData('cases');
           this.loadAdminDashboard();
         },

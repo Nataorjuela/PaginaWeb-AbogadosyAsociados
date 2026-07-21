@@ -46,6 +46,7 @@ const ADMIN_ROLES = ['admin', 'abogado', 'asistente'];
 const NETWORK_REFERRAL_STATUSES = ['Nuevo referido', 'En revision', 'Contactado', 'En negociacion', 'Cliente vinculado', 'Caso rechazado', 'Comision aprobada', 'Comision pagada'];
 const COMMISSION_STATUSES = ['pending', 'approved', 'paid', 'rejected'];
 const COMMISSION_TYPES = ['direct', 'indirect_level_1', 'indirect_level_2'];
+const CLIENT_STATUSES = ['Nuevo cliente', 'Contactado', 'Caso en proceso', 'Finalizado', 'Archivado'];
 
 const app = express();
 app.use(cors());
@@ -180,7 +181,14 @@ async function createDatabase() {
       city TEXT,
       address TEXT,
       verified INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'Activo',
+      status TEXT DEFAULT 'Nuevo cliente',
+      case_type TEXT,
+      case_description TEXT,
+      source TEXT,
+      source_referral_id BIGINT,
+      source_lead_id BIGINT,
+      source_ally_id BIGINT,
+      source_ally_name TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     )`,
@@ -193,6 +201,12 @@ async function createDatabase() {
       status TEXT NOT NULL DEFAULT 'Recibido',
       assigned_lawyer TEXT,
       next_action TEXT,
+      case_amount REAL,
+      commission_percentage REAL,
+      documentation_url TEXT,
+      admin_notes TEXT,
+      source_referral_id BIGINT,
+      source_lead_id BIGINT,
       created_at TEXT NOT NULL,
       updated_at TEXT,
       archived_at TEXT,
@@ -399,7 +413,21 @@ async function createDatabase() {
   await runSchema([
     `ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key`,
     `CREATE UNIQUE INDEX IF NOT EXISTS users_email_role_key ON users(email, role)`,
-    `ALTER TABLE partners ADD COLUMN IF NOT EXISTS commission_percentage REAL DEFAULT 10`
+    `ALTER TABLE partners ADD COLUMN IF NOT EXISTS commission_percentage REAL DEFAULT 10`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS case_type TEXT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS case_description TEXT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_referral_id BIGINT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_lead_id BIGINT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_ally_id BIGINT`,
+    `ALTER TABLE clients ADD COLUMN IF NOT EXISTS source_ally_name TEXT`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS case_amount REAL`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS commission_percentage REAL`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS documentation_url TEXT`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS admin_notes TEXT`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS source_referral_id BIGINT`,
+    `ALTER TABLE cases ADD COLUMN IF NOT EXISTS source_lead_id BIGINT`,
+    `UPDATE clients SET status = 'Nuevo cliente' WHERE COALESCE(status, '') IN ('', 'Activo', 'En seguimiento')`
   ]);
 
   pgRun(`INSERT INTO commission_settings (direct_percentage, level_1_percentage, level_2_percentage, is_active, created_at, updated_at)
@@ -631,7 +659,14 @@ function syncClientFromPotential(data, callback) {
     document_id: cleanText(data.document_id || data.client_identification, 40),
     phone: cleanText(data.phone || data.referred_phone, 60),
     email: normalizeEmail(data.email || data.referred_email),
-    city: cleanText(data.city || data.referred_city, 80)
+    city: cleanText(data.city || data.referred_city, 80),
+    case_type: cleanText(data.case_type || data.legal_area, 80),
+    case_description: cleanText(data.case_description || data.notes, 1000),
+    source: cleanText(data.source || data.referral_channel || 'Aliado', 80),
+    source_referral_id: data.referred_full_name ? Number(data.id || 0) || null : null,
+    source_lead_id: data.name && !data.referred_full_name ? Number(data.id || 0) || null : null,
+    source_ally_id: Number(data.ally_id || data.referrer_id || 0) || null,
+    source_ally_name: cleanText(data.ally_name, 140)
   };
   if (!payload.name || !payload.phone) return callback(new Error('missing_client_data'));
   if (payload.email && !isValidEmail(payload.email)) return callback(new Error('invalid_client_email'));
@@ -649,17 +684,24 @@ function syncClientFromPotential(data, callback) {
           phone = COALESCE(NULLIF($3, ''), phone),
           email = COALESCE(NULLIF($4, ''), email),
           city = COALESCE(NULLIF($5, ''), city),
-          status = 'Activo',
-          updated_at = $6
-        WHERE id = $7`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, now, client.id], (updateErr) => {
+          case_type = COALESCE(NULLIF($6, ''), case_type),
+          case_description = COALESCE(NULLIF($7, ''), case_description),
+          source = COALESCE(NULLIF($8, ''), source),
+          source_referral_id = COALESCE($9, source_referral_id),
+          source_lead_id = COALESCE($10, source_lead_id),
+          source_ally_id = COALESCE($11, source_ally_id),
+          source_ally_name = COALESCE(NULLIF($12, ''), source_ally_name),
+          status = CASE WHEN COALESCE(status, '') IN ('', 'Activo', 'En seguimiento') THEN 'Nuevo cliente' ELSE status END,
+          updated_at = $13
+        WHERE id = $14`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.case_type, payload.case_description, payload.source, payload.source_referral_id, payload.source_lead_id, payload.source_ally_id, payload.source_ally_name, now, client.id], (updateErr) => {
         callback(updateErr, { id: client.id, created: false });
       });
       return;
     }
 
-    pgRun(`INSERT INTO clients (name, document_id, phone, email, city, status, created_at, updated_at, verified)
-      VALUES ($1, $2, $3, $4, $5, 'Activo', $6, $7, 0)
-      RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, now, now], function (insertErr) {
+    pgRun(`INSERT INTO clients (name, document_id, phone, email, city, status, case_type, case_description, source, source_referral_id, source_lead_id, source_ally_id, source_ally_name, created_at, updated_at, verified)
+      VALUES ($1, $2, $3, $4, $5, 'Nuevo cliente', $6, $7, $8, $9, $10, $11, $12, $13, $14, 0)
+      RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.case_type, payload.case_description, payload.source, payload.source_referral_id, payload.source_lead_id, payload.source_ally_id, payload.source_ally_name, now, now], function (insertErr) {
       callback(insertErr, { id: this?.lastID, created: true });
     });
   });
@@ -1966,8 +2008,38 @@ app.post('/api/admin/leads/:id/convert', requireAuth(['admin', 'abogado', 'asist
   });
 });
 
-app.get('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT * FROM clients WHERE COALESCE(status, 'Activo') <> 'Archivado' ORDER BY created_at DESC`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar clientes.' }) : res.json(rows));
+app.get('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), async (req, res) => {
+  try {
+    await pool.query(`INSERT INTO clients (name, document_id, phone, email, city, status, case_type, case_description, source, source_referral_id, source_ally_id, source_ally_name, created_at, updated_at, verified)
+      SELECT r.referred_full_name, r.client_identification, r.referred_phone, r.referred_email, r.referred_city,
+        'Nuevo cliente', r.legal_area, r.case_description, COALESCE(NULLIF(r.referral_channel, ''), 'Aliado'),
+        r.id, r.ally_id, COALESCE(u.full_name, a.full_name, ''),
+        COALESCE(r.updated_at, r.created_at), COALESCE(r.updated_at, r.created_at), 0
+      FROM referrals r
+      LEFT JOIN users u ON u.id = r.ally_id
+      LEFT JOIN allies a ON a.id = r.ally_id
+      WHERE r.status = 'Cliente vinculado'
+        AND NOT EXISTS (
+          SELECT 1 FROM clients c
+          WHERE (COALESCE(r.referred_email, '') <> '' AND c.email = r.referred_email)
+             OR (COALESCE(r.referred_phone, '') <> '' AND c.phone = r.referred_phone)
+             OR (COALESCE(r.client_identification, '') <> '' AND c.document_id = r.client_identification)
+        )`);
+    await pool.query(`INSERT INTO clients (name, phone, email, city, status, case_type, case_description, source, source_lead_id, source_ally_id, created_at, updated_at, verified)
+      SELECT l.name, l.phone, l.email, '', 'Nuevo cliente', l.case_type, l.notes, l.source, l.id, l.referrer_id, COALESCE(l.updated_at, l.created_at), COALESCE(l.updated_at, l.created_at), 0
+      FROM leads l
+      WHERE l.status = 'Cliente vinculado'
+        AND NOT EXISTS (
+          SELECT 1 FROM clients c
+          WHERE (COALESCE(l.email, '') <> '' AND c.email = l.email)
+             OR (COALESCE(l.phone, '') <> '' AND c.phone = l.phone)
+        )`);
+    const rows = await pool.query(`SELECT * FROM clients WHERE COALESCE(status, 'Nuevo cliente') <> 'Archivado' ORDER BY created_at DESC`);
+    res.json(rows.rows);
+  } catch (err) {
+    console.error('[admin/clients] load failed:', err);
+    res.status(500).json({ error: 'No fue posible cargar clientes.' });
+  }
 });
 
 app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
@@ -1978,17 +2050,22 @@ app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (
     email: normalizeEmail(req.body.email),
     city: cleanText(req.body.city, 80),
     address: cleanText(req.body.address, 160),
+    status: cleanText(req.body.status || 'Nuevo cliente', 30),
+    case_type: cleanText(req.body.case_type, 80),
+    case_description: cleanText(req.body.case_description, 1000),
+    source: cleanText(req.body.source || 'Registro manual', 80),
     verified: req.body.verified ? 1 : 0
   };
   if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
   if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
+  if (!CLIENT_STATUSES.includes(payload.status)) return res.status(400).json({ error: 'Estado de cliente no válido.' });
   const now = getTimestamp();
-  pgRun(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, 'Activo', $8, $9)
-    RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.verified, now, now], function (err) {
+  pgRun(`INSERT INTO clients (name, document_id, phone, email, city, address, verified, status, case_type, case_description, source, created_at, updated_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    RETURNING id`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.verified, payload.status, payload.case_type, payload.case_description, payload.source, now, now], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible crear cliente.' });
     auditAdminAction(req, 'crear', 'cliente', this.lastID, payload.name);
-    res.status(201).json({ id: this.lastID, ...payload, status: 'Activo', created_at: now, updated_at: now });
+    res.status(201).json({ id: this.lastID, ...payload, created_at: now, updated_at: now });
   });
 });
 
@@ -2002,9 +2079,13 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
     city: cleanText(req.body.city, 80),
     address: cleanText(req.body.address, 160),
     status: cleanText(req.body.status, 30),
+    case_type: cleanText(req.body.case_type, 80),
+    case_description: cleanText(req.body.case_description, 1000),
+    source: cleanText(req.body.source, 80),
     verified: req.body.verified === undefined ? null : req.body.verified ? 1 : 0
   };
   if (!id) return res.status(400).json({ error: 'Cliente inválido.' });
+  if (payload.status && !CLIENT_STATUSES.includes(payload.status)) return res.status(400).json({ error: 'Estado de cliente no válido.' });
   pgRun(`UPDATE clients SET
       name = COALESCE(NULLIF($1, ''), name),
       document_id = COALESCE(NULLIF($2, ''), document_id),
@@ -2013,9 +2094,12 @@ app.patch('/api/admin/clients/:id', requireAuth(['admin', 'abogado', 'asistente'
       city = COALESCE(NULLIF($5, ''), city),
       address = COALESCE(NULLIF($6, ''), address),
       status = COALESCE(NULLIF($7, ''), status),
-      verified = COALESCE($8, verified),
-      updated_at = $9
-    WHERE id = $10`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.status, payload.verified, getTimestamp(), id], function (err) {
+      case_type = COALESCE(NULLIF($8, ''), case_type),
+      case_description = COALESCE(NULLIF($9, ''), case_description),
+      source = COALESCE(NULLIF($10, ''), source),
+      verified = COALESCE($11, verified),
+      updated_at = $12
+    WHERE id = $13`, [payload.name, payload.document_id, payload.phone, payload.email, payload.city, payload.address, payload.status, payload.case_type, payload.case_description, payload.source, payload.verified, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar cliente.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado.' });
     auditAdminAction(req, 'actualizar', 'cliente', id, payload.name || 'Cliente actualizado');
@@ -2100,24 +2184,62 @@ app.post('/api/admin/cases', requireAuth(['admin', 'abogado', 'asistente']), (re
     description: cleanText(req.body.description, 1000),
     status: cleanText(req.body.status || 'Recibido', 40),
     assigned_lawyer: cleanText(req.body.assigned_lawyer || req.user.full_name, 100),
-    next_action: cleanText(req.body.next_action || 'Revisar documentación inicial', 180)
+    next_action: cleanText(req.body.next_action || 'Revisar documentación inicial', 180),
+    case_amount: req.body.case_amount === undefined ? null : Number(req.body.case_amount),
+    commission_percentage: req.body.commission_percentage === undefined ? null : Number(req.body.commission_percentage),
+    documentation_url: cleanText(req.body.documentation_url, 300),
+    admin_notes: cleanText(req.body.admin_notes, 1000),
+    source_referral_id: req.body.source_referral_id ? parseInt(req.body.source_referral_id, 10) : null,
+    source_lead_id: req.body.source_lead_id ? parseInt(req.body.source_lead_id, 10) : null
   };
   if (!payload.client_name || !payload.client_phone || !payload.case_type) return res.status(400).json({ error: 'Cliente, teléfono y tipo de caso son obligatorios.' });
+  if (payload.case_amount !== null && (Number.isNaN(payload.case_amount) || payload.case_amount < 0)) return res.status(400).json({ error: 'Costo del caso no válido.' });
+  if (payload.commission_percentage !== null && ![5, 10, 15, 20].includes(payload.commission_percentage)) return res.status(400).json({ error: 'Porcentaje de comisión no válido.' });
   const now = getTimestamp();
-  pgRun(`INSERT INTO clients (name, phone, email, city, created_at, updated_at, verified) VALUES ($1, $2, $3, '', $4, $5, 0)
-    RETURNING id`,
-    [payload.client_name, payload.client_phone, payload.client_email, now, now], function (clientErr) {
-      if (clientErr) return res.status(500).json({ error: 'No fue posible crear cliente.' });
-      pgRun(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id`,
-        [this.lastID, payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, now, now], function (caseErr) {
-          if (caseErr) return res.status(500).json({ error: 'No fue posible crear caso.' });
-          res.status(201).json({ message: 'Caso creado.', id: this.lastID });
-        });
-    });
-});
 
+  const finishCase = (clientId) => {
+    pgRun(`INSERT INTO cases (client_id, case_type, description, status, assigned_lawyer, next_action, case_amount, commission_percentage, documentation_url, admin_notes, source_referral_id, source_lead_id, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING id`,
+      [clientId, payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, payload.case_amount, payload.commission_percentage, payload.documentation_url, payload.admin_notes, payload.source_referral_id, payload.source_lead_id, now, now], function (caseErr) {
+      if (caseErr) return res.status(500).json({ error: 'No fue posible crear caso.' });
+      const caseId = this.lastID;
+      const done = () => res.status(201).json({ message: 'Caso creado.', id: caseId, client_id: clientId });
+
+      if (payload.source_lead_id) pgRun(`UPDATE leads SET status = 'Convertido en caso', updated_at = $1 WHERE id = $2`, [now, payload.source_lead_id]);
+      if (!payload.source_referral_id || !payload.case_amount || !payload.commission_percentage) return done();
+
+      const commissionAmount = Math.round(payload.case_amount * (payload.commission_percentage / 100));
+      pgGet(`SELECT id, ally_id, referred_full_name FROM referrals WHERE id = $1`, [payload.source_referral_id], (refErr, referral) => {
+        if (refErr || !referral) return done();
+        pgRun(`UPDATE referrals SET status = 'Cliente vinculado', updated_at = $1 WHERE id = $2`, [now, payload.source_referral_id]);
+        pgRun(`INSERT INTO commissions (ally_id, referral_id, source_ally_id, commission_type, percentage, amount, status, created_at)
+          VALUES ($1, $2, $3, 'direct', $4, $5, 'approved', $6)
+          ON CONFLICT (ally_id, referral_id, commission_type) DO UPDATE SET percentage = excluded.percentage, amount = excluded.amount, status = 'approved'`,
+          [referral.ally_id, payload.source_referral_id, referral.ally_id, payload.commission_percentage, commissionAmount, now], (commissionErr) => {
+          if (!commissionErr) {
+            createAllyNotification(referral.ally_id, 'Pago pendiente', 'Comisión pendiente registrada', `Se registró una comisión pendiente de ${formatMoney(commissionAmount)} por el cliente ${referral.referred_full_name}.`);
+          }
+          done();
+        });
+      });
+    });
+  };
+
+  pgGet(`SELECT id FROM clients WHERE ($1 <> '' AND email = $1) OR ($2 <> '' AND phone = $2) ORDER BY id DESC LIMIT 1`, [payload.client_email, payload.client_phone], (clientErr, existingClient) => {
+    if (clientErr) return res.status(500).json({ error: 'No fue posible validar cliente.' });
+    if (existingClient?.id) {
+      pgRun(`UPDATE clients SET name = COALESCE(NULLIF($1, ''), name), case_type = COALESCE(NULLIF($2, ''), case_type), case_description = COALESCE(NULLIF($3, ''), case_description), status = 'Caso en proceso', updated_at = $4 WHERE id = $5`, [payload.client_name, payload.case_type, payload.description, now, existingClient.id]);
+      return finishCase(existingClient.id);
+    }
+    pgRun(`INSERT INTO clients (name, phone, email, city, status, case_type, case_description, source, created_at, updated_at, verified)
+      VALUES ($1, $2, $3, '', 'Caso en proceso', $4, $5, 'Caso administrativo', $6, $7, 0)
+      RETURNING id`, [payload.client_name, payload.client_phone, payload.client_email, payload.case_type, payload.description, now, now], function (insertErr) {
+      if (insertErr) return res.status(500).json({ error: 'No fue posible crear cliente.' });
+      finishCase(this.lastID);
+    });
+  });
+});
 app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   const payload = {
@@ -2125,7 +2247,11 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
     description: cleanText(req.body.description, 1000),
     status: cleanText(req.body.status, 40),
     assigned_lawyer: cleanText(req.body.assigned_lawyer, 100),
-    next_action: cleanText(req.body.next_action, 180)
+    next_action: cleanText(req.body.next_action, 180),
+    case_amount: req.body.case_amount === undefined ? null : Number(req.body.case_amount),
+    commission_percentage: req.body.commission_percentage === undefined ? null : Number(req.body.commission_percentage),
+    documentation_url: cleanText(req.body.documentation_url, 300),
+    admin_notes: cleanText(req.body.admin_notes, 1000)
   };
   if (!id) return res.status(400).json({ error: 'Caso inválido.' });
   pgRun(`UPDATE cases SET
@@ -2134,8 +2260,12 @@ app.patch('/api/admin/cases/:id', requireAuth(['admin', 'abogado', 'asistente'])
       status = COALESCE(NULLIF($3, ''), status),
       assigned_lawyer = COALESCE(NULLIF($4, ''), assigned_lawyer),
       next_action = COALESCE(NULLIF($5, ''), next_action),
-      updated_at = $6
-    WHERE id = $7`, [payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, getTimestamp(), id], function (err) {
+      case_amount = COALESCE($6, case_amount),
+      commission_percentage = COALESCE($7, commission_percentage),
+      documentation_url = COALESCE(NULLIF($8, ''), documentation_url),
+      admin_notes = COALESCE(NULLIF($9, ''), admin_notes),
+      updated_at = $10
+    WHERE id = $11`, [payload.case_type, payload.description, payload.status, payload.assigned_lawyer, payload.next_action, payload.case_amount !== null && !Number.isNaN(payload.case_amount) ? payload.case_amount : null, payload.commission_percentage !== null && !Number.isNaN(payload.commission_percentage) ? payload.commission_percentage : null, payload.documentation_url, payload.admin_notes, getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar caso.' });
     if (this.changes === 0) return res.status(404).json({ error: 'Caso no encontrado.' });
     auditAdminAction(req, 'actualizar', 'caso', id, payload.case_type || payload.status || 'Caso actualizado');
