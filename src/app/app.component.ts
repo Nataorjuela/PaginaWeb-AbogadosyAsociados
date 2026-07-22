@@ -107,7 +107,7 @@ export class AppComponent {
         description: 'Abogado experto en Seguridad Social, con amplia experiencia en asesoría y litigio en el área.'
       },
       {
-        name: 'Diana',
+        name: 'Diana María Rueda',
         role: 'Abogada asociada',
         image: 'assets/Diana.jpeg',
         description: 'Abogada especialista en Derecho Laboral y Seguridad Social, con 12 años de experiencia en asesoría, consultoría, litigio laboral y cumplimiento normativo para empresas y trabajadores.'
