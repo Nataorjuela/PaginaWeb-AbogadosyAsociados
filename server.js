@@ -2295,12 +2295,12 @@ app.post('/api/admin/payments', requireAuth(['admin', 'abogado', 'asistente']), 
     concept: cleanText(req.body.concept, 140),
     amount: Number(req.body.amount),
     status: cleanText(req.body.status || 'Pendiente', 40),
-    payment_method: cleanText(req.body.payment_method || 'Nequi 3144278339', 80),
+    payment_method: cleanText(req.body.payment_method || 'Nequi 3118924111', 80),
     payment_date: cleanText(req.body.payment_date, 40),
     support_url: cleanText(req.body.support_url, 220)
   };
   if (!payload.related_id || Number.isNaN(payload.amount) || payload.amount < 0) return res.status(400).json({ error: 'Relacionado y monto son obligatorios.' });
-  if (!['Nequi 3144278339', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no válido.' });
+  if (!['Nequi 3118924111', 'Efectivo'].includes(payload.payment_method)) return res.status(400).json({ error: 'Medio de pago no válido.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO payments (related_type, related_id, concept, amount, status, payment_method, payment_date, support_url, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -2787,7 +2787,7 @@ app.post('/api/client/payments/:id/support', requireAuth(['client']), (req, res)
   };
   if (!paymentId) return res.status(400).json({ error: 'Pago inválido.' });
   if (!payload.support_url) return res.status(400).json({ error: 'Registra el enlace o referencia del comprobante.' });
-  if (!['Nequi 3118924111', 'Nequi 3144278339', 'Efectivo', 'Transferencia', 'Otro'].includes(payload.payment_method)) {
+  if (!['Nequi 3118924111', 'Efectivo', 'Transferencia', 'Otro'].includes(payload.payment_method)) {
     return res.status(400).json({ error: 'Medio de pago no válido.' });
   }
 
