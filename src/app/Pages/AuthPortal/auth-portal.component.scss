@@ -719,6 +719,14 @@ h2 {
   color: #667085;
 }
 
+.clients-table .client-email {
+  min-width: 220px;
+  max-width: 260px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  word-break: break-word;
+}
+
 .table .btn,
 .table .form-select,
 .table .form-control {
