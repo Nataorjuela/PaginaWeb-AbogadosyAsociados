@@ -1894,6 +1894,17 @@ app.post('/api/admin/notifications/read-all', requireAuth(['admin', 'abogado', '
   });
 });
 
+app.delete('/api/admin/notifications/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!id) return res.status(400).json({ error: 'Notificación inválida.' });
+
+  pgRun(`DELETE FROM admin_notifications WHERE id = $1`, [id], function (err) {
+    if (err) return res.status(500).json({ error: 'No fue posible eliminar la notificación.' });
+    if (!this.changes) return res.status(404).json({ error: 'La notificación no existe.' });
+    res.json({ message: 'Notificación eliminada correctamente.' });
+  });
+});
+
 app.get('/api/admin/leads', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   pgAll(`SELECT * FROM (${ADMIN_LEADS_SQL}) admin_leads ORDER BY updated_at DESC, created_at DESC`, (err, rows) => {
     if (err) return res.status(500).json({ error: 'No fue posible cargar leads.' });
@@ -2056,7 +2067,7 @@ app.post('/api/admin/clients', requireAuth(['admin', 'abogado', 'asistente']), (
     source: cleanText(req.body.source || 'Registro manual', 80),
     verified: req.body.verified ? 1 : 0
   };
-  if (!payload.name || !payload.phone) return res.status(400).json({ error: 'Nombre y teléfono son obligatorios.' });
+  if (!payload.name) return res.status(400).json({ error: 'El nombre es obligatorio.' });
   if (payload.email && !isValidEmail(payload.email)) return res.status(400).json({ error: 'Correo inválido.' });
   if (!CLIENT_STATUSES.includes(payload.status)) return res.status(400).json({ error: 'Estado de cliente no válido.' });
   const now = getTimestamp();

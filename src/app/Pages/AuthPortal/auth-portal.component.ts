@@ -490,15 +490,14 @@ export class AuthPortalComponent implements OnInit {
     this.adminClientForm = this.fb.group({
       name: ['', Validators.required],
       document_id: [''],
-      phone: ['', Validators.required],
+      phone: [''],
       email: ['', Validators.email],
       city: [''],
       address: [''],
       status: ['Nuevo cliente'],
       case_type: [''],
       case_description: [''],
-      source: ['Registro manual'],
-      verified: [false]
+      source: ['Registro manual']
     });
 
     this.adminAllyForm = this.fb.group({
@@ -1901,6 +1900,22 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  deleteAdminNotification(id: number): void {
+    if (!confirm('¿Deseas eliminar esta notificación?')) return;
+
+    this.http.delete(this.apiUrl(`/api/admin/notifications/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.adminNotifications = this.adminNotifications.filter((item) => item.id !== id);
+        this.formMessage = 'Notificación eliminada correctamente.';
+        this.formError = '';
+      },
+      error: (err) => {
+        this.formError = err?.error?.error || 'No fue posible eliminar la notificación.';
+        this.formMessage = '';
+      }
+    });
+  }
+
   loadAdminLeads(): void {
     this.http.get<any[]>(this.apiUrl('/api/admin/leads'), { headers: this.authHeaders() }).subscribe({
       next: (rows) => {
@@ -1987,7 +2002,13 @@ export class AuthPortalComponent implements OnInit {
   }
 
   saveAdminClient(): void {
-    if (this.adminClientForm.invalid) return this.adminClientForm.markAllAsTouched();
+    this.formError = '';
+    this.formMessage = '';
+    if (this.adminClientForm.invalid) {
+      this.adminClientForm.markAllAsTouched();
+      this.formError = 'Revisa los campos del formulario. El nombre es obligatorio y el correo debe ser válido.';
+      return;
+    }
     const request = this.editingAdminClientId
       ? this.http.patch(this.apiUrl(`/api/admin/clients/${this.editingAdminClientId}`), this.adminClientForm.value, { headers: this.authHeaders() })
       : this.http.post(this.apiUrl('/api/admin/clients'), this.adminClientForm.value, { headers: this.authHeaders() });
@@ -1996,7 +2017,7 @@ export class AuthPortalComponent implements OnInit {
         this.formMessage = this.editingAdminClientId ? 'Cliente actualizado.' : 'Cliente creado.';
         this.editingAdminClientId = null;
         this.showAdminClientForm = false;
-        this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual', verified: false });
+        this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual' });
         this.loadAdminSectionData('clients');
         this.loadAdminDashboard();
       },
@@ -2007,7 +2028,20 @@ export class AuthPortalComponent implements OnInit {
   editAdminClient(client: any): void {
     this.editingAdminClientId = client.id;
     this.showAdminClientForm = true;
-    this.adminClientForm.patchValue({ ...client, verified: Boolean(client.verified) });
+    this.formError = '';
+    this.formMessage = '';
+    this.adminClientForm.reset({
+      name: client.name || '',
+      document_id: client.document_id || '',
+      phone: client.phone || '',
+      email: client.email || '',
+      city: client.city || '',
+      address: client.address || '',
+      status: client.status || 'Nuevo cliente',
+      case_type: client.case_type || '',
+      case_description: client.case_description || '',
+      source: client.source || 'Registro manual'
+    });
   }
 
   viewAdminClient(client: any): void {
@@ -2019,7 +2053,7 @@ export class AuthPortalComponent implements OnInit {
   cancelAdminClientEdit(): void {
     this.editingAdminClientId = null;
     this.showAdminClientForm = false;
-    this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual', verified: false });
+    this.adminClientForm.reset({ status: 'Nuevo cliente', source: 'Registro manual' });
   }
 
   updateAdminClientStatus(client: any, status: string): void {
