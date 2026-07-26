@@ -139,6 +139,7 @@ export class AuthPortalComponent implements OnInit {
   showAdminPaymentForm = false;
   showAdminDocumentForm = false;
   showAdminAgendaForm = false;
+  editingAdminAgendaId: number | null = null;
   showLeadDetail = false;
   editingAdminClientId: number | null = null;
   editingAdminCaseId: number | null = null;
@@ -160,6 +161,8 @@ export class AuthPortalComponent implements OnInit {
   adminCaseStatus = 'Todos los estados';
   adminPaymentSearch = '';
   adminPaymentStatus = 'Todos los estados';
+  adminAgendaSearch = '';
+  adminAgendaStatus = 'Todos los estados';
   formMessage = '';
   formError = '';
   clientFormMessage = '';
@@ -1900,6 +1903,16 @@ export class AuthPortalComponent implements OnInit {
     });
   }
 
+  get filteredAdminAgenda(): any[] {
+    const term = this.adminAgendaSearch.toLowerCase().trim();
+    return this.adminAgenda.filter((item) => {
+      const matchesStatus = this.adminAgendaStatus === 'Todos los estados' || item.status === this.adminAgendaStatus;
+      const matchesTerm = !term || [item.title, item.client_name, item.assigned_to, item.notes]
+        .some((value) => String(value || '').toLowerCase().includes(term));
+      return matchesStatus && matchesTerm;
+    });
+  }
+
   deleteAdminNotification(id: number): void {
     if (!confirm('¿Deseas eliminar esta notificación?')) return;
 
@@ -2295,24 +2308,72 @@ export class AuthPortalComponent implements OnInit {
     this.http.delete(this.apiUrl(`/api/admin/documents/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('documents') });
   }
 
-  createAdminAgenda(): void {
-    if (this.adminAgendaForm.invalid) return this.adminAgendaForm.markAllAsTouched();
-    this.http.post(this.apiUrl('/api/admin/agenda'), this.adminAgendaForm.value, { headers: this.authHeaders() }).subscribe({
+  saveAdminAgenda(): void {
+    this.formError = '';
+    this.formMessage = '';
+    if (this.adminAgendaForm.invalid) {
+      this.adminAgendaForm.markAllAsTouched();
+      this.formError = 'El título y la fecha del evento son obligatorios.';
+      return;
+    }
+    const request = this.editingAdminAgendaId
+      ? this.http.patch(this.apiUrl(`/api/admin/agenda/${this.editingAdminAgendaId}`), this.adminAgendaForm.value, { headers: this.authHeaders() })
+      : this.http.post(this.apiUrl('/api/admin/agenda'), this.adminAgendaForm.value, { headers: this.authHeaders() });
+    request.subscribe({
       next: () => {
-        this.formMessage = 'Agenda registrada.';
+        this.formMessage = this.editingAdminAgendaId ? 'Evento actualizado.' : 'Evento registrado en la agenda.';
+        this.editingAdminAgendaId = null;
+        this.showAdminAgendaForm = false;
         this.adminAgendaForm.reset({ related_type: 'case', assigned_to: 'Equipo Orjuela', status: 'Programada' });
         this.loadAdminSectionData('agenda');
       },
-      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar agenda.'
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el evento.'
     });
   }
 
+  editAdminAgenda(item: any): void {
+    this.editingAdminAgendaId = item.id;
+    this.showAdminAgendaForm = true;
+    this.formError = '';
+    this.formMessage = '';
+    this.adminAgendaForm.reset({
+      title: item.title || '',
+      client_name: item.client_name || '',
+      related_type: item.related_type || 'case',
+      related_id: item.related_id || '',
+      assigned_to: item.assigned_to || 'Equipo Orjuela',
+      scheduled_at: this.toDateTimeLocalValue(item.scheduled_at || item.date),
+      status: item.status || 'Programada',
+      notes: item.notes || ''
+    });
+  }
+
+  cancelAdminAgendaEdit(): void {
+    this.editingAdminAgendaId = null;
+    this.showAdminAgendaForm = false;
+    this.formError = '';
+    this.adminAgendaForm.reset({ related_type: 'case', assigned_to: 'Equipo Orjuela', status: 'Programada' });
+  }
+
   updateAdminAgenda(id: number, status: string): void {
-    this.http.patch(this.apiUrl(`/api/admin/agenda/${id}`), { status }, { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('agenda') });
+    this.http.patch(this.apiUrl(`/api/admin/agenda/${id}`), { status }, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = `Evento marcado como ${status.toLowerCase()}.`;
+        this.loadAdminSectionData('agenda');
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible actualizar el evento.'
+    });
   }
 
   archiveAdminAgenda(id: number): void {
-    this.http.delete(this.apiUrl(`/api/admin/agenda/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('agenda') });
+    if (!confirm('¿Deseas eliminar este evento de la agenda?')) return;
+    this.http.delete(this.apiUrl(`/api/admin/agenda/${id}`), { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Evento eliminado de la agenda.';
+        this.loadAdminSectionData('agenda');
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible eliminar el evento.'
+    });
   }
 
   loadClientProfile(): void {

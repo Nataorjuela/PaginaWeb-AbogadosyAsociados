@@ -2414,17 +2414,12 @@ app.delete('/api/admin/documents/:id', requireAuth(['admin', 'abogado', 'asisten
 });
 
 app.get('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
-  pgAll(`SELECT id, title, client_name, related_type, related_id, assigned_to, scheduled_at AS date, status, notes
+  pgAll(`SELECT id, title, client_name, related_type, related_id, assigned_to, scheduled_at, scheduled_at AS date, status, notes
     FROM admin_agenda
     WHERE status <> 'Archivado'
     ORDER BY scheduled_at DESC LIMIT 40`, (agendaErr, agendaRows) => {
     if (agendaErr) return res.status(500).json({ error: 'No fue posible cargar agenda.' });
-    if (agendaRows.length) return res.json(agendaRows);
-    pgAll(`SELECT ca.id, cl.name AS client_name, ca.next_action AS title, 'case' AS related_type, ca.id AS related_id,
-        ca.assigned_lawyer AS assigned_to, ca.status, COALESCE(ca.updated_at, ca.created_at) AS date
-      FROM cases ca JOIN clients cl ON cl.id = ca.client_id
-      WHERE ca.status <> 'Finalizado' AND ca.archived_at IS NULL
-      ORDER BY date DESC LIMIT 20`, (err, rows) => err ? res.status(500).json({ error: 'No fue posible cargar agenda.' }) : res.json(rows));
+    res.json(agendaRows);
   });
 });
 
@@ -2440,6 +2435,7 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
     notes: cleanText(req.body.notes, 500)
   };
   if (!payload.title || !payload.scheduled_at) return res.status(400).json({ error: 'Título y fecha son obligatorios.' });
+  if (!['Programada', 'Realizada', 'Cancelada'].includes(payload.status)) return res.status(400).json({ error: 'Estado de agenda no válido.' });
   const now = getTimestamp();
   pgRun(`INSERT INTO admin_agenda (title, client_name, related_type, related_id, assigned_to, scheduled_at, status, notes, created_at, updated_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -2453,16 +2449,21 @@ app.post('/api/admin/agenda', requireAuth(['admin', 'abogado', 'asistente']), (r
 app.patch('/api/admin/agenda/:id', requireAuth(['admin', 'abogado', 'asistente']), (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!id) return res.status(400).json({ error: 'Agenda inválida.' });
+  const status = cleanText(req.body.status, 40);
+  if (status && !['Programada', 'Realizada', 'Cancelada'].includes(status)) return res.status(400).json({ error: 'Estado de agenda no válido.' });
   pgRun(`UPDATE admin_agenda SET
       title = COALESCE(NULLIF($1, ''), title),
       client_name = COALESCE(NULLIF($2, ''), client_name),
-      assigned_to = COALESCE(NULLIF($3, ''), assigned_to),
-      scheduled_at = COALESCE(NULLIF($4, ''), scheduled_at),
-      status = COALESCE(NULLIF($5, ''), status),
-      notes = COALESCE(NULLIF($6, ''), notes),
-      updated_at = $7
-    WHERE id = $8`, [cleanText(req.body.title, 160), cleanText(req.body.client_name, 140), cleanText(req.body.assigned_to, 100), cleanText(req.body.scheduled_at, 60), cleanText(req.body.status, 40), cleanText(req.body.notes, 500), getTimestamp(), id], function (err) {
+      related_type = COALESCE(NULLIF($3, ''), related_type),
+      related_id = COALESCE($4, related_id),
+      assigned_to = COALESCE(NULLIF($5, ''), assigned_to),
+      scheduled_at = COALESCE(NULLIF($6, ''), scheduled_at),
+      status = COALESCE(NULLIF($7, ''), status),
+      notes = COALESCE(NULLIF($8, ''), notes),
+      updated_at = $9
+    WHERE id = $10`, [cleanText(req.body.title, 160), cleanText(req.body.client_name, 140), cleanText(req.body.related_type, 40), req.body.related_id ? parseInt(req.body.related_id, 10) : null, cleanText(req.body.assigned_to, 100), cleanText(req.body.scheduled_at, 60), status, cleanText(req.body.notes, 500), getTimestamp(), id], function (err) {
     if (err) return res.status(500).json({ error: 'No fue posible actualizar agenda.' });
+    if (!this.changes) return res.status(404).json({ error: 'El evento no existe.' });
     auditAdminAction(req, 'actualizar', 'agenda', id, 'Agenda actualizada');
     res.json({ message: 'Agenda actualizada.' });
   });
