@@ -1211,6 +1211,19 @@ h2 {
   margin: 0;
 }
 
+.finance-workspace .data-card-heading .form-select,
+.finance-workspace .data-card-heading > .form-select {
+  max-width: 420px;
+}
+
+.finance-panels > form,
+.finance-workspace > form {
+  background: #f7f9fc;
+  border: 1px solid #e6eaf0;
+  border-radius: 18px;
+  padding: 1rem;
+}
+
 .finance-list {
   display: grid;
   gap: 0.7rem;

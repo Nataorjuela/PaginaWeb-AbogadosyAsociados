@@ -22,6 +22,10 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: DATA_ENCRYPTION_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://www.orjuelaabogados.com,https://orjuelaabogados.com
       - key: ADMIN_REGISTRATION_CODE
         sync: false
       - key: GOOGLE_ADMIN_EMAILS

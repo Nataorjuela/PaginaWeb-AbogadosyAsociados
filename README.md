@@ -23,6 +23,13 @@ La configuracion sensible debe vivir unicamente en:
 - Variables del proveedor de hosting.
 - Secret manager de CI/CD.
 
+Variables obligatorias del API:
+
+- `DATABASE_URL`: conexión PostgreSQL.
+- `JWT_SECRET`: secreto aleatorio de mínimo 32 caracteres.
+- `DATA_ENCRYPTION_KEY`: clave aleatoria de mínimo 32 caracteres en producción.
+- `CORS_ORIGINS`: lista separada por comas de orígenes web autorizados.
+
 La configuracion publica del navegador se define en `src/index.html` mediante `window.__ORJUELA_CONFIG__`. Solo debe contener valores publicos, como el ID publico de Google OAuth y la URL publica del API.
 
 ## Seguridad

@@ -107,6 +107,9 @@ export class AuthPortalComponent implements OnInit {
   adminPaymentForm!: FormGroup;
   adminDocumentForm!: FormGroup;
   adminAgendaForm!: FormGroup;
+  commissionAllocationForm!: FormGroup;
+  clientCasePaymentForm!: FormGroup;
+  commissionPayoutForm!: FormGroup;
   registerStep = 1;
   showPassword = false;
   showResetPassword = false;
@@ -131,6 +134,8 @@ export class AuthPortalComponent implements OnInit {
   adminPayments: any[] = [];
   adminDocuments: any[] = [];
   adminAgenda: any[] = [];
+  adminCaseFinance: any = null;
+  selectedFinanceCaseId: number | null = null;
   adminReports: any = {};
   adminNotifications: any[] = [];
   showAdminLeadForm = false;
@@ -484,7 +489,7 @@ export class AuthPortalComponent implements OnInit {
       next_action: ['Revisar documentación inicial'],
       documentation_url: [''],
       admin_notes: [''],
-      case_amount: [0, [Validators.required, Validators.min(0)]],
+      case_amount: [null, [Validators.required, Validators.min(1)]],
       commission_percentage: [10, Validators.required],
       source_referral_id: [''],
       source_lead_id: ['']
@@ -558,6 +563,30 @@ export class AuthPortalComponent implements OnInit {
       scheduled_at: ['', Validators.required],
       status: ['Programada'],
       notes: ['']
+    });
+
+    this.commissionAllocationForm = this.fb.group({
+      beneficiary_partner_id: ['', Validators.required],
+      relationship_type: ['direct', Validators.required],
+      percentage: [0, [Validators.required, Validators.min(0), Validators.max(100)]],
+      notes: ['']
+    });
+
+    this.clientCasePaymentForm = this.fb.group({
+      amount: [0, [Validators.required, Validators.min(1)]],
+      status: ['Validado', Validators.required],
+      payment_method: ['Transferencia'],
+      paid_at: [''],
+      support_url: [''],
+      external_reference: ['']
+    });
+
+    this.commissionPayoutForm = this.fb.group({
+      accrual_id: ['', Validators.required],
+      amount: [0, [Validators.required, Validators.min(1)]],
+      paid_at: [''],
+      support_url: ['', Validators.required],
+      payment_reference: ['']
     });
 
     this.restoreSession();
@@ -1664,11 +1693,11 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Este pago aún no tiene comprobante descargable.';
       return;
     }
-    if (!/^https?:\/\//i.test(support)) {
+    if (!/^https?:\/\//i.test(support) && !support.startsWith('/api/files/')) {
       this.clientFormError = 'El soporte registrado no es un enlace descargable.';
       return;
     }
-    window.open(support, '_blank', 'noopener');
+    this.openClientFile(support);
   }
 
   openClientFile(url?: string): void {
@@ -1677,12 +1706,46 @@ export class AuthPortalComponent implements OnInit {
       this.clientFormError = 'Este archivo aún no tiene enlace descargable.';
       return;
     }
+    if (url.startsWith('/api/files/') || url.startsWith('/uploads/')) {
+      this.downloadAuthenticatedFile(url, 'client');
+      return;
+    }
     const target = /^https?:\/\//i.test(url) ? url : this.apiUrl(url);
     window.open(target, '_blank', 'noopener');
   }
 
   isClientFileLink(value?: string): boolean {
-    return Boolean(value && (/^https?:\/\//i.test(value) || value.startsWith('/uploads/')));
+    return Boolean(value && (/^https?:\/\//i.test(value) || value.startsWith('/api/files/') || value.startsWith('/uploads/')));
+  }
+
+  openAdminFile(url?: string): void {
+    if (!url || url === '#') {
+      this.formError = 'Este documento no tiene un archivo disponible.';
+      return;
+    }
+    if (url.startsWith('/api/files/') || url.startsWith('/uploads/')) {
+      this.downloadAuthenticatedFile(url, 'admin');
+      return;
+    }
+    window.open(/^https?:\/\//i.test(url) ? url : this.apiUrl(url), '_blank', 'noopener');
+  }
+
+  private downloadAuthenticatedFile(url: string, context: 'client' | 'admin'): void {
+    this.http.get(this.apiUrl(url), { headers: this.authHeaders(), responseType: 'blob' }).subscribe({
+      next: (blob) => {
+        const objectUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = decodeURIComponent(url.split('/').pop() || 'documento');
+        link.click();
+        URL.revokeObjectURL(objectUrl);
+      },
+      error: (err) => {
+        const message = err?.error?.error || 'No fue posible descargar el archivo.';
+        if (context === 'client') this.clientFormError = message;
+        else this.formError = message;
+      }
+    });
   }
 
   startClientPaymentSupport(payment: ClientPayment): void {
@@ -1994,11 +2057,11 @@ export class AuthPortalComponent implements OnInit {
       this.formError = 'Completa los datos obligatorios del caso.';
       return;
     }
-    this.http.post<any>(this.apiUrl('/api/admin/cases'), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
+    this.http.post<any>(this.apiUrl('/api/admin/cases'), this.adminCasePayload(), { headers: this.authHeaders() }).subscribe({
       next: () => {
         this.formMessage = 'Caso creado correctamente.';
         this.convertingLeadToCase = false;
-        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: 0, commission_percentage: 10 });
+        this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: null, commission_percentage: 10 });
         this.loadAdminSectionData('cases');
         this.loadAdminDashboard();
         this.loadAdminLeads();
@@ -2121,7 +2184,7 @@ export class AuthPortalComponent implements OnInit {
       next_action: 'Solicitar documentación inicial y validar alcance del caso',
       documentation_url: '',
       admin_notes: '',
-      case_amount: 0,
+      case_amount: null,
       commission_percentage: 10,
       source_referral_id: this.selectedLead.sourceKind === 'referral' ? this.selectedLead.rawId : '',
       source_lead_id: this.selectedLead.sourceKind === 'lead' ? this.selectedLead.rawId : ''
@@ -2145,7 +2208,7 @@ export class AuthPortalComponent implements OnInit {
   }
 
   deleteAdminClient(id: number): void {
-    const confirmed = confirm('Esta acción eliminará permanentemente el cliente, sus casos, mensajes y datos relacionados. ¿Deseas continuar?');
+    const confirmed = confirm('Esta acción eliminará permanentemente al cliente solo si no tiene casos ni pagos vinculados. ¿Deseas continuar?');
     if (!confirmed) return;
     this.http.delete(this.apiUrl(`/api/admin/clients/${id}/permanent`), { headers: this.authHeaders() }).subscribe({
       next: () => {
@@ -2171,7 +2234,7 @@ export class AuthPortalComponent implements OnInit {
       next_action: item.next_action,
       documentation_url: item.documentation_url || '',
       admin_notes: item.admin_notes || '',
-      case_amount: item.case_amount || 0,
+      case_amount: item.case_amount || null,
       commission_percentage: item.commission_percentage || 10,
       source_referral_id: item.source_referral_id || '',
       source_lead_id: item.source_lead_id || ''
@@ -2180,12 +2243,12 @@ export class AuthPortalComponent implements OnInit {
 
   saveAdminCase(): void {
     if (this.editingAdminCaseId) {
-      this.http.patch(this.apiUrl(`/api/admin/cases/${this.editingAdminCaseId}`), this.adminCaseForm.value, { headers: this.authHeaders() }).subscribe({
+      this.http.patch(this.apiUrl(`/api/admin/cases/${this.editingAdminCaseId}`), this.adminCasePayload(), { headers: this.authHeaders() }).subscribe({
         next: () => {
           this.formMessage = 'Caso actualizado.';
           this.editingAdminCaseId = null;
           this.convertingLeadToCase = false;
-          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: 0, commission_percentage: 10 });
+          this.adminCaseForm.reset({ status: 'Recibido', assigned_lawyer: 'Equipo Orjuela', next_action: 'Revisar documentación inicial', case_amount: null, commission_percentage: 10 });
           this.loadAdminSectionData('cases');
           this.loadAdminDashboard();
         },
@@ -2194,6 +2257,15 @@ export class AuthPortalComponent implements OnInit {
       return;
     }
     this.createAdminCase();
+  }
+
+  private adminCasePayload(): any {
+    const payload: any = { ...this.adminCaseForm.getRawValue() };
+    if (this.currentUser?.role !== 'admin') {
+      delete payload.case_amount;
+      delete payload.commission_percentage;
+    }
+    return payload;
   }
 
   archiveAdminCase(id: number): void {
@@ -2286,6 +2358,74 @@ export class AuthPortalComponent implements OnInit {
 
   archiveAdminPayment(id: number): void {
     this.http.delete(this.apiUrl(`/api/admin/payments/${id}`), { headers: this.authHeaders() }).subscribe({ next: () => this.loadAdminSectionData('payments') });
+  }
+
+  loadCaseFinance(caseIdValue: any): void {
+    const caseId = Number(caseIdValue);
+    this.selectedFinanceCaseId = caseId || null;
+    this.adminCaseFinance = null;
+    this.formError = '';
+    if (!caseId) return;
+    this.http.get<any>(this.apiUrl(`/api/admin/cases/${caseId}/finance`), { headers: this.authHeaders() }).subscribe({
+      next: (response) => this.adminCaseFinance = response,
+      error: (err) => this.formError = err?.error?.error || 'No fue posible cargar las finanzas del caso.'
+    });
+  }
+
+  saveCommissionAllocation(): void {
+    if (!this.selectedFinanceCaseId || this.commissionAllocationForm.invalid) {
+      this.commissionAllocationForm.markAllAsTouched();
+      this.formError = 'Selecciona un caso, un aliado y un porcentaje válido.';
+      return;
+    }
+    this.http.post(this.apiUrl(`/api/admin/cases/${this.selectedFinanceCaseId}/commission-allocations`),
+      this.commissionAllocationForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Beneficiario de comisión guardado.';
+        this.commissionAllocationForm.reset({ relationship_type: 'direct', percentage: 0 });
+        this.loadCaseFinance(this.selectedFinanceCaseId);
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible guardar el beneficiario.'
+    });
+  }
+
+  saveClientCasePayment(): void {
+    if (!this.selectedFinanceCaseId || this.clientCasePaymentForm.invalid) {
+      this.clientCasePaymentForm.markAllAsTouched();
+      this.formError = 'Selecciona un caso e ingresa un pago mayor a cero.';
+      return;
+    }
+    this.http.post(this.apiUrl(`/api/admin/cases/${this.selectedFinanceCaseId}/client-payments`),
+      this.clientCasePaymentForm.value, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Pago del cliente registrado y comisiones causadas.';
+        this.clientCasePaymentForm.reset({ amount: 0, status: 'Validado', payment_method: 'Transferencia' });
+        this.loadCaseFinance(this.selectedFinanceCaseId);
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible registrar el pago.'
+    });
+  }
+
+  startCommissionPayout(accrual: any): void {
+    const pending = Math.max(0, Number(accrual.commission_amount || 0) - Number(accrual.paid_amount || 0));
+    this.commissionPayoutForm.reset({ accrual_id: accrual.id, amount: pending, paid_at: '', support_url: '', payment_reference: '' });
+  }
+
+  saveCommissionPayout(): void {
+    if (this.commissionPayoutForm.invalid) {
+      this.commissionPayoutForm.markAllAsTouched();
+      this.formError = 'Monto y comprobante son obligatorios para pagar la comisión.';
+      return;
+    }
+    const { accrual_id, ...payload } = this.commissionPayoutForm.value;
+    this.http.post(this.apiUrl(`/api/admin/commission-accruals/${accrual_id}/payments`), payload, { headers: this.authHeaders() }).subscribe({
+      next: () => {
+        this.formMessage = 'Pago de comisión registrado.';
+        this.commissionPayoutForm.reset();
+        if (this.selectedFinanceCaseId) this.loadCaseFinance(this.selectedFinanceCaseId);
+      },
+      error: (err) => this.formError = err?.error?.error || 'No fue posible pagar la comisión.'
+    });
   }
 
   createAdminDocument(): void {
